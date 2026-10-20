@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="editors_type_docs">Document editor</string>
+    <string name="editors_type_cells">Spreadsheet editor</string>
+    <string name="editors_type_slides">Presentation editor</string>
+    <string name="editors_type_pdf">PDF viewer</string>
+    <string name="editors_not_implemented">This editor is not implemented yet.</string>
+    <string name="editors_server_document">Document on server</string>
+</resources>
