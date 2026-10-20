@@ -25,4 +25,19 @@
         android:layout_marginTop="16dp"
         android:text="@string/editors_not_implemented" />
 
+    <Button
+        android:id="@+id/editorConvert"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="@string/editors_convert"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/editorConvertStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center" />
+
 </LinearLayout>

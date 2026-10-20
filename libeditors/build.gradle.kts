@@ -4,6 +4,9 @@ plugins {
     kotlin("android")
 }
 
+// libx2t is only included when the app is built with the native core (-PwithNativeCore=true)
+val hasNativeCore = findProject(":libx2t") != null
+
 android {
     namespace = "lib.editors.base"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -20,10 +23,16 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    sourceSets["main"].java.srcDir(if (hasNativeCore) "src/x2t/java" else "src/x2tStub/java")
 }
 
 dependencies {
     implementation(project(":libtoolkit"))
 
     implementation(libs.ktx)
+
+    if (hasNativeCore) {
+        implementation(project(":libx2t"))
+    }
 }

@@ -6,4 +6,8 @@
     <string name="editors_type_pdf">PDF viewer</string>
     <string name="editors_not_implemented">This editor is not implemented yet.</string>
     <string name="editors_server_document">Document on server</string>
+    <string name="editors_convert">Convert to Editor.bin (x2t test)</string>
+    <string name="editors_converting">Converting…</string>
+    <string name="editors_convert_success">Converted in %1$d ms (%2$d KB)</string>
+    <string name="editors_convert_failed">Conversion failed (x2t code %1$d)</string>
 </resources>
