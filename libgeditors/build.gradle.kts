@@ -29,4 +29,6 @@ dependencies {
 
     implementation(libs.ktx)
     implementation(libs.appcompat)
+    implementation(libs.lifecycle.runtime)
+    implementation(libs.kotlin.coroutines.android)
 }
