@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="editors_icon">#DE000000</color>
+    <color name="editors_tool_selected">#333367D6</color>
+    <color name="editors_tool_pressed">#1F000000</color>
+    <!-- Around the pages; the pages themselves stay white -->
+    <color name="editors_document_background">#E8E8E8</color>
+    <color name="editors_selection">#503367D6</color>
+    <color name="editors_selection_handle">#3367D6</color>
 </resources>
