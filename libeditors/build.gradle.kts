@@ -53,6 +53,11 @@ android {
         }
     }
 
+    testOptions {
+        // android.util.Log and the like do nothing in unit tests
+        unitTests.isReturnDefaultValues = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -127,4 +132,8 @@ dependencies {
     if (hasNativeCore) {
         implementation(project(":libx2t"))
     }
+
+    testImplementation(libs.junit)
+    // Android's org.json is only a stub on the JVM
+    testImplementation("org.json:json:20260814")
 }

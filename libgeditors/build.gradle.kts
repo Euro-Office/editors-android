@@ -34,4 +34,6 @@ dependencies {
     implementation(libs.google.material)
     implementation(libs.lifecycle.runtime)
     implementation(libs.kotlin.coroutines.android)
+
+    testImplementation(libs.junit)
 }

@@ -114,7 +114,11 @@ class Dictionaries(runtimeDir: File, private val downloadDir: File) {
  * Checks words with the installed dictionaries and the user's own words. Not thread-safe: use it
  * on the engine's thread ([EditorEngine.dispatcher]).
  */
-class SpellService(private val dictionaries: Dictionaries, private val userWordsFile: File) : SpellChecker {
+class SpellService(
+    private val dictionaries: Dictionaries,
+    private val userWordsFile: File,
+    private val createSpeller: (aff: File, dic: File) -> Speller? = EditorEngine::createSpeller
+) : SpellChecker {
 
     // Loaded on first use; null for a language without a dictionary (its words count as correct)
     private val spellers = mutableMapOf<String, Speller?>()
@@ -164,7 +168,7 @@ class SpellService(private val dictionaries: Dictionaries, private val userWords
     private fun speller(lcid: Int): Speller? {
         val name = dictionaries.nameFor(lcid) ?: return null
         return spellers.getOrPut(name) {
-            dictionaries.files(name)?.let { (aff, dic) -> EditorEngine.createSpeller(aff, dic) }
+            dictionaries.files(name)?.let { (aff, dic) -> createSpeller(aff, dic) }
                 ?.also { speller -> userWords.forEach { speller.add(it) } }
         }
     }

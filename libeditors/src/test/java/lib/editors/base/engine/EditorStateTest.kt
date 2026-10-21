@@ -1,0 +1,61 @@
+package lib.editors.base.engine
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class EditorStateTest {
+
+    // The fields every state of the engine has (engine.js getState)
+    private fun state(extra: String = "") = """
+        {"cursor": {"page": 1, "x1": 10, "y1": 20, "x2": 10, "y2": 25},
+         "selection": [{"page": 0, "points": [0, 0, 5, 0, 5, 5, 0, 5]}],
+         "drawings": [], "dirtyPages": {"0": true, "2": true}, "layoutChanged": false,
+         "layoutPending": true, "currentPage": -1, "modified": true,
+         "interface": {"Bold": true, "PrAlign": 2, "CanUndo": true}, "error": null$extra}
+    """.trimIndent()
+
+    @Test
+    fun `parses cursor, selection, pages and toolbar`() {
+        val parsed = EditorState.parse(state())
+        assertEquals(Cursor(1, 10.0, 20.0, 10.0, 25.0), parsed.cursor)
+        assertEquals(1, parsed.selection.size)
+        assertEquals(setOf(0, 2), parsed.dirtyPages)
+        assertTrue(parsed.layoutPending)
+        assertTrue(parsed.modified)
+        assertTrue(parsed.toolbar.bold)
+        assertFalse(parsed.toolbar.italic)
+        assertTrue(parsed.toolbar.canUndo)
+        assertNull(parsed.error)
+        assertNull(parsed.sheet)
+    }
+
+    @Test
+    fun `parses spelling`() {
+        val parsed = EditorState.parse(state(""", "spelling": {"pending": true, "missing": [1031, 1036], "word": {"word": "wrng", "variants": ["wrong"]}}"""))
+        val spelling = parsed.spelling!!
+        assertTrue(spelling.pending)
+        assertEquals(listOf(1031, 1036), spelling.missing)
+        assertEquals(Misspelling("wrng", listOf("wrong")), spelling.word)
+    }
+
+    @Test
+    fun `variants are null while suggestions are looked up`() {
+        val parsed = EditorState.parse(state(""", "spelling": {"pending": false, "missing": [], "word": {"word": "wrng", "variants": null}}"""))
+        assertNull(parsed.spelling!!.word!!.variants)
+    }
+
+    @Test
+    fun `parses the search and links`() {
+        val parsed = EditorState.parse(state(""", "search": {"count": 3, "current": 1}, "link": {"url": "https://example.org", "anchor": ""}"""))
+        assertEquals(SearchState(3, 1, -1), parsed.search)
+        assertEquals("https://example.org", parsed.link!!.url)
+    }
+
+    @Test(expected = org.json.JSONException::class)
+    fun `fails for something that isn't a state`() {
+        EditorState.parse("undefined")
+    }
+}
