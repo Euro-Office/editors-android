@@ -16,6 +16,8 @@ val sdkjsDir = providers.gradleProperty("SDKJS_DIR")
     .getOrElse(androidEditorsDir.resolve("build/out/sdkjs").path)
 val coreFontsDir = providers.gradleProperty("CORE_FONTS_DIR")
     .getOrElse(androidEditorsDir.resolve("core-fonts").path)
+val dictionariesDir = providers.gradleProperty("DICTIONARIES_DIR")
+    .getOrElse(androidEditorsDir.resolve("build/out/dictionaries").path)
 val engineAssetsDir = layout.buildDirectory.dir("generated/engineAssets")
 
 android {
@@ -97,10 +99,17 @@ val copyEngineAssets by tasks.registering(Copy::class) {
         )
         into("bundled-fonts")
     }
+    // English, and where to download the other spell checking dictionaries from
+    from(dictionariesDir) {
+        into("dictionaries")
+    }
     into(engineAssetsDir.map { it.dir("editors/runtime") })
     doFirst {
         if (!file("$sdkjsDir/word/sdk-all.js").exists()) {
             throw GradleException("sdkjs bundles not found in $sdkjsDir (see AndroidEditors/build/README.md)")
+        }
+        if (!file("$dictionariesDir/index.json").exists()) {
+            throw GradleException("dictionaries not found in $dictionariesDir (see AndroidEditors/build/README.md)")
         }
     }
 }

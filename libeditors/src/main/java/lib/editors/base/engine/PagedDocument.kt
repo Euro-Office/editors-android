@@ -19,6 +19,29 @@ interface PagedDocument : Closeable {
     /** The text of [page] (PDF, XPS and DjVu files), or null if there is none. */
     fun pageText(page: Int): PageText? = null
 
+    /**
+     * The text of [page] in blocks with their areas, for screen readers: paragraphs, the text of
+     * shapes; lines for PDF, XPS and DjVu files.
+     */
+    fun textBlocks(page: Int): List<TextBlock> {
+        val text = pageText(page) ?: return emptyList()
+        val blocks = mutableListOf<TextBlock>()
+        var start = 0
+        for (end in 0..text.text.length) {
+            if (end < text.text.length && text.text[end] != '\n') continue
+            val line = (start until end).filter { text.right(it) > text.left(it) }
+            if (line.isNotEmpty() && text.text.substring(start, end).isNotBlank()) {
+                blocks += TextBlock(
+                    text.text.substring(start, end).trim(),
+                    line.minOf { text.left(it) }.toDouble(), line.minOf { text.top(it) }.toDouble(),
+                    line.maxOf { text.right(it) }.toDouble(), line.maxOf { text.bottom(it) }.toDouble()
+                )
+            }
+            start = end + 1
+        }
+        return blocks
+    }
+
     /** Links on [page] (PDF files): web addresses and places in the file. */
     fun links(page: Int): List<PageLink> = emptyList()
 
@@ -31,6 +54,9 @@ interface PagedDocument : Closeable {
      */
     fun saveWithChanges(path: String, markups: List<PdfMarkup>, images: List<PdfImage>, author: String): Int = -1
 }
+
+/** Text on a page and its area, in mm from the page's top left. */
+data class TextBlock(val text: String, val left: Double, val top: Double, val right: Double, val bottom: Double)
 
 /**
  * The text of a page in reading order, with spaces and line breaks between its words and lines.

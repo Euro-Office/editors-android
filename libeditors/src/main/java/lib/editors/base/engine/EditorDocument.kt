@@ -28,9 +28,13 @@ interface EditorDocument : PagedDocument {
      * Touch at page coordinates in millimeters; [clickCount] 2 selects a word. Pictures and shapes
      * are selected, moved, resized and rotated by touching them and their handles (see
      * [EditorState.drawings]); [addToSelection] adds one to the selected ones, like Ctrl+click.
+     * [extend] extends the selection to the point, like Shift+click.
      */
-    fun touch(action: TouchAction, page: Int, xMm: Double, yMm: Double, clickCount: Int = 1, addToSelection: Boolean = false): EditorState =
-        command("eoEngine.mouse(${action.value}, $page, $xMm, $yMm, $clickCount, $addToSelection)")
+    fun touch(
+        action: TouchAction, page: Int, xMm: Double, yMm: Double, clickCount: Int = 1,
+        addToSelection: Boolean = false, extend: Boolean = false
+    ): EditorState =
+        command("eoEngine.mouse(${action.value}, $page, $xMm, $yMm, $clickCount, $addToSelection, $extend)")
 
     /** Spreadsheets: touch on pictures, shapes and charts, at sheet millimeters (see [touch]). */
     fun touchDrawing(action: TouchAction, xMm: Double, yMm: Double, clickCount: Int = 1, addToSelection: Boolean = false): EditorState =
@@ -517,6 +521,51 @@ interface EditorDocument : PagedDocument {
         text.isEmpty() -> "eoEngine.clearCells(); "
         else -> "eoEngine.setCellText(${JSONObject.quote(text)}); "
     }
+
+    override fun textBlocks(page: Int): List<TextBlock> {
+        val json = org.json.JSONArray(execute("eoEngine.textBlocks($page)").ifEmpty { "[]" })
+        return (0 until json.length()).map { index ->
+            val block = json.getJSONObject(index)
+            TextBlock(block.getString("text"), block.getDouble("left"), block.getDouble("top"), block.getDouble("right"), block.getDouble("bottom"))
+        }
+    }
+
+    /** Texts sdkjs puts into documents (table of contents, headers, ...), by their English text. */
+    fun setTranslations(translations: Map<String, String>) {
+        execute("eoEngine.setTranslations(${JSONObject(translations)})")
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Spell checking (documents and presentations)
+
+    /** The languages (LCIDs) there are dictionaries for; checking starts again with them. */
+    fun setSpellLanguages(languages: List<Int>): EditorState =
+        command("eoEngine.setSpellLanguages(${org.json.JSONArray(languages)})")
+
+    /**
+     * Answers sdkjs' spelling requests with [checker], for at most [budgetMs] while more come
+     * (sdkjs checks a few paragraphs at a time). [SpellingState.pending] of the state tells
+     * whether to call this again.
+     */
+    fun checkSpelling(checker: SpellChecker, budgetMs: Int): EditorState {
+        val end = android.os.SystemClock.uptimeMillis() + budgetMs
+        do {
+            val requests = execute("eoEngine.takeSpellRequests()")
+            if (requests.isEmpty() || requests == "[]") break
+            val results = checker.answer(requests)
+            execute("try { eoEngine.spellResults(${JSONObject.quote(results)}); } catch (e) { eoEngine.reportError(e); }")
+        } while (android.os.SystemClock.uptimeMillis() < end)
+        return state()
+    }
+
+    /** Spell checking on or off (the red underlines). */
+    fun setSpellCheck(on: Boolean): EditorState = command("eoEngine.setSpellCheck($on)")
+
+    /** Replaces the misspelled word at the cursor ([SpellingState.word]) with [variant]. */
+    fun replaceMisspelled(variant: String): EditorState = command("eoEngine.replaceMisspelled(${JSONObject.quote(variant)})")
+
+    /** The misspelled word at the cursor isn't marked any more: here, or [all] in the document. */
+    fun ignoreMisspelled(all: Boolean): EditorState = command("eoEngine.ignoreMisspelled($all)")
 
     // Commands sdkjs finishes in a promise (lists, styles, loading fonts): the state is read
     // in a second script, after V8 has run the promise

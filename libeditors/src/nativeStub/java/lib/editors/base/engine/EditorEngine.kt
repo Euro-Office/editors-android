@@ -14,6 +14,10 @@ object EditorEngine {
 
     fun initialize(context: Context): Boolean = false
 
+    fun runtimeDir(context: Context): File = File(context.filesDir, "editors/runtime")
+
+    fun createSpeller(aff: File, dic: File): Speller? = null
+
     fun open(context: Context, file: File): EditorDocument? = null
 
     fun openDocument(context: Context, file: File, password: String = ""): DocumentResult = DocumentResult.Failed

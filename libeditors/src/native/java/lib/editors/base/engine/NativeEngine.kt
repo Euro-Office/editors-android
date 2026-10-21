@@ -37,6 +37,12 @@ internal object NativeEngine {
     external fun nativeRenderDrawingTile(
         handle: Long, page: Int, pageWidth: Int, pageHeight: Int, x: Int, y: Int, bitmap: android.graphics.Bitmap
     ): Boolean
+    /** Hunspell with a dictionary; 0 if it can't be read. */
+    external fun nativeCreateSpeller(affPath: String, dicPath: String): Long
+    external fun nativeDestroySpeller(handle: Long)
+    external fun nativeSpell(handle: Long, words: Array<String>): BooleanArray
+    external fun nativeSuggest(handle: Long, word: String): Array<String>
+    external fun nativeAddWord(handle: Long, word: String)
     external fun nativeRenderTile(
         handle: Long, page: Int, pageWidth: Int, pageHeight: Int, x: Int, y: Int, bitmap: android.graphics.Bitmap
     ): Boolean

@@ -34,7 +34,7 @@ object EditorEngine {
     fun initialize(context: Context): Boolean {
         if (isInitialized) return true
 
-        val runtimeDir = File(context.filesDir, RUNTIME_ASSETS)
+        val runtimeDir = runtimeDir(context)
         val version = context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime.toString()
         val marker = File(runtimeDir, "version")
         if (!marker.exists() || marker.readText() != version) {
@@ -56,6 +56,15 @@ object EditorEngine {
         Log.i(TAG, "load libraries: ${SystemClock.elapsedRealtime() - start} ms")
         isInitialized = NativeEngine.nativeInitialize(runtimeDir.absolutePath)
         return isInitialized
+    }
+
+    /** sdkjs, fonts and the bundled dictionaries, unpacked from the APK by [initialize]. */
+    fun runtimeDir(context: Context): File = File(context.filesDir, RUNTIME_ASSETS)
+
+    /** Hunspell with a dictionary; null if it can't be read. */
+    fun createSpeller(aff: File, dic: File): Speller? {
+        val handle = NativeEngine.nativeCreateSpeller(aff.absolutePath, dic.absolutePath)
+        return if (handle == 0L) null else NativeSpeller(handle)
     }
 
     /** Opens [file] (docx, odt, ...); null if it can't be opened. Call on [dispatcher]. */

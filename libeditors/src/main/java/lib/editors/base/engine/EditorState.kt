@@ -226,6 +226,15 @@ data class FormField(
 /** Documents with form fields: the one at the cursor, whether only fields take input and whether the required ones are filled. */
 data class FormsState(val current: FormField?, val filling: Boolean, val allRequiredFilled: Boolean)
 
+/**
+ * Spell checking: [pending] requests for [EditorDocument.checkSpelling], languages (LCIDs) without
+ * a dictionary, and the misspelled word at the cursor.
+ */
+data class SpellingState(val pending: Boolean, val missing: List<Int>, val word: Misspelling?)
+
+/** A misspelled word; [variants] is null while suggestions are looked up. */
+data class Misspelling(val word: String, val variants: List<String>?)
+
 /** A role of a form with roles (oform): who fills which fields. [color] as "RRGGBB". */
 data class FormRole(val name: String, val color: String, val fieldCount: Int)
 
@@ -270,7 +279,9 @@ class EditorState(
     val structure: DocumentStructure? = null,
     val chart: ChartState? = null,
     /** Documents with form fields. */
-    val forms: FormsState? = null
+    val forms: FormsState? = null,
+    /** Documents and presentations. */
+    val spelling: SpellingState? = null
 ) {
     companion object {
         /** Throws [org.json.JSONException] if [json] isn't a state (the engine failed). */
@@ -309,6 +320,17 @@ class EditorState(
                 root.optJSONObject("structure")?.let { parseStructure(it) },
                 forms = root.optJSONObject("forms")?.let {
                     FormsState(it.optJSONObject("current")?.let { field -> FormField.parse(field) }, it.optBoolean("filling"), it.optBoolean("allRequiredFilled"))
+                },
+                spelling = root.optJSONObject("spelling")?.let { json ->
+                    val missing = json.optJSONArray("missing") ?: org.json.JSONArray()
+                    SpellingState(
+                        json.optBoolean("pending"),
+                        (0 until missing.length()).map { missing.getInt(it) },
+                        json.optJSONObject("word")?.let { word ->
+                            val variants = word.optJSONArray("variants")
+                            Misspelling(word.getString("word"), variants?.let { array -> (0 until array.length()).map { array.getString(it) } })
+                        }
+                    )
                 },
                 chart = root.optJSONObject("chart")?.let {
                     ChartState(
