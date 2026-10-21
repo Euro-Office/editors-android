@@ -244,6 +244,7 @@ class DocumentView @JvmOverloads constructor(
 
     /** Shows the cursor and selection and draws changed pages again. */
     fun setEditorState(state: EditorState) {
+        val previousCursor = editorState?.cursor
         editorState = state
         for (page in state.dirtyPages) {
             if (page !in pageSizes.indices) continue
@@ -253,7 +254,8 @@ class DocumentView @JvmOverloads constructor(
         // Sharp renders of the zoomed view are replaced once the new ones are ready
         if (state.dirtyPages.isNotEmpty()) requestDetails()
         restartBlink()
-        state.cursor?.let { scrollToCursor() }
+        // Only when it moved: states also come from layout in the background, while scrolling
+        if (editListener != null && state.cursor != null && state.cursor != previousCursor) scrollToCursor()
         if (menuAfterUpdate && state.selection.isNotEmpty()) {
             showActionMenu(insertion = false)
         } else if (!insertionMenu && state.selection.isEmpty()) {

@@ -67,6 +67,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private var extension = ""
     private var modified = false
     private var saving = false
+    // A slice of the layout of later pages is queued (see EditorDocument.tick)
+    private var layingOut = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -139,8 +141,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 findViewById<View>(R.id.editorToolbar).isVisible = true
                 bindToolbar()
                 onBackPressedDispatcher.addCallback(this@BaseEditorActivity) { leave() }
-                applyState(opened.third)
             }
+            applyState(opened.third)
         }
     }
 
@@ -188,15 +190,20 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         if (cut) cut() else state()
     }
 
-    private fun edit(command: EditorDocument.() -> EditorState) {
+    private fun edit(isLayoutSlice: Boolean = false, command: EditorDocument.() -> EditorState) {
         lifecycleScope.launch {
             val result = withContext(EditorEngine.dispatcher) {
                 val document = document ?: return@withContext null
-                val state = document.command()
+                // A failed command changes nothing; editing goes on
+                val state = runCatching { document.command() }.onFailure { Log.e(TAG, "command failed", it) }.getOrNull()
+                    ?: return@withContext null
+                state.error?.let { Log.e(TAG, "sdkjs: $it") }
                 // Page count or sizes may change while editing
                 val pages = if (state.layoutChanged) (0 until document.pageCount).map { document.pageSize(it) } else null
                 state to pages
-            } ?: return@launch
+            }
+            if (isLayoutSlice) layingOut = false
+            if (result == null) return@launch
             result.second?.let { documentView.updatePages(it) }
             applyState(result.first)
         }
@@ -204,6 +211,11 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun applyState(state: EditorState) {
         documentView.setEditorState(state)
+        // The pages after the first ones are laid out in slices; input in between runs first
+        if (state.layoutPending && !layingOut) {
+            layingOut = true
+            edit(isLayoutSlice = true) { tick(LAYOUT_SLICE_MS) }
+        }
         modified = state.modified
         findViewById<ImageButton>(R.id.toolSave).imageAlpha = if (modified) 255 else 80
         val toolbar = state.toolbar
@@ -388,6 +400,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private companion object {
         const val TAG = "EditorViewer"
+        const val LAYOUT_SLICE_MS = 30
         const val UNSUPPORTED_FORMAT = -1
         const val WRITE_ERROR = -2
     }
