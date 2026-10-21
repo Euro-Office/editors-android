@@ -33,10 +33,14 @@ data class ToolbarState(
 class EditorState(
     val cursor: Cursor?,
     val selection: List<SelectionArea>,
+    /** Selected pictures and shapes: their frames. */
+    val drawings: List<SelectionArea>,
     val dirtyPages: Set<Int>,
     val layoutChanged: Boolean,
     /** Pages are still to be laid out: call [EditorDocument.tick] until this is false. */
     val layoutPending: Boolean,
+    /** Presentations: the current slide (-1 for documents). */
+    val currentPage: Int,
     /** Changed since opening or the last save. */
     val modified: Boolean,
     val toolbar: ToolbarState,
@@ -50,11 +54,13 @@ class EditorState(
             val cursor = root.optJSONObject("cursor")?.let {
                 Cursor(it.getInt("page"), it.getDouble("x1"), it.getDouble("y1"), it.getDouble("x2"), it.getDouble("y2"))
             }
-            val selectionJson = root.getJSONArray("selection")
-            val selection = (0 until selectionJson.length()).map { index ->
-                val area = selectionJson.getJSONObject(index)
-                val points = area.getJSONArray("points")
-                SelectionArea(area.getInt("page"), DoubleArray(points.length()) { points.getDouble(it) })
+            fun areas(name: String): List<SelectionArea> {
+                val json = root.getJSONArray(name)
+                return (0 until json.length()).map { index ->
+                    val area = json.getJSONObject(index)
+                    val points = area.getJSONArray("points")
+                    SelectionArea(area.getInt("page"), DoubleArray(points.length()) { points.getDouble(it) })
+                }
             }
             val dirtyPages = root.getJSONObject("dirtyPages").keys().asSequence().map { it.toInt() }.toSet()
             val ui = root.getJSONObject("interface")
@@ -67,8 +73,8 @@ class EditorState(
                 canRedo = ui.optBoolean("CanRedo")
             )
             return EditorState(
-                cursor, selection, dirtyPages, root.getBoolean("layoutChanged"), root.getBoolean("layoutPending"),
-                root.getBoolean("modified"), toolbar, root.optString("error").takeIf { it.isNotEmpty() && it != "null" }
+                cursor, areas("selection"), areas("drawings"), dirtyPages, root.getBoolean("layoutChanged"),
+                root.getBoolean("layoutPending"), root.getInt("currentPage"), root.getBoolean("modified"), toolbar, root.optString("error").takeIf { it.isNotEmpty() && it != "null" }
             )
         }
     }

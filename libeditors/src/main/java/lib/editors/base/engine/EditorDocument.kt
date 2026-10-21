@@ -85,6 +85,12 @@ interface EditorDocument : Closeable {
      */
     fun tick(budgetMs: Int): EditorState = command("eoEngine.tick($budgetMs)")
 
+    /** Presentations: adds a slide after the current one, with its layout, and goes to it. */
+    fun addSlide(): EditorState = command("eoEngine.addSlide()")
+
+    /** Presentations: deletes the current slide. */
+    fun deleteSlide(): EditorState = command("eoEngine.deleteSlide()")
+
     fun undo(): EditorState = command("eoEngine.undo()")
 
     fun redo(): EditorState = command("eoEngine.redo()")
@@ -97,6 +103,10 @@ interface EditorDocument : Closeable {
 data class ClipboardContent(val text: String, val internal: String)
 
 /** Formats documents can be saved in, by extension; others (doc, ...) can only be opened. */
-val WRITABLE_FORMATS = setOf("docx", "docm", "dotx", "dotm", "odt", "ott", "rtf", "txt", "html", "epub", "fb2", "pdf")
+val WRITABLE_FORMATS = setOf(
+    "docx", "docm", "dotx", "dotm", "odt", "ott", "rtf", "txt", "html", "epub", "fb2",
+    "pptx", "pptm", "ppsx", "ppsm", "potx", "potm", "odp", "otp",
+    "pdf"
+)
 
 enum class TouchAction(val value: Int) { DOWN(0), MOVE(1), UP(2) }
