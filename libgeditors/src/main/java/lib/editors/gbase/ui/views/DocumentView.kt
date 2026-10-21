@@ -16,10 +16,12 @@ import android.util.LruCache
 import android.view.ActionMode
 import android.view.GestureDetector
 import android.view.HapticFeedbackConstants
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.Menu
 import android.view.MenuItem
 import android.view.MotionEvent
+import android.view.PointerIcon
 import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
@@ -27,12 +29,17 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.OverScroller
+import android.view.accessibility.AccessibilityManager
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
+import androidx.customview.widget.ExploreByTouchHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.PageSize
+import lib.editors.base.engine.TextBlock
 import lib.editors.base.engine.TouchAction
 import lib.editors.resources.R as Resources
 import kotlin.math.hypot
@@ -50,6 +57,11 @@ import kotlin.math.roundToInt
  *
  * Text is selected by a long press (then drag), a double tap or the selection handles; a
  * floating menu offers cut, copy, paste and select all.
+ *
+ * Screen readers read the text of the visible pages by blocks (paragraphs, see [textBlocks]).
+ *
+ * A mouse or touchpad works as on a desktop: pressing and dragging selects text and moves
+ * pictures and shapes, the right button opens the menu, the wheel scrolls (and zooms with Ctrl).
  */
 class DocumentView @JvmOverloads constructor(
     context: Context,
@@ -63,8 +75,11 @@ class DocumentView @JvmOverloads constructor(
 
     /** Input for the document, in page coordinates (millimeters) and web key codes. */
     interface EditListener {
-        /** [addToSelection]: adds a picture or shape to the selected ones (see EditorDocument.touch). */
-        fun onTouch(action: TouchAction, page: Int, xMm: Double, yMm: Double, clickCount: Int, addToSelection: Boolean = false)
+        /**
+         * [addToSelection]: adds a picture or shape to the selected ones; [extend]: extends the
+         * selection to the point (see EditorDocument.touch).
+         */
+        fun onTouch(action: TouchAction, page: Int, xMm: Double, yMm: Double, clickCount: Int, addToSelection: Boolean = false, extend: Boolean = false)
         fun onKey(keyCode: Int, shift: Boolean, ctrl: Boolean)
         fun onCommitText(text: String)
         fun onComposingText(text: String)
@@ -105,6 +120,30 @@ class DocumentView @JvmOverloads constructor(
     /** More actions in the menu of a selection (label and action), such as marking text up. */
     var selectionActions: List<Pair<String, () -> Unit>> = emptyList()
 
+    /**
+     * Actions for the misspelled word at the cursor (suggestions, ignore, ...), first in the menu.
+     * Set before [setEditorState]: a tap on such a word opens the menu.
+     */
+    var spellingActions: List<Pair<String, () -> Unit>> = emptyList()
+        set(value) {
+            if (value.map { it.first } == field.map { it.first }) {
+                field = value
+                return
+            }
+            field = value
+            actionMode?.invalidate()
+        }
+
+    /** Screen readers: the text of a page in blocks (see PagedDocument.textBlocks). */
+    var textBlocks: (suspend (page: Int) -> List<TextBlock>)? = null
+        set(value) {
+            field = value
+            ViewCompat.setAccessibilityDelegate(this, if (value != null) accessibility else null)
+        }
+    private val accessibility = DocumentAccessibility()
+    private val blocks = mutableMapOf<Int, List<TextBlock>>()
+    private val blockJobs = mutableMapOf<Int, Job>()
+
     /** Called when another page comes into the middle of the view (scrolling, zooming). */
     var onVisiblePageChanged: ((Int) -> Unit)? = null
     private var lastVisiblePage = -1
@@ -142,6 +181,18 @@ class DocumentView @JvmOverloads constructor(
     private val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
     private val toScreen = DrawingHandles.ToScreen { page, xMm, yMm -> android.graphics.PointF(screenX(page, xMm), screenY(page, yMm)) }
     private var lastMoveTime = 0L
+
+    // Mouse: a button is down; where and when the last click was, and how many in a row
+    private var mouseDown = false
+    private var mouseDragging = false
+    private var mouseDownX = 0f
+    private var mouseDownY = 0f
+    private var mouseDownPoint: PagePoint? = null
+    private var lastClickTime = 0L
+    private var clickCount = 0
+    // The last press came from a mouse: no selection handles, which are for fingers
+    private var usingMouse = false
+    private val detailsAfterWheel = Runnable { requestDetails() }
 
     // Dragging a selection handle: the other end stays, the dragged end follows the finger
     private var fixedHandle: Handle? = null
@@ -286,7 +337,9 @@ class DocumentView @JvmOverloads constructor(
             if (page !in pageSizes.indices) continue
             pageVersions[page] = (pageVersions[page] ?: 0) + 1
             stalePages.add(page)
+            blocks.remove(page)
         }
+        if (state.dirtyPages.isNotEmpty()) invalidateAccessibility()
         // Sharp renders of the zoomed view are replaced once the new ones are ready
         if (state.dirtyPages.isNotEmpty()) requestDetails()
         restartBlink()
@@ -305,6 +358,8 @@ class DocumentView @JvmOverloads constructor(
         }
         if (menuAfterUpdate && (state.selection.isNotEmpty() || hasDrawings)) {
             showActionMenu(insertion = false)
+        } else if (menuAfterUpdate && spellingActions.isNotEmpty() && !readOnly) {
+            showActionMenu(insertion = true)
         } else if (!insertionMenu && state.selection.isEmpty() && !hasDrawings) {
             hideActionMenu()
         }
@@ -462,6 +517,11 @@ class DocumentView @JvmOverloads constructor(
     // Touch
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && usingMouse != isMouse(event)) {
+            usingMouse = isMouse(event)
+            invalidate()
+        }
+        if (usingMouse) return handleMouse(event)
         if (handleDrawingTouch(event)) return true
         if (event.actionMasked == MotionEvent.ACTION_DOWN && startHandleDrag(event)) return true
         if (fixedHandle != null) {
@@ -495,6 +555,144 @@ class DocumentView @JvmOverloads constructor(
                 menuAfterUpdate = true
             }
         }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Mouse and touchpad
+
+    // Editing: the presses go to the document as they are. Viewing: dragging selects from the
+    // pressed point, a double click a word, a click clears the selection or follows a link.
+    private fun handleMouse(event: MotionEvent): Boolean {
+        val listener = editListener ?: return gestureDetector.onTouchEvent(event)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                scroller.forceFinished(true)
+                val point = toPage(event.x, event.y) ?: return true
+                if (event.isButtonPressed(MotionEvent.BUTTON_SECONDARY)) {
+                    showContextMenu(listener, point)
+                    return true
+                }
+                if (event.buttonState != 0 && !event.isButtonPressed(MotionEvent.BUTTON_PRIMARY)) return true
+                hideActionMenu()
+                val near = hypot(event.x - mouseDownX, event.y - mouseDownY) < touchSlop
+                clickCount = if (near && event.eventTime - lastClickTime < DOUBLE_CLICK_MS) clickCount % 3 + 1 else 1
+                lastClickTime = event.eventTime
+                mouseDownX = event.x
+                mouseDownY = event.y
+                mouseDownPoint = point
+                mouseDown = true
+                mouseDragging = false
+                if (readOnly) {
+                    requestFocus()
+                    if (clickCount > 1) listener.onTouch(TouchAction.DOWN, point.page, point.xMm, point.yMm, 2)
+                } else {
+                    listener.onTouch(TouchAction.DOWN, point.page, point.xMm, point.yMm, clickCount, event.isCtrlDown, event.isShiftDown)
+                    showKeyboard()
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!mouseDown) return true
+                if (!mouseDragging && hypot(event.x - mouseDownX, event.y - mouseDownY) < touchSlop) return true
+                mouseDragging = true
+                scrollAtEdges(event)
+                val now = SystemClock.uptimeMillis()
+                if (now - lastMoveTime < MOVE_INTERVAL_MS) return true
+                lastMoveTime = now
+                val point = toPage(event.x, event.y) ?: return true
+                val start = mouseDownPoint
+                if (!readOnly) {
+                    listener.onTouch(TouchAction.MOVE, point.page, point.xMm, point.yMm, clickCount, event.isCtrlDown, event.isShiftDown)
+                } else if (clickCount > 1) {
+                    listener.onTouch(TouchAction.MOVE, point.page, point.xMm, point.yMm, 2)
+                } else if (start != null) {
+                    listener.onSelect(start.page, start.xMm, start.yMm, point.page, point.xMm, point.yMm)
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (!mouseDown) return true
+                mouseDown = false
+                val point = toPage(event.x, event.y) ?: return true
+                if (!readOnly) {
+                    listener.onTouch(TouchAction.UP, point.page, point.xMm, point.yMm, clickCount, event.isCtrlDown, event.isShiftDown)
+                    context.getSystemService(InputMethodManager::class.java)?.restartInput(this)
+                } else if (clickCount > 1) {
+                    listener.onTouch(TouchAction.UP, point.page, point.xMm, point.yMm, 2)
+                } else if (!mouseDragging) {
+                    listener.onTouch(TouchAction.DOWN, point.page, point.xMm, point.yMm, 1)
+                    listener.onTouch(TouchAction.UP, point.page, point.xMm, point.yMm, 1)
+                }
+                requestDetails()
+            }
+        }
+        return true
+    }
+
+    // The right button: the menu for the selection, or at the point clicked outside of it
+    private fun showContextMenu(listener: EditListener, point: PagePoint) {
+        val inSelection = editorState?.selection.orEmpty().any { area ->
+            val xs = area.points.filterIndexed { i, _ -> i % 2 == 0 }
+            val ys = area.points.filterIndexed { i, _ -> i % 2 == 1 }
+            area.page == point.page && point.xMm in xs.min()..xs.max() && point.yMm in ys.min()..ys.max()
+        }
+        if (inSelection || visibleDrawings().isNotEmpty()) {
+            showActionMenu(insertion = false)
+        } else if (!readOnly) {
+            listener.onTouch(TouchAction.DOWN, point.page, point.xMm, point.yMm, 1)
+            listener.onTouch(TouchAction.UP, point.page, point.xMm, point.yMm, 1)
+            showKeyboard()
+            showActionMenu(insertion = true)
+        }
+    }
+
+    // Dragging a selection past the top or bottom scrolls on
+    private fun scrollAtEdges(event: MotionEvent) {
+        val edge = 32 * density
+        val dy = when {
+            event.y > height - edge -> 16 * density
+            event.y < edge -> -16 * density
+            else -> 0f
+        }
+        if (dy != 0f) scrollTo(scrollPosX, scrollPosY + dy)
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked != MotionEvent.ACTION_SCROLL || !event.isFromSource(InputDevice.SOURCE_CLASS_POINTER)) {
+            return super.onGenericMotionEvent(event)
+        }
+        val vertical = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+        val horizontal = event.getAxisValue(MotionEvent.AXIS_HSCROLL)
+        if (event.isCtrlDown) {
+            zoomTo(zoom * (1f + WHEEL_ZOOM_STEP * vertical), event.x, event.y)
+        } else {
+            val step = android.view.ViewConfiguration.get(context).scaledVerticalScrollFactor
+            if (event.isShiftDown) {
+                scrollTo(scrollPosX - vertical * step, scrollPosY)
+            } else {
+                scrollTo(scrollPosX + horizontal * step, scrollPosY - vertical * step)
+            }
+        }
+        actionMode?.hide(ActionMode.DEFAULT_HIDE_DURATION.toLong())
+        removeCallbacks(detailsAfterWheel)
+        postDelayed(detailsAfterWheel, WHEEL_DETAILS_DELAY_MS)
+        return true
+    }
+
+    // Text cursor over pages, crosshair over the handles of pictures and shapes, move over their frame
+    override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon? {
+        val point = toPage(event.getX(pointerIndex), event.getY(pointerIndex))
+        if (editListener == null || point == null || point.xMm < 0 || point.yMm < 0 ||
+            point.xMm > pageSizes[point.page].widthMm || point.yMm > pageSizes[point.page].heightMm
+        ) {
+            return super.onResolvePointerIcon(event, pointerIndex)
+        }
+        val grab = visibleDrawings().takeIf { !readOnly && it.isNotEmpty() }
+            ?.let { drawingHandles.hitTest(it, event.getX(pointerIndex), event.getY(pointerIndex), toScreen) }
+        val type = when {
+            grab == null -> PointerIcon.TYPE_TEXT
+            grab.immediate -> PointerIcon.TYPE_CROSSHAIR
+            else -> PointerIcon.TYPE_ALL_SCROLL
+        }
+        return PointerIcon.getSystemIcon(context, type)
     }
 
     // ---------------------------------------------------------------------------------
@@ -568,7 +766,7 @@ class DocumentView @JvmOverloads constructor(
     /** Handles at the start and end of the selection, or null without a selection. */
     private fun selectionHandles(): Pair<Handle, Handle>? {
         val areas = editorState?.selection?.filter { it.page in pageSizes.indices }
-        if (editListener == null || areas.isNullOrEmpty()) return null
+        if (editListener == null || usingMouse || areas.isNullOrEmpty()) return null
         // Areas are in document order; corners clockwise from the top left
         val first = areas.first().points
         val last = areas.last().points
@@ -632,16 +830,24 @@ class DocumentView @JvmOverloads constructor(
 
     private val actionModeCallback = object : ActionMode.Callback2() {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
-            menu.add(Menu.NONE, android.R.id.cut, 0, android.R.string.cut)
-            menu.add(Menu.NONE, android.R.id.copy, 1, android.R.string.copy)
-            menu.add(Menu.NONE, android.R.id.paste, 2, android.R.string.paste)
-            menu.add(Menu.NONE, android.R.id.selectAll, 3, android.R.string.selectAll)
-            menu.add(Menu.NONE, MENU_DELETE, 4, Resources.string.editors_delete)
-            selectionActions.forEachIndexed { index, (label, _) -> menu.add(Menu.NONE, MENU_EXTRA + index, 5 + index, label) }
+            // After the spelling actions
+            val first = MAX_SPELLING_ACTIONS
+            menu.add(Menu.NONE, android.R.id.cut, first, android.R.string.cut)
+            menu.add(Menu.NONE, android.R.id.copy, first + 1, android.R.string.copy)
+            menu.add(Menu.NONE, android.R.id.paste, first + 2, android.R.string.paste)
+            menu.add(Menu.NONE, android.R.id.selectAll, first + 3, android.R.string.selectAll)
+            menu.add(Menu.NONE, MENU_DELETE, first + 4, Resources.string.editors_delete)
+            selectionActions.forEachIndexed { index, (label, _) -> menu.add(Menu.NONE, MENU_EXTRA + index, first + 5 + index, label) }
             return true
         }
 
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+            for (index in 0 until MAX_SPELLING_ACTIONS) menu.removeItem(MENU_SPELLING + index)
+            if (!readOnly && visibleDrawings().isEmpty()) {
+                spellingActions.take(MAX_SPELLING_ACTIONS).forEachIndexed { index, (label, _) ->
+                    menu.add(Menu.NONE, MENU_SPELLING + index, index, label)
+                }
+            }
             val hasDrawings = !insertionMenu && visibleDrawings().isNotEmpty()
             val hasSelection = !insertionMenu && (editorState?.selection?.isNotEmpty() == true || hasDrawings)
             val canPaste = context.getSystemService(ClipboardManager::class.java)?.hasPrimaryClip() == true
@@ -666,6 +872,7 @@ class DocumentView @JvmOverloads constructor(
                 }
                 MENU_DELETE -> listener.onKey(KEY_DELETE, false, false)
                 in MENU_EXTRA until MENU_EXTRA + selectionActions.size -> selectionActions[item.itemId - MENU_EXTRA].second()
+                in MENU_SPELLING until MENU_SPELLING + spellingActions.size -> spellingActions[item.itemId - MENU_SPELLING].second()
                 else -> return false
             }
             mode.finish()
@@ -719,6 +926,7 @@ class DocumentView @JvmOverloads constructor(
     private fun scrollTo(x: Float, y: Float) {
         scrollPosX = x.coerceIn(0f, maxScrollX())
         scrollPosY = y.coerceIn(0f, maxScrollY())
+        invalidateAccessibility()
         val page = visiblePage()
         if (page != lastVisiblePage) {
             lastVisiblePage = page
@@ -754,8 +962,37 @@ class DocumentView @JvmOverloads constructor(
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        val listener = editListener?.takeIf { !readOnly } ?: return super.onKeyDown(keyCode, event)
-        return sendKey(listener, event) || super.onKeyDown(keyCode, event)
+        if (readOnly || editListener == null) return viewingKey(event) || super.onKeyDown(keyCode, event)
+        return sendKey(editListener!!, event) || super.onKeyDown(keyCode, event)
+    }
+
+    // Viewing: copying the selection, and keys that scroll
+    private fun viewingKey(event: KeyEvent): Boolean {
+        val listener = editListener
+        if (event.isCtrlPressed && listener != null) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_C -> listener.onCopy()
+                KeyEvent.KEYCODE_A -> listener.onSelectAll()
+                else -> return false
+            }
+            return true
+        }
+        val line = 48 * density
+        val page = height - 2 * line
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_UP -> scrollTo(scrollPosX, scrollPosY - line)
+            KeyEvent.KEYCODE_DPAD_DOWN -> scrollTo(scrollPosX, scrollPosY + line)
+            KeyEvent.KEYCODE_DPAD_LEFT -> scrollTo(scrollPosX - line, scrollPosY)
+            KeyEvent.KEYCODE_DPAD_RIGHT -> scrollTo(scrollPosX + line, scrollPosY)
+            KeyEvent.KEYCODE_PAGE_UP -> scrollTo(scrollPosX, scrollPosY - page)
+            KeyEvent.KEYCODE_PAGE_DOWN, KeyEvent.KEYCODE_SPACE -> scrollTo(scrollPosX, scrollPosY + if (event.isShiftPressed) -page else page)
+            KeyEvent.KEYCODE_MOVE_HOME -> scrollTo(scrollPosX, 0f)
+            KeyEvent.KEYCODE_MOVE_END -> scrollTo(scrollPosX, maxScrollY())
+            else -> return false
+        }
+        removeCallbacks(detailsAfterWheel)
+        postDelayed(detailsAfterWheel, WHEEL_DETAILS_DELAY_MS)
+        return true
     }
 
     private fun sendKey(listener: EditListener, event: KeyEvent): Boolean {
@@ -817,6 +1054,118 @@ class DocumentView @JvmOverloads constructor(
 
         override fun performEditorAction(actionCode: Int): Boolean {
             editListener?.onKey(KEY_ENTER, false, false)
+            return true
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Screen readers: the blocks of text on the visible pages are virtual views; a double tap on
+    // one places the cursor there, scrolling goes by screens and tells the page
+
+    private val accessibilityManager = context.getSystemService(AccessibilityManager::class.java)
+
+    private fun invalidateAccessibility() {
+        if (textBlocks != null && accessibilityManager?.isEnabled == true) {
+            removeCallbacks(invalidateAccessibilityRoot)
+            postDelayed(invalidateAccessibilityRoot, ACCESSIBILITY_DELAY_MS)
+        }
+    }
+
+    private val invalidateAccessibilityRoot = Runnable { accessibility.invalidateRoot() }
+
+    override fun dispatchHoverEvent(event: MotionEvent): Boolean =
+        (textBlocks != null && accessibility.dispatchHoverEvent(event)) || super.dispatchHoverEvent(event)
+
+    // The blocks of a page, or null while they are loaded
+    private fun blocksOf(page: Int): List<TextBlock>? {
+        blocks[page]?.let { return it }
+        val load = textBlocks ?: return null
+        if (blockJobs[page]?.isActive != true) {
+            blockJobs[page] = scope?.launch {
+                blocks[page] = runCatching { load(page) }.getOrDefault(emptyList())
+                accessibility.invalidateRoot()
+            } ?: return null
+        }
+        return null
+    }
+
+    private fun blockRect(page: Int, block: TextBlock) = RectF(
+        screenX(page, block.left), screenY(page, block.top), screenX(page, block.right), screenY(page, block.bottom)
+    )
+
+    private fun visiblePages(): List<Int> = pageSizes.indices.filter { page ->
+        page < pageTops.size && pageTop(page) < height && pageTop(page) + pageHeights[page] * zoom > 0
+    }
+
+    override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        if (pageSizes.isEmpty()) return
+        info.contentDescription = context.getString(Resources.string.editors_pages_page_of, visiblePage() + 1, pageSizes.size)
+        info.isScrollable = true
+        info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD)
+        info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD)
+    }
+
+    override fun performAccessibilityAction(action: Int, arguments: android.os.Bundle?): Boolean {
+        val step = height - 96 * density
+        val dy = when (action) {
+            android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD -> step
+            android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD -> -step
+            else -> return super.performAccessibilityAction(action, arguments)
+        }
+        val before = scrollPosY
+        scrollTo(scrollPosX, scrollPosY + dy)
+        requestDetails()
+        if (scrollPosY == before) return false
+        announceForAccessibility(context.getString(Resources.string.editors_pages_page_of, visiblePage() + 1, pageSizes.size))
+        return true
+    }
+
+    private inner class DocumentAccessibility : ExploreByTouchHelper(this@DocumentView) {
+
+        override fun getVirtualViewAt(x: Float, y: Float): Int {
+            for (page in visiblePages()) {
+                val index = blocksOf(page)?.indexOfFirst { blockRect(page, it).contains(x, y) } ?: -1
+                if (index >= 0) return page * MAX_BLOCKS + index
+            }
+            return INVALID_ID
+        }
+
+        override fun getVisibleVirtualViews(ids: MutableList<Int>) {
+            val screen = RectF(0f, 0f, width.toFloat(), height.toFloat())
+            for (page in visiblePages()) {
+                blocksOf(page)?.forEachIndexed { index, block ->
+                    if (index < MAX_BLOCKS && RectF.intersects(blockRect(page, block), screen)) ids += page * MAX_BLOCKS + index
+                }
+            }
+        }
+
+        override fun onPopulateNodeForVirtualView(id: Int, node: AccessibilityNodeInfoCompat) {
+            val page = id / MAX_BLOCKS
+            val block = blocks[page]?.getOrNull(id % MAX_BLOCKS)
+            if (block == null) {
+                // Gone since: an empty node
+                node.text = ""
+                node.setBoundsInParent(Rect(0, 0, 1, 1))
+                return
+            }
+            node.text = block.text
+            val bounds = Rect()
+            blockRect(page, block).apply { intersect(0f, 0f, width.toFloat(), height.toFloat()) }.roundOut(bounds)
+            if (bounds.isEmpty) bounds.set(0, 0, 1, 1)
+            node.setBoundsInParent(bounds)
+            if (editListener != null && !readOnly) node.addAction(AccessibilityNodeInfoCompat.ACTION_CLICK)
+        }
+
+        override fun onPerformActionForVirtualView(id: Int, action: Int, arguments: android.os.Bundle?): Boolean {
+            if (action != AccessibilityNodeInfoCompat.ACTION_CLICK || editListener == null || readOnly) return false
+            val page = id / MAX_BLOCKS
+            val block = blocks[page]?.getOrNull(id % MAX_BLOCKS) ?: return false
+            // The cursor at the start of the block
+            val listener = editListener ?: return false
+            listener.onTouch(TouchAction.DOWN, page, block.left + 0.5, (block.top + block.bottom) / 2, 1)
+            listener.onTouch(TouchAction.UP, page, block.left + 0.5, (block.top + block.bottom) / 2, 1)
+            showKeyboard()
             return true
         }
     }
@@ -967,9 +1316,18 @@ class DocumentView @JvmOverloads constructor(
     private companion object {
         const val BLINK_MS = 500L
         const val MOVE_INTERVAL_MS = 40L
+        const val ACCESSIBILITY_DELAY_MS = 200L
+        // Virtual view ids of text blocks: page * MAX_BLOCKS + index
+        const val MAX_BLOCKS = 10_000
+        const val DOUBLE_CLICK_MS = 400L
+        const val WHEEL_ZOOM_STEP = 0.1f
+        const val WHEEL_DETAILS_DELAY_MS = 150L
         const val MENU_DELETE = 1
         // The first of selectionActions
         const val MENU_EXTRA = 100
+        // The first of spellingActions
+        const val MENU_SPELLING = 200
+        const val MAX_SPELLING_ACTIONS = 8
         val CLIPBOARD_KEYS = setOf(KeyEvent.KEYCODE_X, KeyEvent.KEYCODE_C, KeyEvent.KEYCODE_V, KeyEvent.KEYCODE_A)
 
         const val KEY_BACKSPACE = 8

@@ -51,13 +51,14 @@ internal class DocumentUi(
     val bar: LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(12), 0, dp(4), 0)
+        setPaddingRelative(dp(12), 0, dp(4), 0)
         minimumHeight = dp(48)
         val background = android.util.TypedValue()
         context.theme.resolveAttribute(android.R.attr.colorBackground, background, true)
         setBackgroundColor(background.data)
         elevation = 2 * density
         isVisible = false
+        Accessibility.pane(this, context.getString(Resources.string.editors_doc_document))
     }
 
     fun update(state: EditorState) {
@@ -82,7 +83,7 @@ internal class DocumentUi(
                 barText(changeDescription(change.type, change.user, change.date))
                 barButton(context.getString(Resources.string.editors_doc_accept)) { edit { reviewAction("accept") } }
                 barButton(context.getString(Resources.string.editors_doc_reject)) { edit { reviewAction("reject") } }
-                barButton("›") { edit { reviewAction("next") } }
+                barButton("›", description = context.getString(Resources.string.editors_doc_next_change)) { edit { reviewAction("next") } }
             }
         }
         bar.isVisible = bar.childCount > 0
@@ -202,7 +203,7 @@ internal class DocumentUi(
     private fun showPageSetup() = read({ pageSetup() }) { setup ->
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(8), dp(24), 0)
+            setPaddingRelative(dp(24), dp(8), dp(24), 0)
         }
         val orientation = choices(
             content, Resources.string.editors_doc_orientation,
@@ -255,7 +256,7 @@ internal class DocumentUi(
         AlertDialog.Builder(context)
             .setTitle(Resources.string.editors_doc_go_to_page)
             .setView(LinearLayout(context).apply {
-                setPadding(dp(24), dp(8), dp(24), 0)
+                setPaddingRelative(dp(24), dp(8), dp(24), 0)
                 addView(input, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             })
             .setPositiveButton(android.R.string.ok) { _, _ ->
@@ -315,13 +316,14 @@ internal class DocumentUi(
         })
     }
 
-    private fun barButton(text: String, selected: Boolean = false, onClick: () -> Unit) {
+    private fun barButton(text: String, selected: Boolean = false, description: String? = null, onClick: () -> Unit) {
         bar.addView(TextView(context).apply {
             this.text = text
+            contentDescription = description
             gravity = Gravity.CENTER
-            minWidth = dp(44)
-            minHeight = dp(44)
-            setPadding(dp(10), 0, dp(10), 0)
+            minWidth = dp(48)
+            minHeight = dp(48)
+            setPaddingRelative(dp(10), 0, dp(10), 0)
             setTextColor(context.getColor(Resources.color.editors_selection_handle))
             setBackgroundResource(R.drawable.editor_tool_background)
             isSelected = selected
@@ -332,7 +334,7 @@ internal class DocumentUi(
     private fun labeled(label: Int, view: View) = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
-        setPadding(dp(16), dp(8), dp(16), 0)
+        setPaddingRelative(dp(16), dp(8), dp(16), 0)
         addView(TextView(context).apply { setText(label) })
         addView(view)
     }
@@ -341,7 +343,7 @@ internal class DocumentUi(
     private fun choices(parent: LinearLayout, title: Int, labels: List<String>, selected: Int): () -> Int {
         parent.addView(TextView(context).apply {
             setText(title)
-            setPadding(0, dp(12), 0, dp(4))
+            setPaddingRelative(0, dp(12), 0, dp(4))
         })
         val group = RadioGroup(context).apply { orientation = RadioGroup.HORIZONTAL }
         labels.forEachIndexed { index, label ->

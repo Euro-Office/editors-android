@@ -18,6 +18,7 @@ import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.RadioButton
 import android.widget.RadioGroup
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import kotlinx.coroutines.CoroutineScope
@@ -30,8 +31,9 @@ import lib.editors.base.engine.SlideInfo
 import lib.editors.resources.R as Resources
 
 /**
- * Presentations: a strip of slide thumbnails above the toolbar (a tap shows the slide, a long
- * press its menu: duplicate, move, hide, layout, transition, notes, delete) and the slideshow.
+ * Presentations: a strip of slide thumbnails above the toolbar, or beside the slides on large
+ * screens ([vertical]); a tap shows the slide, a long press its menu: duplicate, move, hide,
+ * layout, transition, notes, delete. And the slideshow.
  */
 internal class SlidesUi(
     private val context: Context,
@@ -42,26 +44,30 @@ internal class SlidesUi(
     private val render: suspend (page: Int, width: Int, height: Int) -> Bitmap?,
     private val slideAspect: () -> Float,
     /** Whether slides can be changed (the menu); viewing shows only the slides. */
-    var editable: Boolean
+    var editable: Boolean,
+    /** Thumbnails below each other (beside the slides) instead of next to each other. */
+    private val vertical: Boolean = false
 ) {
 
     private val density = context.resources.displayMetrics.density
-    private val thumbnailWidth = dp(96)
+    private val thumbnailWidth = dp(if (vertical) 144 else 96)
     private var slides: List<SlideInfo> = emptyList()
     private var currentSlide = 0
     private val thumbnails = LinearLayout(context).apply {
-        orientation = LinearLayout.HORIZONTAL
-        setPadding(dp(4), dp(4), dp(4), dp(4))
+        orientation = if (vertical) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+        setPaddingRelative(dp(4), dp(4), dp(4), dp(4))
     }
 
-    /** The strip; above the toolbar. */
-    val strip: View = HorizontalScrollView(context).apply {
+    /** The strip; above the toolbar, or beside the slides when [vertical]. */
+    val strip: ViewGroup = (if (vertical) ScrollView(context) else HorizontalScrollView(context)).apply {
         val background = android.util.TypedValue()
         context.theme.resolveAttribute(android.R.attr.colorBackground, background, true)
         setBackgroundColor(background.data)
         elevation = 2 * density
         isHorizontalScrollBarEnabled = false
+        isVerticalScrollBarEnabled = false
         addView(thumbnails)
+        Accessibility.pane(this, context.getString(Resources.string.editors_slides))
     }
 
     /** After a command: the current slide, and thumbnails of changed slides. */
@@ -104,16 +110,16 @@ internal class SlidesUi(
 
     private fun thumbnailView(index: Int) = FrameLayout(context).apply {
         layoutParams = LinearLayout.LayoutParams(thumbnailWidth + dp(6), (thumbnailWidth / slideAspect()).toInt() + dp(6)).apply {
-            marginEnd = dp(4)
+            if (vertical) bottomMargin = dp(4) else marginEnd = dp(4)
         }
-        setPadding(dp(3), dp(3), dp(3), dp(3))
+        setPaddingRelative(dp(3), dp(3), dp(3), dp(3))
         addView(ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_XY })
         addView(TextView(context).apply {
             text = (index + 1).toString()
             textSize = 10f
             setTextColor(Color.WHITE)
             setBackgroundColor(0x88000000.toInt())
-            setPadding(dp(3), 0, dp(3), 0)
+            setPaddingRelative(dp(3), 0, dp(3), 0)
         }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START))
         contentDescription = context.getString(Resources.string.editors_slides_slide, index + 1)
         setOnClickListener { edit { gotoSlide(index) } }
@@ -127,12 +133,13 @@ internal class SlidesUi(
 
     private fun highlight() {
         for (i in 0 until thumbnails.childCount) {
+            thumbnails.getChildAt(i).isSelected = i == currentSlide
             thumbnails.getChildAt(i).background = if (i == currentSlide) GradientDrawable().apply {
                 setStroke(dp(3), context.getColor(Resources.color.editors_selection_handle))
             } else null
         }
         thumbnails.getChildAt(currentSlide)?.let { child ->
-            (strip as HorizontalScrollView).post { strip.requestChildFocus(thumbnails, child) }
+            strip.post { strip.requestChildFocus(thumbnails, child) }
         }
     }
 
@@ -176,7 +183,7 @@ internal class SlidesUi(
         val current = slides.getOrNull(currentSlide)?.transition
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(8), dp(24), 0)
+            setPaddingRelative(dp(24), dp(8), dp(24), 0)
         }
         val types = choices(content, Resources.string.editors_slides_effect, TRANSITIONS.map { context.getString(it.first) },
             TRANSITIONS.indexOfFirst { it.second == (current?.type ?: 0) }, vertical = true)
@@ -216,7 +223,7 @@ internal class SlidesUi(
         AlertDialog.Builder(context)
             .setTitle(Resources.string.editors_slides_notes)
             .setView(FrameLayout(context).apply {
-                setPadding(dp(24), dp(8), dp(24), 0)
+                setPaddingRelative(dp(24), dp(8), dp(24), 0)
                 addView(input)
             })
             .setPositiveButton(android.R.string.ok) { _, _ ->
@@ -245,7 +252,7 @@ internal class SlidesUi(
     private fun choices(parent: LinearLayout, title: Int, labels: List<String>, selected: Int, vertical: Boolean = false): () -> Int {
         parent.addView(TextView(context).apply {
             setText(title)
-            setPadding(0, dp(12), 0, dp(4))
+            setPaddingRelative(0, dp(12), 0, dp(4))
         })
         val group = RadioGroup(context).apply { orientation = if (vertical) RadioGroup.VERTICAL else RadioGroup.HORIZONTAL }
         labels.forEachIndexed { index, label ->

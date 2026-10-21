@@ -22,6 +22,7 @@ import androidx.core.view.isVisible
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.SheetState
+import lib.editors.base.engine.ToolbarState
 import lib.editors.base.engine.TouchAction
 import lib.editors.gbase.R
 import lib.editors.gbase.ui.views.SheetView
@@ -55,6 +56,7 @@ internal class SpreadsheetUi(
     private val tabs = activity.findViewById<LinearLayout>(R.id.sheetTabs)
 
     private var sheet: SheetState? = null
+    private var toolbar = ToolbarState()
     private var shownTabs: List<String> = emptyList()
     private var shownActive = -1
     private var functions: List<String> = emptyList()
@@ -109,6 +111,16 @@ internal class SpreadsheetUi(
             override fun onClearCells() = edit { clearCells() }
             override fun onTypeText(text: String) = editCell(text)
             override fun onFillSelection() = edit { fillSelection() }
+            override fun onSelectAll() = select(0, 0, MAX_COLUMN, MAX_ROW)
+            override fun onUndo(redo: Boolean) = edit { if (redo) redo() else undo() }
+            override fun onToggleStyle(style: SheetView.Style) {
+                val current = toolbar
+                when (style) {
+                    SheetView.Style.BOLD -> edit { setBold(!current.bold) }
+                    SheetView.Style.ITALIC -> edit { setItalic(!current.italic) }
+                    SheetView.Style.UNDERLINE -> edit { setUnderline(!current.underline) }
+                }
+            }
         }
         cellText.setOnEditorActionListener { _, actionId, event ->
             // Hardware Enter comes as a key down and up (and may follow as an action): only the down counts
@@ -140,6 +152,7 @@ internal class SpreadsheetUi(
         val newSheet = state.sheet ?: return
         val previous = sheet
         sheet = newSheet
+        toolbar = state.toolbar
         entering = false
         sheetView.setState(newSheet, state.dirtyPages.isNotEmpty(), state.drawings)
 
@@ -147,6 +160,15 @@ internal class SpreadsheetUi(
         // The bar shows the active cell, unless it is being edited
         val cellChanged = previous == null || previous.col != newSheet.col || previous.row != newSheet.row ||
             previous.active != newSheet.active
+        if (cellChanged) {
+            // Screen readers: the cell and its content
+            val cell = activity.getString(
+                Resources.string.editors_cells_cell_value, newSheet.name,
+                newSheet.text.ifEmpty { activity.getString(Resources.string.editors_cells_empty) }
+            )
+            sheetView.contentDescription = cell
+            if (previous != null) sheetView.announceForAccessibility(cell)
+        }
         if (cellChanged || !cellText.hasFocus()) {
             cellText.setText(newSheet.text)
             cellText.setSelection(cellText.length())
@@ -321,7 +343,7 @@ internal class SpreadsheetUi(
         fun tab(text: String, selected: Boolean, onClick: () -> Unit) = TextView(activity).apply {
             this.text = text
             gravity = Gravity.CENTER
-            setPadding((16 * density).toInt(), 0, (16 * density).toInt(), 0)
+            setPaddingRelative((16 * density).toInt(), 0, (16 * density).toInt(), 0)
             setBackgroundResource(R.drawable.editor_tool_background)
             isSelected = selected
             setOnClickListener { onClick() }
@@ -390,7 +412,7 @@ internal class SpreadsheetUi(
         AlertDialog.Builder(activity)
             .setTitle(Resources.string.editors_cells_rename_sheet)
             .setView(FrameLayout(activity).apply {
-                setPadding(padding, 0, padding, 0)
+                setPaddingRelative(padding, 0, padding, 0)
                 addView(input)
             })
             .setPositiveButton(android.R.string.ok) { _, _ ->
@@ -417,5 +439,8 @@ internal class SpreadsheetUi(
         const val INSERT_ROWS = 4
         const val DELETE_COLUMNS = 3
         const val DELETE_ROWS = 4
+        // The last column and row of a sheet
+        const val MAX_COLUMN = 16383
+        const val MAX_ROW = 1048575
     }
 }

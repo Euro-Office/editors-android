@@ -9,11 +9,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
-import com.google.android.material.bottomsheet.BottomSheetDialog
 import lib.editors.base.engine.CellFormat
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
@@ -22,29 +20,27 @@ import lib.editors.resources.R as Resources
 
 /**
  * Spreadsheets: the format of the selected cells (number format, font, colors, borders, wrap,
- * merge, alignment) in a bottom sheet. It shows the active cell's format (see [update]).
+ * merge, alignment) in a panel (see [PanelHost]). It shows the active cell's format (see [update]).
  */
 internal class CellFormatPanel(
     private val context: Context,
     private val edit: (EditorDocument.() -> EditorState) -> Unit,
-    private val loadFonts: (onLoaded: (List<String>) -> Unit) -> Unit
+    private val loadFonts: (onLoaded: (List<String>) -> Unit) -> Unit,
+    private val panels: PanelHost
 ) {
 
     private val density = context.resources.displayMetrics.density
-    private var dialog: BottomSheetDialog? = null
+    private var dialog: PanelHost.Panel? = null
     private var format = CellFormat()
     private var fonts: List<String> = emptyList()
     private val updaters = mutableListOf<(CellFormat) -> Unit>()
 
     fun show() {
         loadFonts { fonts = it }
-        val sheet = BottomSheetDialog(context)
         updaters.clear()
-        sheet.setContentView(ScrollView(context).apply { addView(content()) })
-        sheet.setOnDismissListener { dialog = null }
-        dialog = sheet
+        val content = content()
+        dialog = panels.show(context.getString(Resources.string.editors_format), content) { dialog = null }
         update(format)
-        sheet.show()
     }
 
     fun update(newFormat: CellFormat) {
@@ -54,7 +50,7 @@ internal class CellFormatPanel(
 
     private fun content(): View = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(16), dp(8), dp(16), dp(24))
+        setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
 
         heading(Resources.string.editors_cells_number_format)
         scrollRow {
@@ -73,10 +69,13 @@ internal class CellFormatPanel(
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             }
             updaters += { fontButton.text = it.fontName.ifEmpty { "—" } }
-            button("−") { edit { setFontSize(maxOf(1.0, format.fontSize - 1)) } }
+            button("−") { edit { setFontSize(maxOf(1.0, format.fontSize - 1)) } }.contentDescription = context.getString(Resources.string.editors_format_size_down)
             val size = TextView(context).apply { gravity = Gravity.CENTER; minWidth = dp(40) }.also { addView(it) }
-            updaters += { size.text = if (it.fontSize > 0) it.fontSize.toInt().toString() else "—" }
-            button("+") { edit { setFontSize(format.fontSize + 1) } }
+            updaters += {
+                size.text = if (it.fontSize > 0) it.fontSize.toInt().toString() else "—"
+                size.contentDescription = context.getString(Resources.string.editors_format_size) + " " + size.text
+            }
+            button("+") { edit { setFontSize(format.fontSize + 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_up)
             toggle(context.getString(Resources.string.editors_format_strikeout), { it.strikeout }) { edit { setStrikeout(!format.strikeout) } }
                 .paint.flags = Paint.STRIKE_THRU_TEXT_FLAG or Paint.ANTI_ALIAS_FLAG
         }
@@ -121,14 +120,14 @@ internal class CellFormatPanel(
             setText(text)
             textSize = 16f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(0, dp(12), 0, dp(4))
+            setPaddingRelative(0, dp(12), 0, dp(4))
         })
     }
 
     private fun LinearLayout.caption(text: Int) {
         addView(TextView(context).apply {
             setText(text)
-            setPadding(0, dp(8), 0, dp(2))
+            setPaddingRelative(0, dp(8), 0, dp(2))
         })
     }
 
@@ -154,24 +153,31 @@ internal class CellFormatPanel(
         gravity = Gravity.CENTER
         textSize = 15f
         minWidth = dp(48)
-        minHeight = dp(44)
-        setPadding(dp(10), 0, dp(10), 0)
+        minHeight = dp(48)
+        setPaddingRelative(dp(10), 0, dp(10), 0)
         setBackgroundResource(R.drawable.editor_tool_background)
         setOnClickListener { onClick() }
     }.also { addView(it) }
 
     private fun LinearLayout.toggle(text: String, isOn: (CellFormat) -> Boolean, onClick: () -> Unit): TextView =
-        button(text, onClick).also { view -> updaters += { view.isSelected = isOn(it) } }
+        button(text, onClick).also { view ->
+            Accessibility.toggle(view)
+            updaters += { view.isSelected = isOn(it) }
+        }
 
     private fun LinearLayout.colors(colors: List<String>, current: (CellFormat) -> String, onColor: (String?) -> Unit) {
         val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
         for (color in colors) {
             val swatch = View(context).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(36), dp(36)).apply { setMargins(dp(4), dp(4), dp(4), dp(4)) }
+                // 48 dp to touch, 36 dp to see
+                layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
                 setOnClickListener { onColor(color.ifEmpty { null }) }
-                contentDescription = color.ifEmpty { context.getString(Resources.string.editors_color_none) }
+                contentDescription = Accessibility.colorName(context, color)
             }
-            updaters += { swatch.background = swatchDrawable(color, current(it).equals(color, ignoreCase = true)) }
+            updaters += {
+                swatch.isSelected = current(it).equals(color, ignoreCase = true)
+                swatch.background = android.graphics.drawable.InsetDrawable(swatchDrawable(color, swatch.isSelected), dp(6))
+            }
             row.addView(swatch)
         }
         addView(HorizontalScrollView(context).apply { addView(row) })

@@ -27,7 +27,7 @@ internal class SignaturePad(private val context: Context, private val onSigned: 
         val dialog = AlertDialog.Builder(context)
             .setTitle(Resources.string.editors_sign_draw)
             .setView(FrameLayout(context).apply {
-                setPadding(padding, 0, padding, 0)
+                setPaddingRelative(padding, 0, padding, 0)
                 addView(pad, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, (200 * context.resources.displayMetrics.density).toInt()))
             })
             .setPositiveButton(Resources.string.editors_sign_place, null)

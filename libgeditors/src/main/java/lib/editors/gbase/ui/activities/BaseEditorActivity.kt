@@ -7,6 +7,10 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.util.Log
+import android.view.KeyEvent
+import android.view.KeyboardShortcutGroup
+import android.view.KeyboardShortcutInfo
+import android.view.Menu
 import android.view.View
 import android.view.WindowManager
 import android.text.InputType
@@ -41,13 +45,17 @@ import lib.editors.base.engine.Alignment
 import lib.editors.base.engine.DrawingFileResult
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
+import lib.editors.base.engine.EditorSpelling
 import lib.editors.base.engine.EditorState
+import lib.editors.base.engine.Misspelling
+import lib.editors.base.engine.SpellService
 import lib.editors.base.engine.DocumentResult
 import lib.editors.base.engine.FormField
 import lib.editors.base.engine.PageSize
 import lib.editors.base.engine.PdfImage
 import lib.editors.base.engine.PdfMarkup
 import lib.editors.base.engine.PagedDocument
+import lib.editors.base.engine.TextBlock
 import lib.editors.base.engine.TouchAction
 import lib.editors.base.engine.WRITABLE_FORMATS
 import lib.editors.gbase.R
@@ -117,6 +125,13 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // A slice of the layout of later pages is queued (see EditorDocument.tick)
     private var layingOut = false
 
+    // Spell checking while editing documents and presentations: the checker (set on the
+    // engine's thread), whether a slice of checking is queued, dictionaries asked for
+    @Volatile
+    private var spellService: SpellService? = null
+    private var spellChecking = false
+    private val dictionaryDownloads = mutableSetOf<String>()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (intent.getBooleanExtra(EditorsContract.KEY_KEEP_SCREEN_ON, false)) {
@@ -152,6 +167,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         }
 
         linkBar = createLinkBar()
+        Accessibility.pane(linkBar, getString(Resources.string.editors_link))
+        // Read as switches: on while selected
+        listOf(R.id.toolBold, R.id.toolItalic, R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight)
+            .forEach { Accessibility.toggle(findViewById(it)) }
         val root = findViewById<ViewGroup>(R.id.editorRoot)
         root.addView(linkBar, root.indexOfChild(findViewById(R.id.editorToolbar)))
 
@@ -199,6 +218,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     }
                     DocumentResult.Failed -> return@withContext null
                 }
+                document.setTranslations(EditorTranslations.sdkjs(this@BaseEditorActivity))
                 val pages = (0 until document.pageCount).map { document.pageSize(it) }
                 Log.i(TAG, "open + layout: ${SystemClock.elapsedRealtime() - start} ms, ${pages.size} pages")
                 Triple(document, pages, document.state())
@@ -229,8 +249,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 }, loadFunctions = { onLoaded ->
                     lifecycleScope.launch { onLoaded(withContext(EditorEngine.dispatcher) { openedDocument.functions() }) }
                 })
+                sheetView.requestFocus()
             } else {
                 documentView.setPages(opened.second, ::renderTile, lifecycleScope)
+                documentView.textBlocks = ::textBlocks
+                // A hardware keyboard works right away
+                documentView.requestFocus()
             }
             // Viewing: text can still be selected, copied and found
             if (!isSpreadsheet) {
@@ -244,7 +268,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             val comments = CommentsUi(
                 this@BaseEditorActivity, lifecycleScope, { document }, { command -> edit(command = command) },
                 canComment = isEditable || editAccess() == EditorsContract.INTERNAL_EDIT_ACCESS_COMMENT,
-                fileId = intent.getStringExtra(EditorsContract.EXTRA_ITEM_ID)
+                fileId = intent.getStringExtra(EditorsContract.EXTRA_ITEM_ID),
+                panels = panels
             )
             commentsUi = comments
             findViewById<View>(R.id.toolComments).isVisible = true
@@ -255,10 +280,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     this@BaseEditorActivity, lifecycleScope, { document }, { command -> edit(command = command) },
                     render = { page, width, height -> renderTile(page, width, height, 0, 0, width, height) },
                     slideAspect = { firstSlide?.let { (it.widthMm / it.heightMm).toFloat() } ?: (16f / 9f) },
-                    editable = false
+                    editable = false,
+                    vertical = sideStrips
                 )
-                val root = findViewById<ViewGroup>(R.id.editorRoot)
-                root.addView(ui.strip, root.indexOfChild(findViewById(R.id.editorToolbar)))
+                addStrip(ui.strip)
                 slidesUi = ui
                 findViewById<View>(R.id.toolSlideshow).isVisible = true
                 findViewById<View>(R.id.toolSlideshow).setOnClickListener { ui.startSlideshow() }
@@ -314,6 +339,71 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         }
         bindToolbar()
         if (fillsForms()) edit { setFillMode(true) }
+        if (editorsType == EditorsType.DOCS || editorsType == EditorsType.PRESENTATION) startSpelling()
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Spell checking: sdkjs asks for words to check (state.spelling.pending), Hunspell answers
+    // in slices; dictionaries of languages it needs, and of the device's language, are downloaded
+
+    private val spellCheckOn get() = getSharedPreferences(SPELLING_PREFERENCES, MODE_PRIVATE).getBoolean(KEY_SPELL_CHECK, true)
+
+    private fun startSpelling() {
+        if (!spellCheckOn) {
+            edit { setSpellCheck(false) }
+            return
+        }
+        val dictionaries = EditorSpelling.dictionaries(this)
+        dictionaries.forLocale()?.let { downloadDictionary(it) }
+        edit {
+            spellService = EditorSpelling.service(this@BaseEditorActivity)
+            setSpellLanguages(dictionaries.installedLanguages())
+        }
+    }
+
+    private fun setSpellCheck(on: Boolean) {
+        getSharedPreferences(SPELLING_PREFERENCES, MODE_PRIVATE).edit().putBoolean(KEY_SPELL_CHECK, on).apply()
+        edit { setSpellCheck(on) }
+        if (on) startSpelling() else spellService = null
+    }
+
+    private fun downloadDictionary(name: String) {
+        val dictionaries = EditorSpelling.dictionaries(this)
+        if (!dictionaryDownloads.add(name) || dictionaries.files(name) != null) return
+        lifecycleScope.launch {
+            val downloaded = withContext(Dispatchers.IO) { dictionaries.download(name) }
+            if (!downloaded || spellService == null) return@launch
+            edit {
+                EditorSpelling.service(this@BaseEditorActivity).reload()
+                setSpellLanguages(dictionaries.installedLanguages())
+            }
+        }
+    }
+
+    private fun checkSpelling(state: EditorState) {
+        val spelling = state.spelling ?: return
+        val service = spellService ?: return
+        if (spelling.pending && !spellChecking) {
+            spellChecking = true
+            edit(isSpellSlice = true) { checkSpelling(service, SPELL_SLICE_MS) }
+        }
+        val dictionaries = EditorSpelling.dictionaries(this)
+        spelling.missing.forEach { lcid -> dictionaries.nameFor(lcid)?.let { downloadDictionary(it) } }
+    }
+
+    // The misspelled word at the cursor: its suggestions, ignoring it and adding it to the user's words
+    private fun spellingActions(word: Misspelling?): List<Pair<String, () -> Unit>> {
+        if (word == null || spellService == null || !editing) return emptyList()
+        val variants = word.variants.orEmpty().take(MAX_SUGGESTIONS).map { variant -> variant to { edit { replaceMisspelled(variant) } } }
+        return variants + listOf(
+            getString(Resources.string.editors_spell_ignore) to { edit { ignoreMisspelled(all = true) } },
+            getString(Resources.string.editors_spell_add) to {
+                edit {
+                    EditorSpelling.service(this@BaseEditorActivity).addWord(word.word)
+                    ignoreMisspelled(all = true)
+                }
+            }
+        )
     }
 
     // Sends the form to its roles: the app's StartFillingActivity assigns people to them
@@ -346,6 +436,56 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private fun startsInView(): Boolean {
         @Suppress("DEPRECATION")
         return (intent.getSerializableExtra(EditorsContract.KEY_EDIT_TYPE) as? EditType.Edit)?.initialView == true
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Hardware keyboard: the editor's shortcuts. The document's own (Ctrl+B, Ctrl+Z, ...) are
+    // handled by the document and sheet views.
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && shortcut(event)) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun shortcut(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_ESCAPE && searchBar?.isShown == true) {
+            searchBar?.hide()
+            return true
+        }
+        if (!event.isCtrlPressed || event.isAltPressed) return false
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_F -> searchBar?.show() ?: return false
+            KeyEvent.KEYCODE_S -> if (editing) findViewById<View>(R.id.toolSave).performClick() else return false
+            KeyEvent.KEYCODE_P -> if (document != null) fileUi.print() else return false
+            else -> return false
+        }
+        return true
+    }
+
+    // The list of shortcuts the system shows (Meta + /)
+    override fun onProvideKeyboardShortcuts(data: MutableList<KeyboardShortcutGroup>, menu: Menu?, deviceId: Int) {
+        super.onProvideKeyboardShortcuts(data, menu, deviceId)
+        fun shortcut(label: String, keyCode: Int, shift: Boolean = false) =
+            KeyboardShortcutInfo(label, keyCode, KeyEvent.META_CTRL_ON or if (shift) KeyEvent.META_SHIFT_ON else 0)
+        val shortcuts = mutableListOf(
+            shortcut(getString(Resources.string.editors_search), KeyEvent.KEYCODE_F),
+            shortcut(getString(android.R.string.copy), KeyEvent.KEYCODE_C),
+            shortcut(getString(android.R.string.selectAll), KeyEvent.KEYCODE_A)
+        )
+        if (document != null) shortcuts += shortcut(getString(Resources.string.editors_file_print), KeyEvent.KEYCODE_P)
+        if (editing) {
+            shortcuts += listOf(
+                shortcut(getString(Resources.string.editors_save), KeyEvent.KEYCODE_S),
+                shortcut(getString(android.R.string.cut), KeyEvent.KEYCODE_X),
+                shortcut(getString(android.R.string.paste), KeyEvent.KEYCODE_V),
+                shortcut(getString(Resources.string.editors_undo), KeyEvent.KEYCODE_Z),
+                shortcut(getString(Resources.string.editors_redo), KeyEvent.KEYCODE_Y),
+                shortcut(getString(Resources.string.editors_bold), KeyEvent.KEYCODE_B),
+                shortcut(getString(Resources.string.editors_italic), KeyEvent.KEYCODE_I),
+                shortcut(getString(Resources.string.editors_underline), KeyEvent.KEYCODE_U)
+            )
+        }
+        data += KeyboardShortcutGroup(getString(getTitleRes()), shortcuts)
     }
 
     // Back closes the search first; changes (edits, or comments when only commenting) are saved before leaving
@@ -394,6 +534,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     findViewById<View>(R.id.documentProgress).isVisible = false
                     val pages = opened.second.orEmpty()
                     documentView.setPages(pages, ::renderTile, lifecycleScope)
+                    documentView.textBlocks = ::textBlocks
                     val pdfText = PdfText(lifecycleScope, result.document, pages.size,
                         onState = { state ->
                             documentView.setEditorState(state)
@@ -413,6 +554,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                         })
                     documentView.editListener = pdfText
                     documentView.readOnly = true
+                    documentView.requestFocus()
                     addSearchBar(pdfText)
                     showToolbar(editable = false)
                     showPageTools(result.document, pages)
@@ -432,7 +574,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         }
         val container = FrameLayout(this).apply {
             val padding = (20 * resources.displayMetrics.density).toInt()
-            setPadding(padding, 0, padding, 0)
+            setPaddingRelative(padding, 0, padding, 0)
             addView(input)
         }
         val dialog = AlertDialog.Builder(this)
@@ -477,8 +619,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // Editing: input goes to the engine in order, its state comes back to the view
 
     private val editListener = object : DocumentView.EditListener {
-        override fun onTouch(action: TouchAction, page: Int, xMm: Double, yMm: Double, clickCount: Int, addToSelection: Boolean) =
-            edit { touch(action, page, xMm, yMm, clickCount, addToSelection) }
+        override fun onTouch(action: TouchAction, page: Int, xMm: Double, yMm: Double, clickCount: Int, addToSelection: Boolean, extend: Boolean) =
+            edit { touch(action, page, xMm, yMm, clickCount, addToSelection, extend) }
 
         override fun onKey(keyCode: Int, shift: Boolean, ctrl: Boolean) = edit { keyDown(keyCode, shift, ctrl) }
 
@@ -511,7 +653,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         if (cut) cut() else state()
     }
 
-    private fun edit(isLayoutSlice: Boolean = false, command: EditorDocument.() -> EditorState) {
+    private fun edit(isLayoutSlice: Boolean = false, isSpellSlice: Boolean = false, command: EditorDocument.() -> EditorState) {
         lifecycleScope.launch {
             val result = withContext(EditorEngine.dispatcher) {
                 val document = document ?: return@withContext null
@@ -524,6 +666,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 state to pages
             }
             if (isLayoutSlice) layingOut = false
+            if (isSpellSlice) spellChecking = false
             if (result == null) return@launch
             if (!isSpreadsheet) result.second?.let { documentView.updatePages(it) }
             applyState(result.first)
@@ -531,12 +674,14 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     }
 
     private fun applyState(state: EditorState) {
+        if (!isSpreadsheet) documentView.spellingActions = spellingActions(state.spelling?.word)
         if (isSpreadsheet) spreadsheetUi?.setState(state) else documentView.setEditorState(state)
         // The pages after the first ones are laid out in slices; input in between runs first
         if (state.layoutPending && !layingOut) {
             layingOut = true
             edit(isLayoutSlice = true) { tick(LAYOUT_SLICE_MS) }
         }
+        checkSpelling(state)
         modified = state.modified
         findViewById<ImageButton>(R.id.toolSave).imageAlpha = if (modified) 255 else 80
         val toolbar = state.toolbar
@@ -571,6 +716,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // ---------------------------------------------------------------------------------
     // Pictures and shapes
 
+    // Formatting and comments: bottom sheets on phones, beside the document on large screens
+    private val panels by lazy { PanelHost(this, findViewById(R.id.editorSidePane)) }
+
     private val formatPanel by lazy {
         FormatPanel(
             this, { command -> edit(command = command) },
@@ -582,15 +730,16 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 }
             },
             withParagraphs = editorsType != EditorsType.CELLS,
-            withStyles = editorsType == EditorsType.DOCS
+            withStyles = editorsType == EditorsType.DOCS,
+            panels = panels
         )
     }
 
     private val cellFormatPanel by lazy {
-        CellFormatPanel(this, { command -> edit(command = command) }) { onLoaded ->
+        CellFormatPanel(this, { command -> edit(command = command) }, loadFonts = { onLoaded ->
             val document = document ?: return@CellFormatPanel
             lifecycleScope.launch { onLoaded(withContext(EditorEngine.dispatcher) { document.fonts() }) }
-        }
+        }, panels = panels)
     }
 
     private val drawingUi by lazy {
@@ -732,13 +881,27 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         }
     }
 
+    // Large screens: thumbnails of slides and pages beside them, instead of above the toolbar
+    private val sideStrips get() = resources.getBoolean(R.bool.editor_side_panels)
+
+    private fun addStrip(strip: View) {
+        if (sideStrips) {
+            findViewById<ViewGroup>(R.id.editorStartPane).apply {
+                addView(strip, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                isVisible = true
+            }
+        } else {
+            val root = findViewById<ViewGroup>(R.id.editorRoot)
+            root.addView(strip, root.indexOfChild(findViewById(R.id.editorToolbar)))
+        }
+    }
+
     // PDF, XPS and DjVu: page thumbnails and the outline with going to a page
     private fun showPageTools(file: PagedDocument, pages: List<PageSize>) {
         val strip = PageStrip(this, lifecycleScope, pages,
             render = { page, width, height -> renderTile(page, width, height, 0, 0, width, height) },
-            onPage = { documentView.goToPage(it) })
-        val root = findViewById<ViewGroup>(R.id.editorRoot)
-        root.addView(strip.view, root.indexOfChild(findViewById(R.id.editorToolbar)))
+            onPage = { documentView.goToPage(it) }, vertical = sideStrips)
+        addStrip(strip.view)
         documentView.onVisiblePageChanged = { strip.setCurrent(it) }
         findViewById<View>(R.id.toolPages).isVisible = true
         findViewById<View>(R.id.toolPages).setOnClickListener { strip.toggle() }
@@ -768,7 +931,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle(getString(Resources.string.editors_pages_go_to, pageCount))
             .setView(FrameLayout(this).apply {
-                setPadding(padding, 0, padding, 0)
+                setPaddingRelative(padding, 0, padding, 0)
                 addView(input)
             })
             .setPositiveButton(android.R.string.ok) { _, _ -> input.text.toString().toIntOrNull()?.let { documentView.goToPage(it - 1) } }
@@ -989,7 +1152,11 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     }
 
     private val fileUi by lazy {
-        FileUi(this, lifecycleScope, { document }, copyFormats(), { baseName }, ::deliverCopy)
+        FileUi(
+            this, lifecycleScope, { document }, copyFormats(), { baseName }, ::deliverCopy,
+            spellCheck = { spellCheckOn.takeIf { editing && editorsType != EditorsType.CELLS } },
+            setSpellCheck = ::setSpellCheck
+        )
     }
 
     private fun saveErrorMessage(error: Int): String =
@@ -1007,6 +1174,11 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             Log.i(TAG, "render page ${page + 1} ${width}x$height: ${SystemClock.elapsedRealtime() - start} ms")
             if (rendered) bitmap else null
         }
+
+    // Screen readers: the text of a page
+    private suspend fun textBlocks(page: Int): List<TextBlock> = withContext(EditorEngine.dispatcher) {
+        (document ?: drawingDocument)?.let { runCatching { it.textBlocks(page) }.getOrNull() }.orEmpty()
+    }
 
     private fun copyToCache(uri: Uri): File {
         val name = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
@@ -1071,6 +1243,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         const val TAG = "EditorViewer"
         val ENGINE_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION, EditorsType.CELLS)
         const val LAYOUT_SLICE_MS = 30
+        const val SPELL_SLICE_MS = 30
+        const val MAX_SUGGESTIONS = 3
+        const val SPELLING_PREFERENCES = "lib.editors.spelling"
+        const val KEY_SPELL_CHECK = "spell_check"
         // Toolbar buttons also when viewing
         private val VIEWING_TOOLS = setOf(
             R.id.toolSearch, R.id.toolFile, R.id.toolComments, R.id.toolSlideshow, R.id.toolEdit, R.id.toolPages, R.id.toolOutline,

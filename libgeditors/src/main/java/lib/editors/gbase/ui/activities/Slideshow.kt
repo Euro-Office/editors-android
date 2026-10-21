@@ -69,7 +69,7 @@ internal class Slideshow(
             addView(TextView(context).apply {
                 text = context.getString(Resources.string.editors_slides_presenter)
                 setTextColor(Color.WHITE)
-                setPadding(dp(16), dp(12), dp(16), dp(12))
+                setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
                 alpha = 0.6f
                 setOnClickListener { presenter.isVisible = !presenter.isVisible }
             }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END))
@@ -130,13 +130,13 @@ internal class Slideshow(
     private fun presenterView(): View = presenter.apply {
         orientation = LinearLayout.HORIZONTAL
         setBackgroundColor(0xCC000000.toInt())
-        setPadding(dp(16), dp(12), dp(16), dp(16))
+        setPaddingRelative(dp(16), dp(12), dp(16), dp(16))
         isVisible = false
         addView(LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             addView(status.apply { setTextColor(Color.WHITE); textSize = 16f })
             addView(ScrollView(context).apply {
-                addView(notes.apply { setTextColor(Color.WHITE); textSize = 16f; setPadding(0, dp(8), 0, 0) })
+                addView(notes.apply { setTextColor(Color.WHITE); textSize = 16f; setPaddingRelative(0, dp(8), 0, 0) })
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(140)))
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         addView(nextSlide.apply { adjustViewBounds = true }, LinearLayout.LayoutParams(dp(140), ViewGroup.LayoutParams.WRAP_CONTENT).apply {

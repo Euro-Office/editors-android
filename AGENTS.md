@@ -21,6 +21,10 @@ The app launches editors by class name and talks to them through intent extras a
 - Activity class names: `lib.editors.gdocs.ui.activities.DocsActivity`, `lib.editors.gcells.ui.activities.CellsActivity`, `lib.editors.gslides.ui.activities.SlidesActivity`, `lib.editors.gbase.ui.activities.PdfActivity`.
 - The namespaces above. The app's ProGuard rules keep these packages.
 
+## Translations
+
+Texts live in `libresources/src/main/res/values/strings.xml` (English). Translations (`values-*/strings.xml`) come from Weblate (see README.md): never edit them by hand. Mark texts that must not be translated with `translatable="false"`.
+
 ## Build
 
 From the AndroidEditors checkout:

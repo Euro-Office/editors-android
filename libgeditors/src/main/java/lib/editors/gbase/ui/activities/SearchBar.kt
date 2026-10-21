@@ -58,6 +58,7 @@ internal class SearchBar(private val context: Context, private val target: Targe
         addView(mainRow())
         options = optionsRow()
         addView(options)
+        Accessibility.pane(this, context.getString(Resources.string.editors_search))
     }
 
     val isShown get() = view.isVisible
@@ -116,7 +117,7 @@ internal class SearchBar(private val context: Context, private val target: Targe
     private fun mainRow() = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(8), 0, 0, 0)
+        setPaddingRelative(dp(8), 0, 0, 0)
         findText = field(Resources.string.editors_search_find).apply {
             imeOptions = EditorInfo.IME_ACTION_SEARCH
             setOnEditorActionListener { _, actionId, event ->
@@ -139,7 +140,8 @@ internal class SearchBar(private val context: Context, private val target: Targe
         }
         addView(findText)
         counter = TextView(context).apply {
-            setPadding(dp(4), 0, dp(4), 0)
+            setPaddingRelative(dp(4), 0, dp(4), 0)
+            Accessibility.live(this)
         }
         addView(counter)
         addView(iconButton(Resources.drawable.ic_editor_up, Resources.string.editors_search_previous) { find(forward = false) })
@@ -153,7 +155,7 @@ internal class SearchBar(private val context: Context, private val target: Targe
     private fun optionsRow() = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(8), 0, dp(8), dp(4))
+        setPaddingRelative(dp(8), 0, dp(8), dp(4))
         isVisible = false
         matchCaseButton = textButton(context.getString(Resources.string.editors_search_match_case)) {
             matchCase = !matchCase
@@ -161,12 +163,14 @@ internal class SearchBar(private val context: Context, private val target: Targe
             searched = null
         }
         addView(matchCaseButton)
+        Accessibility.toggle(matchCaseButton)
         wholeWordsButton = textButton(context.getString(Resources.string.editors_search_whole_words)) {
             wholeWords = !wholeWords
             wholeWordsButton.isSelected = wholeWords
             searched = null
         }
         addView(wholeWordsButton)
+        Accessibility.toggle(wholeWordsButton)
         replaceText = field(Resources.string.editors_search_replace_with)
         addView(replaceText)
         replaceViews += replaceText
@@ -183,10 +187,10 @@ internal class SearchBar(private val context: Context, private val target: Targe
     }
 
     private fun iconButton(icon: Int, description: Int, onClick: () -> Unit) = ImageButton(context).apply {
-        layoutParams = LinearLayout.LayoutParams(dp(44), dp(48))
+        layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
         setImageResource(icon)
         contentDescription = context.getString(description)
-        setPadding(dp(10), dp(12), dp(10), dp(12))
+        setPaddingRelative(dp(10), dp(12), dp(10), dp(12))
         scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
         setBackgroundResource(R.drawable.editor_tool_background)
         setOnClickListener { onClick() }
@@ -196,9 +200,9 @@ internal class SearchBar(private val context: Context, private val target: Targe
         this.text = text
         gravity = Gravity.CENTER
         textSize = 14f
-        minWidth = dp(40)
-        minHeight = dp(40)
-        setPadding(dp(8), 0, dp(8), 0)
+        minWidth = dp(48)
+        minHeight = dp(48)
+        setPaddingRelative(dp(8), 0, dp(8), 0)
         setBackgroundResource(R.drawable.editor_tool_background)
         setOnClickListener { onClick() }
     }

@@ -13,12 +13,10 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ListPopupWindow
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
-import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -33,7 +31,7 @@ import app.documents.shared.MessengerClient
 import app.documents.shared.models.SharedUser
 
 /**
- * Comments in a bottom sheet: all comments with their replies; a tap shows one in the
+ * Comments in a panel (see [PanelHost]): all comments with their replies; a tap shows one in the
  * document. With [canComment], comments can be added (on the selection), answered, resolved
  * and deleted. In DocSpace files ([fileId]), "@" suggests the people the file is shared with
  * and mentioned people are notified.
@@ -44,12 +42,13 @@ internal class CommentsUi(
     private val document: () -> EditorDocument?,
     private val edit: (EditorDocument.() -> EditorState) -> Unit,
     private val canComment: Boolean,
-    private val fileId: String?
+    private val fileId: String?,
+    private val panels: PanelHost
 ) {
 
     private val density = activity.resources.displayMetrics.density
     private val preferences = activity.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-    private var dialog: BottomSheetDialog? = null
+    private var dialog: PanelHost.Panel? = null
     private val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
     private var users: List<SharedUser> = emptyList()
     private val messenger: MessengerClient? = fileId?.let { id ->
@@ -60,30 +59,15 @@ internal class CommentsUi(
     }
 
     fun show() {
-        val sheet = BottomSheetDialog(activity)
         val content = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(8), dp(16), dp(24))
-            addView(LinearLayout(activity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(TextView(activity).apply {
-                    setText(Resources.string.editors_comments)
-                    textSize = 18f
-                    setTypeface(typeface, Typeface.BOLD)
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                })
-                if (canComment) {
-                    addView(action(Resources.string.editors_comments_add) { compose(null) })
-                }
-            })
+            setPaddingRelative(dp(16), 0, dp(16), dp(24))
+            if (canComment) addView(action(Resources.string.editors_comments_add) { compose(null) })
+            (list.parent as? android.view.ViewGroup)?.removeView(list)
             addView(list)
         }
-        sheet.setContentView(ScrollView(activity).apply { addView(content) })
-        sheet.setOnDismissListener { dialog = null }
-        dialog = sheet
+        dialog = panels.show(activity.getString(Resources.string.editors_comments), content) { dialog = null }
         reload()
-        sheet.show()
     }
 
     /** After a command: the list again, if it is shown. */
@@ -99,7 +83,7 @@ internal class CommentsUi(
             if (comments.isEmpty()) {
                 list.addView(TextView(activity).apply {
                     setText(Resources.string.editors_comments_none)
-                    setPadding(0, dp(16), 0, dp(16))
+                    setPaddingRelative(0, dp(16), 0, dp(16))
                 })
             }
             comments.sortedBy { it.time }.forEach { list.addView(commentView(it)) }
@@ -108,7 +92,7 @@ internal class CommentsUi(
 
     private fun commentView(comment: Comment) = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(0, dp(12), 0, dp(4))
+        setPaddingRelative(0, dp(12), 0, dp(4))
         alpha = if (comment.solved) 0.6f else 1f
         addView(header(comment.user, comment.time))
         if (comment.quote.isNotEmpty()) {
@@ -123,12 +107,12 @@ internal class CommentsUi(
         addView(TextView(activity).apply {
             text = comment.text
             textSize = 15f
-            setPadding(0, dp(2), 0, dp(2))
+            setPaddingRelative(0, dp(2), 0, dp(2))
         })
         comment.replies.forEach { reply ->
             addView(LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(16), dp(6), 0, 0)
+                setPaddingRelative(dp(16), dp(6), 0, 0)
                 addView(header(reply.user, reply.time))
                 addView(TextView(activity).apply { text = reply.text })
             })
@@ -160,7 +144,9 @@ internal class CommentsUi(
     private fun action(label: Int, onClick: () -> Unit) = TextView(activity).apply {
         setText(label)
         setTextColor(activity.getColor(Resources.color.editors_selection_handle))
-        setPadding(dp(8), dp(10), dp(8), dp(10))
+        setPaddingRelative(dp(8), dp(10), dp(8), dp(10))
+        minHeight = dp(48)
+        gravity = Gravity.CENTER_VERTICAL
         setBackgroundResource(R.drawable.editor_tool_background)
         setOnClickListener { onClick() }
     }
@@ -185,7 +171,7 @@ internal class CommentsUi(
         AlertDialog.Builder(activity)
             .setTitle(if (replyTo == null) Resources.string.editors_comments_add else Resources.string.editors_comments_reply)
             .setView(FrameLayout(activity).apply {
-                setPadding(dp(24), dp(8), dp(24), 0)
+                setPaddingRelative(dp(24), dp(8), dp(24), 0)
                 addView(input)
             })
             .setPositiveButton(Resources.string.editors_comments_post) { _, _ ->
@@ -248,7 +234,7 @@ internal class CommentsUi(
             .setTitle(Resources.string.editors_comments_name)
             .setMessage(Resources.string.editors_comments_name_message)
             .setView(FrameLayout(activity).apply {
-                setPadding(dp(24), 0, dp(24), 0)
+                setPaddingRelative(dp(24), 0, dp(24), 0)
                 addView(input)
             })
             .setPositiveButton(android.R.string.ok) { _, _ ->

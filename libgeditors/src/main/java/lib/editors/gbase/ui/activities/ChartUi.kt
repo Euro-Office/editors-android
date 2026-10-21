@@ -58,7 +58,7 @@ internal class ChartUi(
     fun showElements(chart: ChartState) {
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(8), dp(24), 0)
+            setPaddingRelative(dp(24), dp(8), dp(24), 0)
         }
         val title = CheckBox(context).apply { setText(Resources.string.editors_chart_title); isChecked = chart.title }
         val labels = CheckBox(context).apply { setText(Resources.string.editors_chart_labels); isChecked = chart.labels }
@@ -68,7 +68,7 @@ internal class ChartUi(
         content.addView(gridlines)
         content.addView(TextView(context).apply {
             setText(Resources.string.editors_chart_legend)
-            setPadding(0, dp(12), 0, dp(4))
+            setPaddingRelative(0, dp(12), 0, dp(4))
         })
         val legend = RadioGroup(context).apply { orientation = RadioGroup.HORIZONTAL }
         LEGENDS.forEach { (label, value) ->
@@ -144,7 +144,7 @@ internal class ChartUi(
             orientation = LinearLayout.HORIZONTAL
             fun button(label: Int, action: () -> Unit) = addView(TextView(context).apply {
                 setText(label)
-                setPadding(dp(8), dp(10), dp(8), dp(10))
+                setPaddingRelative(dp(8), dp(10), dp(8), dp(10))
                 setTextColor(context.getColor(Resources.color.editors_selection_handle))
                 setOnClickListener { action(); rebuild() }
             })
@@ -155,7 +155,7 @@ internal class ChartUi(
         }
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(8), dp(16), 0)
+            setPaddingRelative(dp(16), dp(8), dp(16), 0)
             addView(HorizontalScrollView(context).apply { addView(buttons) })
             addView(HorizontalScrollView(context).apply { addView(table) })
         }

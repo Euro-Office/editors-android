@@ -108,7 +108,7 @@ internal class PdfText(
     // ---------------------------------------------------------------------------------
     // Selection
 
-    override fun onTouch(action: TouchAction, page: Int, xMm: Double, yMm: Double, clickCount: Int, addToSelection: Boolean) = run {
+    override fun onTouch(action: TouchAction, page: Int, xMm: Double, yMm: Double, clickCount: Int, addToSelection: Boolean, extend: Boolean) = run {
         if (clickCount == 1) {
             // A tap: clears the selection; a link shows its address
             if (action != TouchAction.UP) return@run

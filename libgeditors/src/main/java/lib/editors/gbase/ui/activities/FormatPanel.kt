@@ -9,11 +9,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
-import com.google.android.material.bottomsheet.BottomSheetDialog
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.TextFormat
@@ -22,7 +20,7 @@ import lib.editors.resources.R as Resources
 
 /**
  * The formatting panel: font, size, styles, colors and paragraph settings of the text at the
- * cursor or the selection, in a bottom sheet. It shows the current formatting (see [update])
+ * cursor or the selection, in a panel (see [PanelHost]). It shows the current formatting (see [update])
  * and sends changes through [edit].
  */
 internal class FormatPanel(
@@ -32,11 +30,12 @@ internal class FormatPanel(
     private val load: (onLoaded: (fonts: List<String>, styles: List<String>) -> Unit) -> Unit,
     /** Paragraph settings: documents and presentations; styles only for documents. */
     private val withParagraphs: Boolean,
-    private val withStyles: Boolean
+    private val withStyles: Boolean,
+    private val panels: PanelHost
 ) {
 
     private val density = context.resources.displayMetrics.density
-    private var dialog: BottomSheetDialog? = null
+    private var dialog: PanelHost.Panel? = null
     private var format = TextFormat()
     private var fonts: List<String> = emptyList()
     private var styles: List<String> = emptyList()
@@ -49,13 +48,10 @@ internal class FormatPanel(
             fonts = loadedFonts
             styles = loadedStyles
         }
-        val sheet = BottomSheetDialog(context)
         updaters.clear()
-        sheet.setContentView(ScrollView(context).apply { addView(content()) })
-        sheet.setOnDismissListener { dialog = null }
-        dialog = sheet
+        val content = content()
+        dialog = panels.show(context.getString(Resources.string.editors_format), content) { dialog = null }
         update(format)
-        sheet.show()
     }
 
     /** The formatting after a command; updates the panel if it is open. */
@@ -66,7 +62,7 @@ internal class FormatPanel(
 
     private fun content(): View = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(16), dp(8), dp(16), dp(24))
+        setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
 
         heading(Resources.string.editors_format_text)
         row {
@@ -74,10 +70,13 @@ internal class FormatPanel(
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             }
             updaters += { fontButton.text = it.fontName.ifEmpty { "—" } }
-            button("−") { edit { setFontSize(maxOf(1.0, format.fontSize - 1)) } }
+            button("−") { edit { setFontSize(maxOf(1.0, format.fontSize - 1)) } }.contentDescription = context.getString(Resources.string.editors_format_size_down)
             val size = label("")
-            updaters += { size.text = if (it.fontSize > 0) trimNumber(it.fontSize) else "—" }
-            button("+") { edit { setFontSize(format.fontSize + 1) } }
+            updaters += {
+                size.text = if (it.fontSize > 0) trimNumber(it.fontSize) else "—"
+                size.contentDescription = context.getString(Resources.string.editors_format_size) + " " + size.text
+            }
+            button("+") { edit { setFontSize(format.fontSize + 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_up)
         }
         row {
             toggle(Resources.string.editors_format_strikeout, { it.strikeout }) { edit { setStrikeout(!format.strikeout) } }
@@ -98,14 +97,14 @@ internal class FormatPanel(
                 val styleButton = button("") { chooseStyle() }.apply {
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 }
-                updaters += { styleButton.text = it.style.ifEmpty { "—" } }
+                updaters += { styleButton.text = it.style.ifEmpty { "—" }.let { name -> EditorTranslations.styleName(context, name) } }
             }
         }
         row {
             toggle(Resources.string.editors_format_bullets, { it.list == 0 }) { edit { setList(0, if (format.list == 0) -1 else 1) } }
             toggle(Resources.string.editors_format_numbers, { it.list == 1 }) { edit { setList(1, if (format.list == 1) -1 else 1) } }
-            button("⇤") { edit { indent(false) } }
-            button("⇥") { edit { indent(true) } }
+            button("⇤") { edit { indent(false) } }.contentDescription = context.getString(Resources.string.editors_format_indent_less)
+            button("⇥") { edit { indent(true) } }.contentDescription = context.getString(Resources.string.editors_format_indent_more)
         }
         caption(Resources.string.editors_format_line_spacing)
         row {
@@ -138,7 +137,7 @@ internal class FormatPanel(
         val names = styles.toTypedArray()
         AlertDialog.Builder(context)
             .setTitle(Resources.string.editors_format_style)
-            .setItems(names) { _, index -> edit { setStyle(names[index]) } }
+            .setItems(names.map { EditorTranslations.styleName(context, it) }.toTypedArray()) { _, index -> edit { setStyle(names[index]) } }
             .show()
     }
 
@@ -152,14 +151,14 @@ internal class FormatPanel(
             setText(text)
             textSize = 16f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(0, dp(12), 0, dp(4))
+            setPaddingRelative(0, dp(12), 0, dp(4))
         })
     }
 
     private fun LinearLayout.caption(text: Int) {
         addView(TextView(context).apply {
             setText(text)
-            setPadding(0, dp(8), 0, dp(2))
+            setPaddingRelative(0, dp(8), 0, dp(2))
         })
     }
 
@@ -182,8 +181,8 @@ internal class FormatPanel(
         gravity = Gravity.CENTER
         textSize = 15f
         minWidth = dp(48)
-        minHeight = dp(44)
-        setPadding(dp(10), 0, dp(10), 0)
+        minHeight = dp(48)
+        setPaddingRelative(dp(10), 0, dp(10), 0)
         setBackgroundResource(R.drawable.editor_tool_background)
         setOnClickListener { onClick() }
     }.also { addView(it) }
@@ -192,18 +191,25 @@ internal class FormatPanel(
         toggle(context.getString(text), isOn, onClick)
 
     private fun LinearLayout.toggle(text: String, isOn: (TextFormat) -> Boolean, onClick: () -> Unit): TextView =
-        button(text, onClick).also { view -> updaters += { view.isSelected = isOn(it) } }
+        button(text, onClick).also { view ->
+            Accessibility.toggle(view)
+            updaters += { view.isSelected = isOn(it) }
+        }
 
     // A row of color swatches; "" is automatic or none
     private fun LinearLayout.colors(colors: List<String>, current: (TextFormat) -> String, onColor: (String?) -> Unit) {
         val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
         for (color in colors) {
             val swatch = View(context).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(36), dp(36)).apply { setMargins(dp(4), dp(4), dp(4), dp(4)) }
+                // 48 dp to touch, 36 dp to see
+                layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
                 setOnClickListener { onColor(color.ifEmpty { null }) }
-                contentDescription = color.ifEmpty { context.getString(Resources.string.editors_color_none) }
+                contentDescription = Accessibility.colorName(context, color)
             }
-            updaters += { swatch.background = swatchDrawable(color, current(it).equals(color, ignoreCase = true)) }
+            updaters += {
+                swatch.isSelected = current(it).equals(color, ignoreCase = true)
+                swatch.background = android.graphics.drawable.InsetDrawable(swatchDrawable(color, swatch.isSelected), dp(6))
+            }
             row.addView(swatch)
         }
         addView(HorizontalScrollView(context).apply { addView(row) })

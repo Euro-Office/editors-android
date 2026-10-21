@@ -33,7 +33,7 @@ import java.io.FileOutputStream
 
 /**
  * The file menu: save a copy in another format (next to the document, see [deliverCopy]),
- * export as PDF, print and share.
+ * export as PDF, print and share; spell checking on or off while editing.
  */
 internal class FileUi(
     private val activity: AppCompatActivity,
@@ -44,7 +44,10 @@ internal class FileUi(
     /** The document's name without its extension. */
     private val baseName: () -> String,
     /** Puts a saved copy next to the document; returns a message for the user. */
-    private val deliverCopy: (file: File, name: String) -> String
+    private val deliverCopy: (file: File, name: String) -> String,
+    /** Whether spell checking is on; null where there is none (viewing, spreadsheets). */
+    private val spellCheck: () -> Boolean? = { null },
+    private val setSpellCheck: (Boolean) -> Unit = {}
 ) {
 
     private val density = activity.resources.displayMetrics.density
@@ -59,7 +62,16 @@ internal class FileUi(
         )
         PopupMenu(activity, anchor).apply {
             actions.forEachIndexed { i, (label, _) -> menu.add(Menu.NONE, i, i, label) }
-            setOnMenuItemClickListener { actions[it.itemId].second(); true }
+            spellCheck()?.let { on ->
+                menu.add(Menu.NONE, MENU_SPELL_CHECK, actions.size, Resources.string.editors_spell_check).apply {
+                    isCheckable = true
+                    isChecked = on
+                }
+            }
+            setOnMenuItemClickListener {
+                if (it.itemId == MENU_SPELL_CHECK) setSpellCheck(!it.isChecked) else actions[it.itemId].second()
+                true
+            }
         }.show()
     }
 
@@ -81,7 +93,7 @@ internal class FileUi(
         val padding = (20 * density).toInt()
         val content = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(padding, 0, padding, 0)
+            setPaddingRelative(padding, 0, padding, 0)
             addView(name)
             addView(group)
         }
@@ -117,7 +129,7 @@ internal class FileUi(
         }
     }
 
-    private fun print() = export("pdf") { file ->
+    fun print() = export("pdf") { file ->
         val printManager = activity.getSystemService(PrintManager::class.java) ?: return@export
         printManager.print(baseName(), PdfPrintAdapter(file, baseName()), PrintAttributes.Builder().build())
     }
@@ -141,6 +153,10 @@ internal class FileUi(
     }
 
     private fun toast(text: String) = Toast.makeText(activity, text, Toast.LENGTH_SHORT).show()
+
+    private companion object {
+        const val MENU_SPELL_CHECK = 100
+    }
 
     /** Prints a PDF file as it is. */
     private class PdfPrintAdapter(private val file: File, private val name: String) : PrintDocumentAdapter() {

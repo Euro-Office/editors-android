@@ -311,7 +311,65 @@
     <string name="editors_leave_unsaved_title">Leave without saving?</string>
     <string name="editors_leave">Leave</string>
     <string name="editors_stay">Stay</string>
-    <string name="editors_converting">Converting…</string>
-    <string name="editors_convert_success">Converted in %1$d ms (%2$d KB)</string>
-    <string name="editors_convert_failed">Conversion failed (x2t code %1$d)</string>
+    <string name="editors_converting" translatable="false">Converting…</string>
+    <string name="editors_convert_success" translatable="false">Converted in %1$d ms (%2$d KB)</string>
+    <string name="editors_convert_failed" translatable="false">Conversion failed (x2t code %1$d)</string>
+    <string name="editors_color_turquoise">Turquoise</string>
+    <string name="editors_color_pink">Pink</string>
+    <string name="editors_color_dark">Dark %1$s</string>
+    <string name="editors_color_light">Light %1$s</string>
+    <string name="editors_format_size_down">Smaller text</string>
+    <string name="editors_format_size_up">Larger text</string>
+    <string name="editors_format_size">Size</string>
+    <string name="editors_format_indent_less">Decrease indent</string>
+    <string name="editors_format_indent_more">Increase indent</string>
+    <string name="editors_forms">Form</string>
+    <string name="editors_forms_previous">Previous field</string>
+    <string name="editors_forms_next">Next field</string>
+    <string name="editors_link">Link</string>
+    <string name="editors_slides">Slides</string>
+    <string name="editors_spell_check">Check spelling</string>
+    <string name="editors_spell_ignore">Ignore</string>
+    <string name="editors_spell_add">Add to dictionary</string>
+
+    <!-- Texts sdkjs puts into documents (its translateManager keys, in EditorTranslations) -->
+    <string name="editors_sdk_table_of_contents">Table of Contents</string>
+    <string name="editors_sdk_no_toc_entries">No table of contents entries found.</string>
+    <string name="editors_sdk_header">Header</string>
+    <string name="editors_sdk_footer">Footer</string>
+    <string name="editors_sdk_first_page">First Page\u0020</string>
+    <string name="editors_sdk_even_page">Even Page\u0020</string>
+    <string name="editors_sdk_odd_page">Odd Page\u0020</string>
+    <string name="editors_sdk_same_as_previous">Same as Previous</string>
+    <string name="editors_sdk_section">\u0020-Section\u0020</string>
+    <string name="editors_sdk_add_first_slide">Click to add first slide</string>
+    <string name="editors_sdk_add_notes">Click to add notes</string>
+    <string name="editors_sdk_your_text_here">Your text here</string>
+    <string name="editors_sdk_equation">Type equation here</string>
+    <string name="editors_sdk_choose_item">Choose an item</string>
+    <string name="editors_sdk_enter_date">Enter a date</string>
+    <string name="editors_sdk_load_image">Click to load image</string>
+    <string name="editors_sdk_chart">Chart</string>
+    <string name="editors_sdk_series">Series</string>
+    <string name="editors_sdk_caption">Caption</string>
+    <string name="editors_sdk_picture">Picture</string>
+    <string name="editors_sdk_none">None</string>
+    <string name="editors_sdk_reference_not_found">Error! Reference source not found.</string>
+    <string name="editors_sdk_bookmark_not_defined">Error! Bookmark not defined.</string>
+
+    <!-- Names of the built-in paragraph styles, shown instead of their English names -->
+    <string name="editors_style_normal">Normal</string>
+    <string name="editors_style_no_spacing">No Spacing</string>
+    <string name="editors_style_heading">Heading %1$d</string>
+    <string name="editors_style_title">Title</string>
+    <string name="editors_style_subtitle">Subtitle</string>
+    <string name="editors_style_quote">Quote</string>
+    <string name="editors_style_intense_quote">Intense Quote</string>
+    <string name="editors_style_list_paragraph">List Paragraph</string>
+    <string name="editors_style_caption">Caption</string>
+    <string name="editors_style_footnote_text">Footnote Text</string>
+    <string name="editors_pages_page_of">Page %1$d of %2$d</string>
+    <string name="editors_cells_empty">Empty</string>
+    <string name="editors_cells_cell_value">%1$s, %2$s</string>
+    <string name="editors_close">Close</string>
 </resources>

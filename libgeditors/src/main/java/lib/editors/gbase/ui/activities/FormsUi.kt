@@ -41,16 +41,18 @@ internal class FormsUi(
     val bar: LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(8), 0, dp(4), 0)
+        setPaddingRelative(dp(8), 0, dp(4), 0)
         minimumHeight = dp(48)
         val background = android.util.TypedValue()
         context.theme.resolveAttribute(android.R.attr.colorBackground, background, true)
         setBackgroundColor(background.data)
         elevation = 2 * density
         isVisible = false
-        addView(button("‹") { edit { formAction("previous") } })
-        addView(button("›") { edit { formAction("next") } })
+        addView(button("‹") { edit { formAction("previous") } }.apply { contentDescription = context.getString(Resources.string.editors_forms_previous) })
+        addView(button("›") { edit { formAction("next") } }.apply { contentDescription = context.getString(Resources.string.editors_forms_next) })
         addView(status)
+        Accessibility.pane(this, context.getString(Resources.string.editors_forms))
+        Accessibility.live(status)
         addView(button(context.getString(Resources.string.editors_forms_clear)) {
             AlertDialog.Builder(context)
                 .setMessage(Resources.string.editors_forms_clear_confirm)
@@ -101,10 +103,10 @@ internal class FormsUi(
     private fun button(text: String, onClick: () -> Unit) = TextView(context).apply {
         this.text = text
         gravity = Gravity.CENTER
-        minWidth = dp(44)
-        minHeight = dp(44)
+        minWidth = dp(48)
+        minHeight = dp(48)
         textSize = if (text.length == 1) 20f else 14f
-        setPadding(dp(8), 0, dp(8), 0)
+        setPaddingRelative(dp(8), 0, dp(8), 0)
         setTextColor(context.getColor(Resources.color.editors_selection_handle))
         setBackgroundResource(R.drawable.editor_tool_background)
         setOnClickListener { onClick() }
