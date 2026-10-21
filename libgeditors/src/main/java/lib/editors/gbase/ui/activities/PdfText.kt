@@ -23,11 +23,11 @@ import lib.editors.gbase.ui.views.DocumentView
  */
 internal class PdfText(
     private val scope: CoroutineScope,
-    private val document: PagedDocument,
+    private var document: PagedDocument,
     private val pageCount: Int,
     private val onState: (EditorState) -> Unit,
-    /** A tap on a link (its address) or elsewhere (null). */
-    private val onLink: (String?) -> Unit,
+    /** A tap on a link or elsewhere (null). */
+    private val onLink: (PageLink?) -> Unit,
     private val onCopy: (String) -> Unit
 ) : DocumentView.EditListener, SearchBar.Target {
 
@@ -54,6 +54,40 @@ internal class PdfText(
     private var search: SearchState? = null
 
     // After the view's touch handling (not immediately), so that it can ask for the menu first
+    /** After the file was saved with changes and opened again. */
+    fun replaceDocument(newDocument: PagedDocument) = run {
+        document = newDocument
+        texts.clear()
+        links.clear()
+        searchKey = null
+        select(null, null)
+    }
+
+    /** The next tap on a page goes to [onPlace] (page, x, y in mm) instead of selecting. */
+    var onPlace: ((Int, Float, Float) -> Unit)? = null
+
+    /** The selection as markups (a quad per line), and no selection then. */
+    suspend fun takeSelectionMarkups(type: Int, color: FloatArray): List<lib.editors.base.engine.PdfMarkup> = mutex.withLock {
+        val start = selectionStart ?: return@withLock emptyList()
+        val end = selectionEnd ?: return@withLock emptyList()
+        val markups = ArrayList<lib.editors.base.engine.PdfMarkup>()
+        for (page in start.page..end.page) {
+            val text = text(page) ?: continue
+            val from = if (page == start.page) start.index else 0
+            val to = if (page == end.page) end.index else text.text.length - 1
+            val quads = lineAreas(page, text, from, to).flatMap { area ->
+                val p = area.points
+                // Top left, top right, bottom left, bottom right
+                listOf(p[0], p[1], p[2], p[3], p[6], p[7], p[4], p[5]).map { it.toFloat() }
+            }
+            if (quads.isNotEmpty()) markups += lib.editors.base.engine.PdfMarkup(page, type, color, quads.toFloatArray())
+        }
+        selectionStart = null
+        selectionEnd = null
+        publish()
+        markups
+    }
+
     private fun run(block: suspend () -> Unit) {
         scope.launch(Dispatchers.Main) { mutex.withLock { block() } }
     }
@@ -78,8 +112,13 @@ internal class PdfText(
         if (clickCount == 1) {
             // A tap: clears the selection; a link shows its address
             if (action != TouchAction.UP) return@run
+            onPlace?.let { place ->
+                onPlace = null
+                place(page, xMm.toFloat(), yMm.toFloat())
+                return@run
+            }
             select(null, null)
-            onLink(linksOf(page).firstOrNull { it.contains(xMm.toFloat(), yMm.toFloat()) }?.url)
+            onLink(linksOf(page).firstOrNull { it.contains(xMm.toFloat(), yMm.toFloat()) })
             return@run
         }
         // Long press: the word, then extended by words while dragging

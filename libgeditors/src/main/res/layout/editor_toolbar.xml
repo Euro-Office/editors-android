@@ -17,6 +17,15 @@
         <ImageButton android:id="@+id/toolEdit" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_edit" android:src="@drawable/ic_editor_edit"
             android:visibility="gone" />
+        <ImageButton android:id="@+id/toolPages" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_pages" android:src="@drawable/ic_editor_pages"
+            android:visibility="gone" />
+        <ImageButton android:id="@+id/toolOutline" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_pages_contents" android:src="@drawable/ic_editor_outline"
+            android:visibility="gone" />
+        <ImageButton android:id="@+id/toolSign" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_sign" android:src="@drawable/ic_editor_sign"
+            android:visibility="gone" />
         <ImageButton android:id="@+id/toolSearch" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_search" android:src="@drawable/ic_editor_search" />
         <ImageButton android:id="@+id/toolFile" style="@style/EditorToolButton"

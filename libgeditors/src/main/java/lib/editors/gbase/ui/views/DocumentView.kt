@@ -102,6 +102,13 @@ class DocumentView @JvmOverloads constructor(
      */
     var readOnly = false
 
+    /** More actions in the menu of a selection (label and action), such as marking text up. */
+    var selectionActions: List<Pair<String, () -> Unit>> = emptyList()
+
+    /** Called when another page comes into the middle of the view (scrolling, zooming). */
+    var onVisiblePageChanged: ((Int) -> Unit)? = null
+    private var lastVisiblePage = -1
+
     // Layout at zoom 1, in view pixels
     private var pageWidth = 0f
     private val pageTops = mutableListOf<Float>()
@@ -382,6 +389,17 @@ class DocumentView @JvmOverloads constructor(
         return hypot(x - cursorX, y - cursorY) < handleTouchRadius
     }
 
+    /** Draws all pages again: the file changed (same page sizes). */
+    fun reloadPages() {
+        pageBitmaps.evictAll()
+        details = emptyList()
+        for (page in pageSizes.indices) {
+            pageVersions[page] = (pageVersions[page] ?: 0) + 1
+        }
+        requestDetails()
+        invalidate()
+    }
+
     /** The page in the middle of the view. */
     fun visiblePage(): Int {
         if (pageTops.isEmpty()) return 0
@@ -389,10 +407,11 @@ class DocumentView @JvmOverloads constructor(
         return pageTops.indexOfLast { it <= contentY }.coerceAtLeast(0)
     }
 
-    /** Scrolls to the top of [page]. */
-    fun goToPage(page: Int) {
+    /** Scrolls to the top of [page], or to [yMm] from it. */
+    fun goToPage(page: Int, yMm: Float = 0f) {
         if (page !in pageSizes.indices) return
-        scrollTo(scrollPosX, pageTops[page] * zoom - pageMargin)
+        val offset = if (yMm > 0f) (yMm * scale(page)).toFloat() - 48 * density else -pageMargin
+        scrollTo(scrollPosX, pageTops[page] * zoom + offset)
         requestDetails()
     }
 
@@ -618,6 +637,7 @@ class DocumentView @JvmOverloads constructor(
             menu.add(Menu.NONE, android.R.id.paste, 2, android.R.string.paste)
             menu.add(Menu.NONE, android.R.id.selectAll, 3, android.R.string.selectAll)
             menu.add(Menu.NONE, MENU_DELETE, 4, Resources.string.editors_delete)
+            selectionActions.forEachIndexed { index, (label, _) -> menu.add(Menu.NONE, MENU_EXTRA + index, 5 + index, label) }
             return true
         }
 
@@ -630,6 +650,7 @@ class DocumentView @JvmOverloads constructor(
             menu.findItem(android.R.id.paste).isVisible = canPaste && !readOnly
             menu.findItem(android.R.id.selectAll).isVisible = !hasDrawings && !readOnly
             menu.findItem(MENU_DELETE).isVisible = hasDrawings && !readOnly
+            for (index in selectionActions.indices) menu.findItem(MENU_EXTRA + index)?.isVisible = hasSelection && !hasDrawings
             return true
         }
 
@@ -644,6 +665,7 @@ class DocumentView @JvmOverloads constructor(
                     menuAfterUpdate = true
                 }
                 MENU_DELETE -> listener.onKey(KEY_DELETE, false, false)
+                in MENU_EXTRA until MENU_EXTRA + selectionActions.size -> selectionActions[item.itemId - MENU_EXTRA].second()
                 else -> return false
             }
             mode.finish()
@@ -697,6 +719,11 @@ class DocumentView @JvmOverloads constructor(
     private fun scrollTo(x: Float, y: Float) {
         scrollPosX = x.coerceIn(0f, maxScrollX())
         scrollPosY = y.coerceIn(0f, maxScrollY())
+        val page = visiblePage()
+        if (page != lastVisiblePage) {
+            lastVisiblePage = page
+            onVisiblePageChanged?.invoke(page)
+        }
         invalidate()
     }
 
@@ -941,6 +968,8 @@ class DocumentView @JvmOverloads constructor(
         const val BLINK_MS = 500L
         const val MOVE_INTERVAL_MS = 40L
         const val MENU_DELETE = 1
+        // The first of selectionActions
+        const val MENU_EXTRA = 100
         val CLIPBOARD_KEYS = setOf(KeyEvent.KEYCODE_X, KeyEvent.KEYCODE_C, KeyEvent.KEYCODE_V, KeyEvent.KEYCODE_A)
 
         const val KEY_BACKSPACE = 8

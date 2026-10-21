@@ -43,6 +43,9 @@ import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.DocumentResult
+import lib.editors.base.engine.PageSize
+import lib.editors.base.engine.PdfImage
+import lib.editors.base.engine.PdfMarkup
 import lib.editors.base.engine.PagedDocument
 import lib.editors.base.engine.TouchAction
 import lib.editors.base.engine.WRITABLE_FORMATS
@@ -89,6 +92,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private val savedCopies = mutableListOf<Uri>()
     private var documentSaved = false
     private var editing = false
+
+    // PDF files: the current copy (changes are saved into new copies) and whether it changed
+    private var pdfFile: File? = null
+    private var pdfPassword = ""
+    private var pdfEdited = false
+    private var pdfText: PdfText? = null
     private val hiddenTools = mutableListOf<View>()
     private var documentUi: DocumentUi? = null
     private var commentsUi: CommentsUi? = null
@@ -337,6 +346,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                         return@launch
                     }
                     drawingDocument = result.document
+                    documentUri = uri
+                    pdfFile = file
+                    pdfPassword = password
                     setResult(RESULT_OK, Intent().setData(uri).putExtra(EditorsContract.EXTRA_IS_MODIFIED, false))
                     findViewById<View>(R.id.documentProgress).isVisible = false
                     val pages = opened.second.orEmpty()
@@ -346,7 +358,15 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                             documentView.setEditorState(state)
                             searchBar?.update(state.search)
                         },
-                        onLink = { url -> showLink(url, url?.let { { openUrl(it) } }) },
+                        // Places in the file are shown at once; web addresses in the link bar
+                        onLink = { link ->
+                            if (link != null && link.destPage >= 0) {
+                                showLink(null, null)
+                                documentView.goToPage(link.destPage, link.destY)
+                            } else {
+                                showLink(link?.url, link?.url?.let { url -> { openUrl(url) } })
+                            }
+                        },
                         onCopy = { text ->
                             getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText(null, text))
                         })
@@ -354,6 +374,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     documentView.readOnly = true
                     addSearchBar(pdfText)
                     showToolbar(editable = false)
+                    showPageTools(result.document, pages)
+                    this@BaseEditorActivity.pdfText = pdfText
+                    if (file.extension.equals("pdf", ignoreCase = true) && isEditable()) enablePdfChanges(pdfText)
                 }
                 DrawingFileResult.NeedsPassword -> askPassword(wrong = password.isNotEmpty()) { openDrawingFile(uri, file, it) }
                 DrawingFileResult.Failed -> finish()
@@ -589,6 +612,108 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         }
     }
 
+    // PDF files: marking selected text up and signing, written into the file
+    private fun enablePdfChanges(text: PdfText) {
+        fun markup(type: Int, color: FloatArray) = lifecycleScope.launch {
+            applyPdfChanges(text.takeSelectionMarkups(type, color), emptyList())
+        }
+        documentView.selectionActions = listOf(
+            getString(Resources.string.editors_pdf_highlight) to { markup(8, floatArrayOf(1f, 0.92f, 0.23f)) },
+            getString(Resources.string.editors_pdf_underline) to { markup(9, floatArrayOf(0.2f, 0.4f, 0.85f)) },
+            getString(Resources.string.editors_pdf_strikeout) to { markup(11, floatArrayOf(0.85f, 0.15f, 0.15f)) }
+        )
+        findViewById<View>(R.id.toolSign).isVisible = true
+        findViewById<View>(R.id.toolSign).setOnClickListener {
+            SignaturePad(this) { picture, aspect ->
+                toast(getString(Resources.string.editors_sign_tap))
+                text.onPlace = { page, x, y ->
+                    val width = 50f
+                    val height = width / aspect
+                    applyPdfChanges(emptyList(), listOf(PdfImage(page, picture.path, x - width / 2, y - height / 2, width, height)))
+                }
+            }.show()
+        }
+    }
+
+    // Saves the PDF with the changes into a new copy and shows that one
+    private fun applyPdfChanges(markups: List<PdfMarkup>, images: List<PdfImage>) {
+        if (markups.isEmpty() && images.isEmpty()) return
+        val document = drawingDocument ?: return
+        val uri = documentUri ?: return
+        val current = pdfFile ?: return
+        val text = pdfText ?: return
+        // Not drawn while it is saved and closed
+        drawingDocument = null
+        val page = documentView.visiblePage()
+        lifecycleScope.launch {
+            val target = File(cacheDir, "pdf-edit/edit-${System.currentTimeMillis()}.pdf").apply { parentFile?.mkdirs() }
+            val author = getSharedPreferences("lib.editors.comments", MODE_PRIVATE).getString("user_name", null).orEmpty()
+            val error = withContext(EditorEngine.dispatcher) { document.saveWithChanges(target.path, markups, images, author) }
+            if (error != 0) toast(getString(Resources.string.editors_save_failed, error))
+            val file = if (error == 0) target else current
+            val reopened = withContext(EditorEngine.dispatcher) {
+                (EditorEngine.openDrawingFile(this@BaseEditorActivity, file, pdfPassword) as? DrawingFileResult.Opened)?.document
+            }
+            if (reopened == null) {
+                finish()
+                return@launch
+            }
+            drawingDocument = reopened
+            if (error == 0) {
+                pdfFile = target
+                pdfEdited = true
+                setResult(RESULT_OK, Intent().setData(uri).putExtra(EditorsContract.EXTRA_IS_MODIFIED, true))
+            }
+            text.replaceDocument(reopened)
+            documentView.reloadPages()
+            documentView.goToPage(page)
+        }
+    }
+
+    // PDF, XPS and DjVu: page thumbnails and the outline with going to a page
+    private fun showPageTools(file: PagedDocument, pages: List<PageSize>) {
+        val strip = PageStrip(this, lifecycleScope, pages,
+            render = { page, width, height -> renderTile(page, width, height, 0, 0, width, height) },
+            onPage = { documentView.goToPage(it) })
+        val root = findViewById<ViewGroup>(R.id.editorRoot)
+        root.addView(strip.view, root.indexOfChild(findViewById(R.id.editorToolbar)))
+        documentView.onVisiblePageChanged = { strip.setCurrent(it) }
+        findViewById<View>(R.id.toolPages).isVisible = true
+        findViewById<View>(R.id.toolPages).setOnClickListener { strip.toggle() }
+        findViewById<View>(R.id.toolOutline).isVisible = true
+        findViewById<View>(R.id.toolOutline).setOnClickListener {
+            lifecycleScope.launch {
+                val outline = withContext(EditorEngine.dispatcher) { file.fileOutline() }
+                val labels = listOf(getString(Resources.string.editors_doc_go_to_page)) +
+                    outline.map { "\u2003".repeat((it.level - 1).coerceAtLeast(0)) + it.title }
+                AlertDialog.Builder(this@BaseEditorActivity)
+                    .setTitle(Resources.string.editors_pages_contents)
+                    .setItems(labels.toTypedArray()) { _, position ->
+                        if (position == 0) askPage(pages.size) else outline[position - 1].let { documentView.goToPage(it.page, it.yMm) }
+                    }
+                    .show()
+            }
+        }
+    }
+
+    private fun askPage(pageCount: Int) {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText((documentView.visiblePage() + 1).toString())
+            selectAll()
+        }
+        val padding = (20 * resources.displayMetrics.density).toInt()
+        AlertDialog.Builder(this)
+            .setTitle(getString(Resources.string.editors_pages_go_to, pageCount))
+            .setView(FrameLayout(this).apply {
+                setPadding(padding, 0, padding, 0)
+                addView(input)
+            })
+            .setPositiveButton(android.R.string.ok) { _, _ -> input.text.toString().toIntOrNull()?.let { documentView.goToPage(it - 1) } }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
     // ---------------------------------------------------------------------------------
     // Find, links
 
@@ -646,6 +771,22 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     /** Leaves the editor, saving the edits first; asks what to do if that doesn't work. */
     private fun leave() {
+        // A changed PDF goes back into the file the app gave
+        if (pdfEdited) {
+            val file = pdfFile
+            val uri = documentUri
+            pdfEdited = false
+            lifecycleScope.launch {
+                val written = withContext(Dispatchers.IO) {
+                    runCatching {
+                        contentResolver.openOutputStream(uri!!, "wt")?.use { output -> file!!.inputStream().use { it.copyTo(output) } }
+                    }.getOrNull() != null
+                }
+                if (!written) toast(getString(Resources.string.editors_save_failed, WRITE_ERROR))
+                finish()
+            }
+            return
+        }
         if (!modified) {
             finish()
             return
@@ -869,7 +1010,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         val ENGINE_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION, EditorsType.CELLS)
         const val LAYOUT_SLICE_MS = 30
         // Toolbar buttons also when viewing
-        private val VIEWING_TOOLS = setOf(R.id.toolSearch, R.id.toolFile, R.id.toolComments, R.id.toolSlideshow, R.id.toolEdit)
+        private val VIEWING_TOOLS = setOf(
+            R.id.toolSearch, R.id.toolFile, R.id.toolComments, R.id.toolSlideshow, R.id.toolEdit, R.id.toolPages, R.id.toolOutline,
+            R.id.toolSign
+        )
         const val UNSUPPORTED_FORMAT = -1
         const val WRITE_ERROR = -2
     }
