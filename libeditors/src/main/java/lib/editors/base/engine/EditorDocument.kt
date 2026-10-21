@@ -255,6 +255,45 @@ interface EditorDocument : PagedDocument {
     fun endFind(): EditorState = command("eoEngine.endFind()")
 
     // ---------------------------------------------------------------------------------
+    // Comments (all editors)
+
+    /** The author of new comments and replies. */
+    fun setCommentUser(id: String, name: String) {
+        execute("eoEngine.setCommentUser(${JSONObject.quote(id)}, ${JSONObject.quote(name)})")
+    }
+
+    fun comments(): List<Comment> {
+        val json = org.json.JSONArray(execute("eoEngine.getComments()"))
+        return (0 until json.length()).map { i ->
+            val comment = json.getJSONObject(i)
+            val replies = comment.optJSONArray("replies") ?: org.json.JSONArray()
+            Comment(
+                comment.getString("id"), comment.optString("text"), comment.optString("user"),
+                comment.optString("time").toLongOrNull() ?: 0L, comment.optString("quote"), comment.optBoolean("solved"),
+                (0 until replies.length()).map { r ->
+                    val reply = replies.getJSONObject(r)
+                    CommentReply(reply.optString("text"), reply.optString("user"), reply.optString("time").toLongOrNull() ?: 0L)
+                },
+                comment.optInt("page", -1), comment.optDouble("x", 0.0), comment.optDouble("y", 0.0),
+                comment.optInt("sheet", -1), comment.optInt("col", -1), comment.optInt("row", -1)
+            )
+        }
+    }
+
+    /** On the selection (documents: or the word at the cursor; spreadsheets: the active cell; presentations: the slide). */
+    fun addComment(text: String): EditorState = command("eoEngine.addComment(${JSONObject.quote(text)})")
+
+    fun replyComment(id: String, text: String): EditorState =
+        command("eoEngine.replyComment(${JSONObject.quote(id)}, ${JSONObject.quote(text)})")
+
+    fun resolveComment(id: String, solved: Boolean): EditorState = command("eoEngine.resolveComment(${JSONObject.quote(id)}, $solved)")
+
+    fun deleteComment(id: String): EditorState = command("eoEngine.deleteComment(${JSONObject.quote(id)})")
+
+    /** Shows the comment: selects its text, cell or slide. */
+    fun gotoComment(id: String): EditorState = command("eoEngine.gotoComment(${JSONObject.quote(id)})")
+
+    // ---------------------------------------------------------------------------------
     // Charts (all editors)
 
     /** A chart of the type (Asc.c_oAscChartTypeSettings): with sample data, or in spreadsheets from the selected cells. */

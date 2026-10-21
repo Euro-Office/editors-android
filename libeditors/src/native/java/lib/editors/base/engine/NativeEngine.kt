@@ -13,7 +13,8 @@ internal object NativeEngine {
     external fun nativeInitialize(runtimeDir: String): Boolean
     external fun nativeCreateDocument(): Long
     external fun nativeDestroyDocument(handle: Long)
-    external fun nativeOpen(handle: Long, path: String, tempDir: String): Boolean
+    /** 0, x2t's error code or -1. */
+    external fun nativeOpen(handle: Long, path: String, tempDir: String, password: String): Int
     external fun nativeSave(handle: Long, path: String, extension: String): Int
     external fun nativeExecute(handle: Long, script: String): ByteArray
     external fun nativeGetPageCount(handle: Long): Int

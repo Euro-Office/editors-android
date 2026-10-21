@@ -59,20 +59,28 @@ object EditorEngine {
     }
 
     /** Opens [file] (docx, odt, ...); null if it can't be opened. Call on [dispatcher]. */
-    fun open(context: Context, file: File): EditorDocument? {
-        if (!initialize(context)) return null
+    fun open(context: Context, file: File): EditorDocument? =
+        (openDocument(context, file) as? DocumentResult.Opened)?.document
+
+    /**
+     * Opens [file] (docx, odt, ...); [password] is for encrypted files, which are saved with
+     * it again. Call on [dispatcher].
+     */
+    fun openDocument(context: Context, file: File, password: String = ""): DocumentResult {
+        if (!initialize(context)) return DocumentResult.Failed
 
         val tempDir = File(context.cacheDir, "editor").apply {
             deleteRecursively()
             mkdirs()
         }
         val handle = NativeEngine.nativeCreateDocument()
-        if (!NativeEngine.nativeOpen(handle, file.absolutePath, tempDir.absolutePath)) {
-            Log.e(TAG, "Can't open ${file.name}")
+        val result = NativeEngine.nativeOpen(handle, file.absolutePath, tempDir.absolutePath, password)
+        if (result != 0) {
+            Log.e(TAG, "Can't open ${file.name}: $result")
             NativeEngine.nativeDestroyDocument(handle)
-            return null
+            return if (result in X2T_PASSWORD_ERRORS) DocumentResult.NeedsPassword else DocumentResult.Failed
         }
-        return NativeEditorDocument(handle)
+        return DocumentResult.Opened(NativeEditorDocument(handle))
     }
 
     /**
@@ -92,6 +100,9 @@ object EditorEngine {
         NativeEngine.nativeDestroyDrawingDocument(handle)
         return if (result == NEEDS_PASSWORD) DrawingFileResult.NeedsPassword else DrawingFileResult.Failed
     }
+
+    // x2t's results for an encrypted file without (DRM) or with a wrong password
+    private val X2T_PASSWORD_ERRORS = setOf(90, 91)
 
     // eo::DrawingDocument::OpenResult
     private const val OPENED = 0

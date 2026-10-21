@@ -65,6 +65,14 @@ class PageLink(val url: String, val x: Float, val y: Float, val width: Float, va
     fun contains(px: Float, py: Float) = px >= x && px <= x + width && py >= y && py <= y + height
 }
 
+/** Result of [EditorEngine.openDocument]. */
+sealed interface DocumentResult {
+    class Opened(val document: EditorDocument) : DocumentResult
+    /** The file is encrypted, or the password was wrong: open it again with the password. */
+    data object NeedsPassword : DocumentResult
+    data object Failed : DocumentResult
+}
+
 /** Result of [EditorEngine.openDrawingFile]. */
 sealed interface DrawingFileResult {
     class Opened(val document: PagedDocument) : DrawingFileResult

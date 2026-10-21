@@ -181,6 +181,20 @@ data class ChartState(
 /** A chart's data: a value per category ([categories]) for each series ([series]); null for none. */
 data class ChartData(val series: List<String>, val categories: List<String>, val values: List<List<Double?>>)
 
+data class CommentReply(val text: String, val user: String, val time: Long)
+
+/**
+ * A comment with its replies. Where it is: [page] and [x], [y] (mm) in documents and
+ * presentations (page -1: on the whole presentation), [sheet], [col], [row] in spreadsheets.
+ * [quote] is the commented text (the cell's name in spreadsheets).
+ */
+data class Comment(
+    val id: String, val text: String, val user: String, val time: Long, val quote: String, val solved: Boolean,
+    val replies: List<CommentReply>,
+    val page: Int = -1, val x: Double = 0.0, val y: Double = 0.0,
+    val sheet: Int = -1, val col: Int = -1, val row: Int = -1
+)
+
 data class ToolbarState(
     val bold: Boolean = false,
     val italic: Boolean = false,
