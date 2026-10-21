@@ -121,6 +121,12 @@ data class TextFormat(
     val style: String = ""
 )
 
+/** Find and replace: the number of matches, the current one (0-based, -1 for none) and, after replace all, how many were replaced (-1 otherwise). */
+data class SearchState(val count: Int, val current: Int, val replaced: Int)
+
+/** The hyperlink at the cursor or in the active cell: a web address ([url]) or a place in the document ([anchor]). */
+data class Link(val url: String, val anchor: String)
+
 data class ToolbarState(
     val bold: Boolean = false,
     val italic: Boolean = false,
@@ -152,7 +158,12 @@ class EditorState(
     val error: String? = null,
     /** Spreadsheets: selection, active cell and sheets. */
     val sheet: SheetState? = null,
-    val format: TextFormat = TextFormat()
+    val format: TextFormat = TextFormat(),
+    /** The search, while find and replace is open. */
+    val search: SearchState? = null,
+    val link: Link? = null,
+    /** A web address to open, after following a link (reported once). */
+    val openUrl: String? = null
 ) {
     companion object {
         /** Throws [org.json.JSONException] if [json] isn't a state (the engine failed). */
@@ -184,7 +195,10 @@ class EditorState(
                 root.getBoolean("layoutPending"), root.getInt("currentPage"), root.getBoolean("modified"), toolbar,
                 root.optString("error").takeIf { it.isNotEmpty() && it != "null" },
                 root.optJSONObject("sheet")?.let { parseSheet(it) },
-                root.optJSONObject("format")?.let { parseFormat(it) } ?: TextFormat()
+                root.optJSONObject("format")?.let { parseFormat(it) } ?: TextFormat(),
+                root.optJSONObject("search")?.let { SearchState(it.optInt("count"), it.optInt("current", -1), it.optInt("replaced", -1)) },
+                root.optJSONObject("link")?.let { Link(it.optString("url"), it.optString("anchor")) },
+                root.optString("openUrl").takeIf { it.isNotEmpty() && it != "null" }
             )
         }
 

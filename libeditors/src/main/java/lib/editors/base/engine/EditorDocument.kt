@@ -238,6 +238,28 @@ interface EditorDocument : PagedDocument {
     /** Spreadsheet function names, for autocomplete. */
     fun functions(): List<String> = jsonStrings(execute("eoEngine.getFunctions()"))
 
+    // ---------------------------------------------------------------------------------
+    // Find and replace, links (all editors)
+
+    /**
+     * Selects the next (or previous) match of [text] from the cursor; spreadsheets search all
+     * sheets, and [wholeWords] means whole cells there. The state's search has the matches.
+     */
+    fun find(text: String, matchCase: Boolean, wholeWords: Boolean, forward: Boolean = true): EditorState =
+        command("eoEngine.find(${JSONObject.quote(text)}, $matchCase, $wholeWords, $forward)")
+
+    /** Replaces the current match and selects the next one, or replaces all matches ([all]). */
+    fun replace(text: String, replacement: String, matchCase: Boolean, wholeWords: Boolean, all: Boolean): EditorState =
+        command("eoEngine.replace(${JSONObject.quote(text)}, ${JSONObject.quote(replacement)}, $matchCase, $wholeWords, $all)")
+
+    fun endFind(): EditorState = command("eoEngine.endFind()")
+
+    /**
+     * Follows the link at the cursor (the state's link): places in the document are shown
+     * here; a web address comes back as the state's openUrl.
+     */
+    fun followLink(): EditorState = command("eoEngine.followLink()")
+
     fun undo(): EditorState = command("eoEngine.undo()")
 
     fun redo(): EditorState = command("eoEngine.redo()")

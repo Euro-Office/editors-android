@@ -23,6 +23,10 @@ internal object NativeEngine {
     external fun nativeOpenDrawing(handle: Long, path: String, password: String, tempDir: String): Int
     external fun nativeGetDrawingPageCount(handle: Long): Int
     external fun nativeGetDrawingPageSize(handle: Long, page: Int): DoubleArray
+    /** The page's text and its character boxes: [String, FloatArray]. */
+    external fun nativeGetDrawingPageText(handle: Long, page: Int): Array<Any>?
+    /** The page's links: [Array<String> of addresses, FloatArray of areas]. */
+    external fun nativeGetDrawingLinks(handle: Long, page: Int): Array<Any>?
     external fun nativeRenderDrawingTile(
         handle: Long, page: Int, pageWidth: Int, pageHeight: Int, x: Int, y: Int, bitmap: android.graphics.Bitmap
     ): Boolean
