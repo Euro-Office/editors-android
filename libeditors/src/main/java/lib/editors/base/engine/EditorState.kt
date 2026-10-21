@@ -170,6 +170,17 @@ data class SlideInfo(val hidden: Boolean, val layout: String, val transition: Sl
 /** A slide layout; [index] is for [EditorDocument.addSlide] and [EditorDocument.setLayout]. */
 data class SlideLayout(val index: Int, val name: String)
 
+/**
+ * The selected chart: [type] is Asc.c_oAscChartTypeSettings, [legend] Asc.c_oAscChartLegendShowSettings
+ * (0 none, 1 left, 2 top, 3 right, 4 bottom). In spreadsheets the data is in cells ([dataInCells]).
+ */
+data class ChartState(
+    val type: Int, val title: Boolean, val legend: Int, val labels: Boolean, val gridlines: Boolean, val dataInCells: Boolean
+)
+
+/** A chart's data: a value per category ([categories]) for each series ([series]); null for none. */
+data class ChartData(val series: List<String>, val categories: List<String>, val values: List<List<Double?>>)
+
 data class ToolbarState(
     val bold: Boolean = false,
     val italic: Boolean = false,
@@ -208,7 +219,8 @@ class EditorState(
     /** A web address to open, after following a link (reported once). */
     val openUrl: String? = null,
     /** Documents only. */
-    val structure: DocumentStructure? = null
+    val structure: DocumentStructure? = null,
+    val chart: ChartState? = null
 ) {
     companion object {
         /** Throws [org.json.JSONException] if [json] isn't a state (the engine failed). */
@@ -244,7 +256,13 @@ class EditorState(
                 root.optJSONObject("search")?.let { SearchState(it.optInt("count"), it.optInt("current", -1), it.optInt("replaced", -1)) },
                 root.optJSONObject("link")?.let { Link(it.optString("url"), it.optString("anchor")) },
                 root.optString("openUrl").takeIf { it.isNotEmpty() && it != "null" },
-                root.optJSONObject("structure")?.let { parseStructure(it) }
+                root.optJSONObject("structure")?.let { parseStructure(it) },
+                root.optJSONObject("chart")?.let {
+                    ChartState(
+                        it.optInt("type"), it.optBoolean("title"), it.optInt("legend"), it.optBoolean("labels"),
+                        it.optBoolean("gridlines"), it.optBoolean("dataInCells")
+                    )
+                }
             )
         }
 

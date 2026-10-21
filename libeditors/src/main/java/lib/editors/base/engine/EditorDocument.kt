@@ -255,6 +255,49 @@ interface EditorDocument : PagedDocument {
     fun endFind(): EditorState = command("eoEngine.endFind()")
 
     // ---------------------------------------------------------------------------------
+    // Charts (all editors)
+
+    /** A chart of the type (Asc.c_oAscChartTypeSettings): with sample data, or in spreadsheets from the selected cells. */
+    fun insertChart(type: Int): EditorState = command("eoEngine.insertChart($type)")
+
+    fun setChartType(type: Int): EditorState = command("eoEngine.setChartType($type)")
+
+    /**
+     * SmartArt of the type (Asc.c_oAscSmartArtTypes) from the definition [fileName] (without .bin)
+     * the engine has in sdkjs/common/SmartArts/SmartArtData.
+     */
+    fun insertSmartArt(type: Int, fileName: String): EditorState =
+        asyncCommand("eoEngine.insertSmartArt($type, ${JSONObject.quote(fileName)})")
+
+    /** The selected chart's title, legend position (Asc.c_oAscChartLegendShowSettings), value labels and gridlines. */
+    fun setChartElements(title: Boolean, legend: Int, labels: Boolean, gridlines: Boolean): EditorState =
+        command("eoEngine.setChartElements($title, $legend, $labels, $gridlines)")
+
+    /** The selected chart's data (documents and presentations), or null. */
+    fun chartData(): ChartData? {
+        val json = execute("eoEngine.getChartData()")
+        if (json == "null") return null
+        val root = JSONObject(json)
+        fun strings(name: String) = root.getJSONArray(name).let { array -> (0 until array.length()).map { array.optString(it) } }
+        val values = root.getJSONArray("values")
+        return ChartData(
+            strings("series"), strings("categories"),
+            (0 until values.length()).map { s ->
+                val row = values.getJSONArray(s)
+                (0 until row.length()).map { if (row.isNull(it)) null else row.getDouble(it) }
+            }
+        )
+    }
+
+    fun setChartData(data: ChartData): EditorState {
+        val json = JSONObject()
+            .put("series", org.json.JSONArray(data.series))
+            .put("categories", org.json.JSONArray(data.categories))
+            .put("values", org.json.JSONArray(data.values.map { row -> org.json.JSONArray(row.map { it ?: JSONObject.NULL }) }))
+        return command("eoEngine.setChartData($json)")
+    }
+
+    // ---------------------------------------------------------------------------------
     // Presentations: slides (the commands act on the current slide)
 
     fun slides(): List<SlideInfo> {

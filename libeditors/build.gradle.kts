@@ -79,6 +79,7 @@ val copyEngineAssets by tasks.registering(Copy::class) {
             "cell/sdk-all-min.js",
             "cell/sdk-all.js",
             "common/Native/*.js",
+            "common/SmartArts/**",
             "common/libfont/engine/fonts_native.js",
             "vendor/xregexp-all-min.js"
         )
