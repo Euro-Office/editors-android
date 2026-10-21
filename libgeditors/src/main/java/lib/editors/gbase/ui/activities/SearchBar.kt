@@ -45,6 +45,7 @@ internal class SearchBar(private val context: Context, private val target: Targe
     private lateinit var options: View
     private lateinit var matchCaseButton: TextView
     private lateinit var wholeWordsButton: TextView
+    private val replaceViews = mutableListOf<View>()
 
     val view: View = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
@@ -62,6 +63,8 @@ internal class SearchBar(private val context: Context, private val target: Targe
     val isShown get() = view.isVisible
 
     fun show() {
+        // Replacing only while the document can be edited
+        replaceViews.forEach { it.isVisible = target.canReplace }
         view.isVisible = true
         findText.requestFocus()
         findText.selectAll()
@@ -164,12 +167,11 @@ internal class SearchBar(private val context: Context, private val target: Targe
             searched = null
         }
         addView(wholeWordsButton)
-        replaceText = field(Resources.string.editors_search_replace_with).apply { isVisible = target.canReplace }
+        replaceText = field(Resources.string.editors_search_replace_with)
         addView(replaceText)
-        if (target.canReplace) {
-            addView(textButton(context.getString(Resources.string.editors_search_replace)) { replace(all = false) })
-            addView(textButton(context.getString(Resources.string.editors_search_replace_all)) { replace(all = true) })
-        }
+        replaceViews += replaceText
+        replaceViews += textButton(context.getString(Resources.string.editors_search_replace)) { replace(all = false) }.also { addView(it) }
+        replaceViews += textButton(context.getString(Resources.string.editors_search_replace_all)) { replace(all = true) }.also { addView(it) }
     }
 
     private fun field(hint: Int) = EditText(context).apply {

@@ -44,6 +44,9 @@ internal class DocumentUi(
     private val density = context.resources.displayMetrics.density
     private var structure = DocumentStructure()
 
+    /** Changes are always tracked (reviewing): recording can't be turned off. */
+    var trackChangesForced = false
+
     /** The bar for headers and footers, notes and tracked changes; above the toolbar. */
     val bar: LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -128,7 +131,9 @@ internal class DocumentUi(
         item(menu.menu, Resources.string.editors_doc_navigation) { showNavigation() }
         item(menu.menu, Resources.string.editors_doc_statistics) { showStatistics() }
         menu.menu.addSubMenu(Resources.string.editors_doc_review).let { sub ->
-            checkItem(sub, Resources.string.editors_doc_track_changes, structure.trackChanges) { edit { setTrackChanges(!structure.trackChanges) } }
+            if (!trackChangesForced) {
+                checkItem(sub, Resources.string.editors_doc_track_changes, structure.trackChanges) { edit { setTrackChanges(!structure.trackChanges) } }
+            }
             item(sub, Resources.string.editors_doc_next_change) { edit { reviewAction("next") } }
             item(sub, Resources.string.editors_doc_previous_change) { edit { reviewAction("previous") } }
             item(sub, Resources.string.editors_doc_accept_all) { edit { reviewAction("acceptAll") } }

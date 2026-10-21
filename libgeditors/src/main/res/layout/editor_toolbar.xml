@@ -14,8 +14,17 @@
         android:orientation="horizontal"
         android:paddingHorizontal="4dp">
 
+        <ImageButton android:id="@+id/toolEdit" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_edit" android:src="@drawable/ic_editor_edit"
+            android:visibility="gone" />
         <ImageButton android:id="@+id/toolSearch" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_search" android:src="@drawable/ic_editor_search" />
+        <ImageButton android:id="@+id/toolFile" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_file" android:src="@drawable/ic_editor_file"
+            android:visibility="gone" />
+        <ImageButton android:id="@+id/toolComments" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_comments" android:src="@drawable/ic_editor_comment"
+            android:visibility="gone" />
         <ImageButton android:id="@+id/toolSlideshow" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_slides_slideshow" android:src="@drawable/ic_editor_slideshow"
             android:visibility="gone" />

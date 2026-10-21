@@ -24,6 +24,8 @@ android {
 
 dependencies {
     implementation(project(":libtoolkit"))
+    // MessengerClient: users to mention in comments (DocSpace)
+    implementation(project(":libshared"))
     implementation(project(":libeditors"))
     implementation(project(":libresources"))
 

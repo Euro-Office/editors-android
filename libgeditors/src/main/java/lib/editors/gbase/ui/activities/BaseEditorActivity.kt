@@ -42,6 +42,7 @@ import lib.editors.base.engine.DrawingFileResult
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
+import lib.editors.base.engine.DocumentResult
 import lib.editors.base.engine.PagedDocument
 import lib.editors.base.engine.TouchAction
 import lib.editors.base.engine.WRITABLE_FORMATS
@@ -82,7 +83,15 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // Spreadsheets: the sheet instead of the document view
     private var spreadsheetUi: SpreadsheetUi? = null
     private var searchBar: SearchBar? = null
+    // The document's name without extension, the copies saved next to it for the app to
+    // upload (EditorsContract.EXTRA_SAVED_FILES) and whether the document itself was saved
+    private var baseName = "document"
+    private val savedCopies = mutableListOf<Uri>()
+    private var documentSaved = false
+    private var editing = false
+    private val hiddenTools = mutableListOf<View>()
     private var documentUi: DocumentUi? = null
+    private var commentsUi: CommentsUi? = null
     private var slidesUi: SlidesUi? = null
     private lateinit var linkBar: View
     private val isSpreadsheet get() = editorsType == EditorsType.CELLS
@@ -121,6 +130,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     }
 
     private fun setUpViewer() {
+        onBackPressedDispatcher.addCallback(this) { onBack() }
         if (isSpreadsheet) {
             setContentView(R.layout.activity_editor_cells)
         } else {
@@ -144,9 +154,6 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun showViewer(uri: Uri) {
         setUpViewer()
-        val progress = findViewById<View>(R.id.documentProgress)
-        val isEditable = isEditable()
-
         lifecycleScope.launch {
             val file = withContext(Dispatchers.IO) { runCatching { copyToCache(uri) }.getOrNull() }
             if (file == null) {
@@ -154,16 +161,38 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 finish()
                 return@launch
             }
+            openDocument(uri, file, password = "")
+        }
+    }
+
+    // Encrypted files ask for their password and are opened again with it
+    private fun openDocument(uri: Uri, file: File, password: String) {
+        val progress = findViewById<View>(R.id.documentProgress)
+        val isEditable = isEditable()
+
+        lifecycleScope.launch {
+            var needsPassword = false
             val opened = withContext(EditorEngine.dispatcher) {
                 var start = SystemClock.elapsedRealtime()
                 if (!EditorEngine.initialize(this@BaseEditorActivity)) return@withContext null
                 Log.i(TAG, "engine ready: ${SystemClock.elapsedRealtime() - start} ms")
 
                 start = SystemClock.elapsedRealtime()
-                val document = EditorEngine.open(this@BaseEditorActivity, file) ?: return@withContext null
+                val document = when (val result = EditorEngine.openDocument(this@BaseEditorActivity, file, password)) {
+                    is DocumentResult.Opened -> result.document
+                    DocumentResult.NeedsPassword -> {
+                        needsPassword = true
+                        return@withContext null
+                    }
+                    DocumentResult.Failed -> return@withContext null
+                }
                 val pages = (0 until document.pageCount).map { document.pageSize(it) }
                 Log.i(TAG, "open + layout: ${SystemClock.elapsedRealtime() - start} ms, ${pages.size} pages")
                 Triple(document, pages, document.state())
+            }
+            if (needsPassword) {
+                askPassword(wrong = password.isNotEmpty()) { openDocument(uri, file, it) }
+                return@launch
             }
             if (opened == null) {
                 finish()
@@ -172,8 +201,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
             document = opened.first
             documentUri = uri
+            updateResult()
             extension = file.extension.lowercase()
-            setResult(RESULT_OK, Intent().setData(uri).putExtra(EditorsContract.EXTRA_IS_MODIFIED, false))
+            baseName = file.nameWithoutExtension
             progress.isVisible = false
             if (isSpreadsheet) {
                 val sheetView = findViewById<SheetView>(R.id.sheetView)
@@ -186,23 +216,33 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 }, loadFunctions = { onLoaded ->
                     lifecycleScope.launch { onLoaded(withContext(EditorEngine.dispatcher) { openedDocument.functions() }) }
                 })
-                if (isEditable) spreadsheetUi?.enableEditing()
             } else {
                 documentView.setPages(opened.second, ::renderTile, lifecycleScope)
             }
-            // Viewing only: text can still be selected, copied and found
+            // Viewing: text can still be selected, copied and found
             if (!isSpreadsheet) {
                 documentView.editListener = editListener
-                documentView.readOnly = !isEditable
+                documentView.readOnly = true
             }
-            showToolbar(isEditable)
+            showToolbar(editable = false)
+            findViewById<View>(R.id.toolFile).isVisible = true
+            findViewById<View>(R.id.toolFile).setOnClickListener { fileUi.showMenu(it) }
+            // Comments: written when editing or with comment access (KEY_EDIT_ACCESS), read otherwise
+            val comments = CommentsUi(
+                this@BaseEditorActivity, lifecycleScope, { document }, { command -> edit(command = command) },
+                canComment = isEditable || editAccess() == EditorsContract.INTERNAL_EDIT_ACCESS_COMMENT,
+                fileId = intent.getStringExtra(EditorsContract.EXTRA_ITEM_ID)
+            )
+            commentsUi = comments
+            findViewById<View>(R.id.toolComments).isVisible = true
+            findViewById<View>(R.id.toolComments).setOnClickListener { comments.show() }
             if (editorsType == EditorsType.PRESENTATION) {
                 val firstSlide = opened.second.firstOrNull()
                 val ui = SlidesUi(
                     this@BaseEditorActivity, lifecycleScope, { document }, { command -> edit(command = command) },
                     render = { page, width, height -> renderTile(page, width, height, 0, 0, width, height) },
                     slideAspect = { firstSlide?.let { (it.widthMm / it.heightMm).toFloat() } ?: (16f / 9f) },
-                    editable = isEditable
+                    editable = false
                 )
                 val root = findViewById<ViewGroup>(R.id.editorRoot)
                 root.addView(ui.strip, root.indexOfChild(findViewById(R.id.editorToolbar)))
@@ -210,19 +250,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 findViewById<View>(R.id.toolSlideshow).isVisible = true
                 findViewById<View>(R.id.toolSlideshow).setOnClickListener { ui.startSlideshow() }
             }
-            if (isEditable && editorsType == EditorsType.DOCS) {
-                val ui = DocumentUi(this@BaseEditorActivity, lifecycleScope, documentView, { document }) { command -> edit(command = command) }
-                val root = findViewById<ViewGroup>(R.id.editorRoot)
-                root.addView(ui.bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
-                documentUi = ui
-            }
-            if (isEditable) {
-                bindToolbar()
-                onBackPressedDispatcher.addCallback(this@BaseEditorActivity) { leave() }
-            }
-            // After leaving's back callback: back closes the search bar first
             addSearchBar(object : SearchBar.Target {
-                override val canReplace = isEditable
+                override val canReplace get() = editing
                 override fun find(text: String, matchCase: Boolean, wholeWords: Boolean, forward: Boolean) =
                     edit { find(text, matchCase, wholeWords, forward) }
                 override fun replace(text: String, replacement: String, matchCase: Boolean, wholeWords: Boolean, all: Boolean) =
@@ -230,7 +259,48 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 override fun close() = edit { endFind() }
             })
             applyState(opened.third)
+            // The app may ask to show the document first (EditType.Edit.initialView): editing then starts with a button
+            if (isEditable && !startsInView()) {
+                enableEditing()
+            } else if (isEditable) {
+                findViewById<View>(R.id.toolEdit).isVisible = true
+                findViewById<View>(R.id.toolEdit).setOnClickListener { enableEditing() }
+            }
         }
+    }
+
+    /** From viewing to editing the document. */
+    private fun enableEditing() {
+        if (editing || document == null) return
+        editing = true
+        findViewById<View>(R.id.toolEdit).isVisible = false
+        showToolbar(editable = true)
+        if (isSpreadsheet) spreadsheetUi?.enableEditing() else documentView.readOnly = false
+        slidesUi?.editable = true
+        if (editorsType == EditorsType.DOCS) {
+            val ui = DocumentUi(this, lifecycleScope, documentView, { document }) { command -> edit(command = command) }
+            val root = findViewById<ViewGroup>(R.id.editorRoot)
+            root.addView(ui.bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
+            documentUi = ui
+            // Reviewers' changes are always tracked
+            if (editAccess() == EditorsContract.INTERNAL_EDIT_ACCESS_TRACKED_CHANGES) {
+                ui.trackChangesForced = true
+                edit { setTrackChanges(true) }
+            }
+        }
+        bindToolbar()
+    }
+
+    private fun editAccess() = intent.getIntExtra(EditorsContract.KEY_EDIT_ACCESS, EditorsContract.INTERNAL_EDIT_ACCESS_EDIT)
+
+    private fun startsInView(): Boolean {
+        @Suppress("DEPRECATION")
+        return (intent.getSerializableExtra(EditorsContract.KEY_EDIT_TYPE) as? EditType.Edit)?.initialView == true
+    }
+
+    // Back closes the search first; changes (edits, or comments when only commenting) are saved before leaving
+    private fun onBack() {
+        if (searchBar?.isShown == true) searchBar?.hide() else leave()
     }
 
     // ---------------------------------------------------------------------------------
@@ -317,7 +387,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private fun isEditable(): Boolean {
         @Suppress("DEPRECATION")
         val editType = intent.getSerializableExtra(EditorsContract.KEY_EDIT_TYPE) as? EditType
-        return editType == null || editType is EditType.Edit
+        // Reading and commenting only (KEY_EDIT_ACCESS) keep the document as it is
+        val access = editAccess()
+        val accessEdits = access == EditorsContract.INTERNAL_EDIT_ACCESS_EDIT ||
+            access == EditorsContract.INTERNAL_EDIT_ACCESS_TRACKED_CHANGES ||
+            access == EditorsContract.INTERNAL_EDIT_ACCESS_CUSTOM_FILTER
+        return (editType == null || editType is EditType.Edit) && accessEdits
     }
 
     // ---------------------------------------------------------------------------------
@@ -404,6 +479,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         searchBar?.update(state.search)
         slidesUi?.update(state)
         drawingUi.chart = state.chart
+        commentsUi?.onState()
         documentUi?.let { ui ->
             ui.update(state)
             findViewById<View>(R.id.toolTable).isVisible = ui.isInTable
@@ -520,9 +596,19 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private fun showToolbar(editable: Boolean) {
         val toolbar = findViewById<View>(R.id.editorToolbar)
         toolbar.isVisible = true
+        val buttons = findViewById<View>(R.id.toolSearch).parent as ViewGroup
         if (!editable) {
-            val buttons = findViewById<View>(R.id.toolSearch).parent as ViewGroup
-            for (i in 0 until buttons.childCount) buttons.getChildAt(i).isVisible = buttons.getChildAt(i).id == R.id.toolSearch
+            // The editing buttons come back when editing starts
+            for (i in 0 until buttons.childCount) {
+                val button = buttons.getChildAt(i)
+                if (button.isVisible && button.id !in VIEWING_TOOLS) {
+                    hiddenTools += button
+                    button.isVisible = false
+                }
+            }
+        } else {
+            hiddenTools.forEach { it.isVisible = true }
+            hiddenTools.clear()
         }
         findViewById<View>(R.id.toolSearch).setOnClickListener { searchBar?.show() }
     }
@@ -531,17 +617,6 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         val bar = SearchBar(this, target)
         findViewById<ViewGroup>(R.id.editorRoot).addView(bar.view, 0)
         searchBar = bar
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (bar.isShown) {
-                    bar.hide()
-                } else {
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
-                    isEnabled = true
-                }
-            }
-        })
     }
 
     private fun createLinkBar(): View = layoutInflater.inflate(R.layout.editor_link_bar, findViewById(R.id.editorRoot), false)
@@ -598,14 +673,14 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         // Taken now: onDestroy forgets it, but closes it only after this save (same thread)
         val document = document ?: return
         if (saving) return
-        if (extension !in WRITABLE_FORMATS) return onDone(UNSUPPORTED_FORMAT)
         saving = true
         // Not tied to the activity: saving finishes even if it is destroyed meanwhile
         CoroutineScope(Dispatchers.Main).launch {
             val (error, state) = withContext(EditorEngine.dispatcher) { saveInto(document, uri) to document.state() }
             saving = false
             if (error == 0) {
-                setResult(RESULT_OK, Intent().setData(uri).putExtra(EditorsContract.EXTRA_IS_MODIFIED, true))
+                documentSaved = extension in WRITABLE_FORMATS
+                updateResult()
             } else {
                 Log.e(TAG, "save failed: $error")
             }
@@ -614,8 +689,20 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         }
     }
 
-    // Runs on the engine's thread: x2t writes a file, which then replaces the document
+    // Runs on the engine's thread: x2t writes a file, which then replaces the document. Formats
+    // the engine can't write (doc, xls, ppt, ...) are saved as a modern copy next to it instead.
     private fun saveInto(document: EditorDocument, uri: Uri): Int {
+        if (extension !in WRITABLE_FORMATS) {
+            val format = modernFormat()
+            val dir = File(cacheDir, "editor-output").apply { mkdirs() }
+            val file = File(dir, "$baseName.$format")
+            file.delete()
+            val error = document.save(file.path, format)
+            if (error != 0) return error
+            val message = deliverCopy(file, "$baseName.$format")
+            runOnUiThread { toast(message) }
+            return 0
+        }
         val start = SystemClock.elapsedRealtime()
         val dir = File(cacheDir, "editor-output").apply { mkdirs() }
         val file = File(dir, "document.$extension")
@@ -633,6 +720,73 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         }
         Log.i(TAG, "saved: ${SystemClock.elapsedRealtime() - start} ms")
         return 0
+    }
+
+    private fun modernFormat() = when (editorsType) {
+        EditorsType.CELLS -> "xlsx"
+        EditorsType.PRESENTATION -> "pptx"
+        else -> "docx"
+    }
+
+    // Formats for "save as": the document's own (if the engine writes it) and the common ones
+    private fun copyFormats(): List<String> {
+        val common = when (editorsType) {
+            EditorsType.CELLS -> listOf("xlsx", "ods", "csv", "pdf")
+            EditorsType.PRESENTATION -> listOf("pptx", "odp", "pdf")
+            else -> listOf("docx", "odt", "rtf", "txt", "pdf")
+        }
+        return (listOfNotNull(extension.takeIf { it in WRITABLE_FORMATS }) + common).distinct()
+    }
+
+    /**
+     * Puts a copy of the document next to it: in the same folder for files on the device, or
+     * for the app to upload into the document's folder when the editor is closed. Returns a
+     * message for the user.
+     */
+    private fun deliverCopy(file: File, name: String): String {
+        val uri = documentUri
+        val path = uri?.takeIf { it.scheme == "file" }?.path
+        if (path != null) {
+            val folder = File(path).parentFile
+            if (folder != null && folder.canWrite()) {
+                val target = uniqueFile(folder, name)
+                file.copyTo(target, overwrite = true)
+                return getString(Resources.string.editors_file_saved_next_to, target.name)
+            }
+        }
+        val dir = File(cacheDir, "editor-copies").apply { mkdirs() }
+        val target = File(dir, name)
+        file.copyTo(target, overwrite = true)
+        // The app's FileProvider (documents-app-android) shares the cache directory
+        val copy = FileProvider.getUriForFile(this, "$packageName.asc.provider", target)
+        if (copy !in savedCopies) savedCopies += copy
+        runOnUiThread { updateResult() }
+        return getString(Resources.string.editors_file_saved_on_close, name)
+    }
+
+    private fun uniqueFile(folder: File, name: String): File {
+        var file = File(folder, name)
+        var number = 2
+        while (file.exists()) {
+            file = File(folder, "${name.substringBeforeLast('.')} ($number).${name.substringAfterLast('.')}")
+            number++
+        }
+        return file
+    }
+
+    private fun updateResult() {
+        val uri = documentUri ?: return
+        setResult(
+            RESULT_OK,
+            Intent().setData(uri)
+                .putExtra(EditorsContract.EXTRA_IS_MODIFIED, documentSaved)
+                .putParcelableArrayListExtra(EditorsContract.EXTRA_SAVED_FILES, ArrayList(savedCopies))
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        )
+    }
+
+    private val fileUi by lazy {
+        FileUi(this, lifecycleScope, { document }, copyFormats(), { baseName }, ::deliverCopy)
     }
 
     private fun saveErrorMessage(error: Int): String =
@@ -714,6 +868,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         const val TAG = "EditorViewer"
         val ENGINE_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION, EditorsType.CELLS)
         const val LAYOUT_SLICE_MS = 30
+        // Toolbar buttons also when viewing
+        private val VIEWING_TOOLS = setOf(R.id.toolSearch, R.id.toolFile, R.id.toolComments, R.id.toolSlideshow, R.id.toolEdit)
         const val UNSUPPORTED_FORMAT = -1
         const val WRITE_ERROR = -2
     }

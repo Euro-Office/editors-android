@@ -41,7 +41,8 @@ internal class SlidesUi(
     /** The slide at the given size in pixels. */
     private val render: suspend (page: Int, width: Int, height: Int) -> Bitmap?,
     private val slideAspect: () -> Float,
-    private val editable: Boolean
+    /** Whether slides can be changed (the menu); viewing shows only the slides. */
+    var editable: Boolean
 ) {
 
     private val density = context.resources.displayMetrics.density
@@ -116,12 +117,11 @@ internal class SlidesUi(
         }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START))
         contentDescription = context.getString(Resources.string.editors_slides_slide, index + 1)
         setOnClickListener { edit { gotoSlide(index) } }
-        if (editable) {
-            setOnLongClickListener {
-                edit { gotoSlide(index) }
-                showSlideMenu(this, index)
-                true
-            }
+        setOnLongClickListener {
+            if (!editable) return@setOnLongClickListener false
+            edit { gotoSlide(index) }
+            showSlideMenu(this, index)
+            true
         }
     }
 
