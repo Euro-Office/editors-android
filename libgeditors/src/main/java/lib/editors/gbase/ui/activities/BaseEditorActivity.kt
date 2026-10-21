@@ -62,6 +62,7 @@ import lib.editors.gbase.R
 import lib.editors.gbase.ui.clipboard.EditorClipboard
 import lib.editors.gbase.ui.views.DocumentView
 import lib.editors.gbase.ui.views.SheetView
+import lib.toolkit.base.managers.utils.CrashLog
 import lib.toolkit.base.managers.utils.EditType
 import lib.toolkit.base.managers.utils.EditorsContract
 import lib.toolkit.base.managers.utils.EditorsType
@@ -658,9 +659,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             val result = withContext(EditorEngine.dispatcher) {
                 val document = document ?: return@withContext null
                 // A failed command changes nothing; editing goes on
-                val state = runCatching { document.command() }.onFailure { Log.e(TAG, "command failed", it) }.getOrNull()
+                // Errors are kept for crash reports (CrashLog)
+                val state = runCatching { document.command() }.onFailure { CrashLog.note(it) }.getOrNull()
                     ?: return@withContext null
-                state.error?.let { Log.e(TAG, "sdkjs: $it") }
+                state.error?.let { CrashLog.note("sdkjs: ${it.take(MAX_ERROR_CHARS)}") }
                 // Page count or sizes may change while editing
                 val pages = if (state.layoutChanged) (0 until document.pageCount).map { document.pageSize(it) } else null
                 state to pages
@@ -1243,6 +1245,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         const val TAG = "EditorViewer"
         val ENGINE_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION, EditorsType.CELLS)
         const val LAYOUT_SLICE_MS = 30
+        const val MAX_ERROR_CHARS = 2000
         const val SPELL_SLICE_MS = 30
         const val MAX_SUGGESTIONS = 3
         const val SPELLING_PREFERENCES = "lib.editors.spelling"

@@ -119,8 +119,58 @@ val copyEngineAssets by tasks.registering(Copy::class) {
     }
 }
 
+// The licences of what the editors contain (assets/editors-licenses.html, linked from the app's
+// licences page): the third-party lists of core and sdkjs, Hunspell, the fonts and dictionaries
+val editorsLicenses by tasks.registering {
+    val sources = listOf(androidEditorsDir.resolve("core/3DPARTY.md"), file("$sdkjsDir/3DPARTY.md"))
+    inputs.files(sources)
+    val output = engineAssetsDir.map { it.file("editors-licenses.html") }
+    outputs.file(output)
+    doLast {
+        fun escape(text: String) = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        // "- name ([licence](url))" lines of the 3DPARTY.md files
+        val item = Regex("""^- (.+?) \(\[(.+?)]\((.+?)\)\)""")
+        val components = sources.filter { it.exists() }.flatMap { it.readLines() }.mapNotNull { item.find(it.trim()) }
+            .map { Triple(it.groupValues[1].trim(), it.groupValues[2], it.groupValues[3]) } +
+            Triple("hunspell (spell checking)", "MPL-1.1 / GPL-2.0 / LGPL-2.1", "https://github.com/hunspell/hunspell/blob/master/COPYING.MPL")
+        val fonts = listOf(
+            Triple("Liberation fonts", "SIL Open Font License 1.1", "https://github.com/liberationfonts/liberation-fonts/blob/main/LICENSE"),
+            Triple("Carlito", "SIL Open Font License 1.1", "https://github.com/googlefonts/carlito/blob/main/OFL.txt"),
+            Triple("Caladea", "SIL Open Font License 1.1", "https://github.com/huertatipografica/Caladea/blob/master/OFL.txt"),
+            Triple("Open Sans", "Apache License 2.0", "https://www.apache.org/licenses/LICENSE-2.0")
+        )
+        fun list(items: List<Triple<String, String, String>>) = items.distinctBy { it.first }.joinToString("\n") { (name, licence, url) ->
+            "<li><b>${escape(name)}</b>: <a href=\"${escape(url)}\">${escape(licence)}</a></li>"
+        }
+        output.get().asFile.apply { parentFile.mkdirs() }.writeText("""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body { font-family: sans-serif; margin: 16px; } @media (prefers-color-scheme: dark) { body { background: #121212; color: #e0e0e0; } a { color: #8ab4f8; } }</style>
+</head><body>
+<h3>Document editors</h3>
+<p>The document, spreadsheet, presentation and PDF editors are free software under the
+<a href="https://www.gnu.org/licenses/agpl-3.0.html">GNU Affero General Public License 3.0</a>:
+<a href="https://github.com/Euro-Office/editors-android">editors-android</a>,
+<a href="https://github.com/Euro-Office/core">core</a>,
+<a href="https://github.com/Euro-Office/sdkjs">sdkjs</a> and
+<a href="https://github.com/Euro-Office/sdkjs-forms">sdkjs-forms</a>, by the Euro-Office contributors, based on ONLYOFFICE by Ascensio System SIA.</p>
+<h3>Third-party components</h3>
+<ul>
+${list(components)}
+</ul>
+<h3>Fonts</h3>
+<ul>
+${list(fonts)}
+</ul>
+<h3>Dictionaries</h3>
+<p>Spell checking uses the Hunspell dictionaries of <a href="https://github.com/Euro-Office/dictionaries">Euro-Office/dictionaries</a>,
+each under the licence given in its folder there.</p>
+</body></html>
+""")
+    }
+}
+
 if (hasNativeCore) {
-    tasks.named("preBuild") { dependsOn(copyEngineAssets) }
+    tasks.named("preBuild") { dependsOn(copyEngineAssets, editorsLicenses) }
 }
 
 dependencies {
