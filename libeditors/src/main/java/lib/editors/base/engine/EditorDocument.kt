@@ -79,11 +79,18 @@ interface EditorDocument : Closeable {
 
     fun selectAll(): EditorState = command("eoEngine.selectAll()")
 
+    /**
+     * Continues work sdkjs left for later, like laying out the pages after the first ones,
+     * for up to [budgetMs]. Commands between ticks run without waiting for the whole layout.
+     */
+    fun tick(budgetMs: Int): EditorState = command("eoEngine.tick($budgetMs)")
+
     fun undo(): EditorState = command("eoEngine.undo()")
 
     fun redo(): EditorState = command("eoEngine.redo()")
 
-    private fun command(script: String): EditorState = EditorState.parse(execute("$script; eoEngine.getState()"))
+    private fun command(script: String): EditorState =
+        EditorState.parse(execute("try { $script; } catch (e) { eoEngine.reportError(e); } eoEngine.getState()"))
 }
 
 /** Copied content: [internal] is empty when the selection can't be copied in sdkjs' format. */

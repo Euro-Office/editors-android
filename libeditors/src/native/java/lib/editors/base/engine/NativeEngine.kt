@@ -7,6 +7,9 @@ internal object NativeEngine {
         System.loadLibrary("eoengine")
     }
 
+    /** Loads the libraries (in the initializer). */
+    fun load() = Unit
+
     external fun nativeInitialize(runtimeDir: String): Boolean
     external fun nativeCreateDocument(): Long
     external fun nativeDestroyDocument(handle: Long)

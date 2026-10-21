@@ -35,11 +35,16 @@ class EditorState(
     val selection: List<SelectionArea>,
     val dirtyPages: Set<Int>,
     val layoutChanged: Boolean,
+    /** Pages are still to be laid out: call [EditorDocument.tick] until this is false. */
+    val layoutPending: Boolean,
     /** Changed since opening or the last save. */
     val modified: Boolean,
-    val toolbar: ToolbarState
+    val toolbar: ToolbarState,
+    /** The exception sdkjs threw in the command, if any (the state is still valid). */
+    val error: String? = null
 ) {
     companion object {
+        /** Throws [org.json.JSONException] if [json] isn't a state (the engine failed). */
         fun parse(json: String): EditorState {
             val root = JSONObject(json)
             val cursor = root.optJSONObject("cursor")?.let {
@@ -61,7 +66,10 @@ class EditorState(
                 canUndo = ui.optBoolean("CanUndo"),
                 canRedo = ui.optBoolean("CanRedo")
             )
-            return EditorState(cursor, selection, dirtyPages, root.getBoolean("layoutChanged"), root.getBoolean("modified"), toolbar)
+            return EditorState(
+                cursor, selection, dirtyPages, root.getBoolean("layoutChanged"), root.getBoolean("layoutPending"),
+                root.getBoolean("modified"), toolbar, root.optString("error").takeIf { it.isNotEmpty() && it != "null" }
+            )
         }
     }
 }

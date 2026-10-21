@@ -2,6 +2,7 @@ package lib.editors.base.engine
 
 import android.content.Context
 import android.content.res.AssetManager
+import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -50,6 +51,9 @@ object EditorEngine {
             X2t.setFonts(arrayOf(File(runtimeDir, "bundled-fonts").absolutePath), fontsDir.absolutePath)
         }
 
+        var start = SystemClock.elapsedRealtime()
+        NativeEngine.load()
+        Log.i(TAG, "load libraries: ${SystemClock.elapsedRealtime() - start} ms")
         isInitialized = NativeEngine.nativeInitialize(runtimeDir.absolutePath)
         return isInitialized
     }
