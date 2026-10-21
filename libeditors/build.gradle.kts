@@ -183,6 +183,11 @@ dependencies {
         implementation(project(":libx2t"))
     }
 
+    // Co-editing: the Document Server's socket.io (Android has org.json)
+    implementation("io.socket:socket.io-client:2.1.2") {
+        exclude(group = "org.json", module = "json")
+    }
+
     testImplementation(libs.junit)
     // Android's org.json is only a stub on the JVM
     testImplementation("org.json:json:20260814")

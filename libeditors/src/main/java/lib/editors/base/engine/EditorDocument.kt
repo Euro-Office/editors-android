@@ -530,6 +530,33 @@ interface EditorDocument : PagedDocument {
         }
     }
 
+    // ---------------------------------------------------------------------------------
+    // Co-editing through a Document Server (see CoEditingConnection)
+
+    /** Joins the session of an editor configuration (JSON: document, editorConfig, token, ...). */
+    fun coOpen(config: String): EditorState = command("eoEngine.coOpen(${JSONObject.quote(config)})")
+
+    /** What sdkjs sends: [{type: "connect", options} | {type: "emit", name, data} | {type: "disconnect"}]. */
+    fun coTakeOutbox(): String = execute("eoEngine.coTakeOutbox()").ifEmpty { "[]" }
+
+    /** An event of the socket (connect, message, disconnect, connect_error), its arguments as a JSON array. */
+    fun coReceive(name: String, args: String): EditorState =
+        command("eoEngine.coReceive(${JSONObject.quote(name)}, ${JSONObject.quote(args)})")
+
+    /** A file the server converted, downloaded for its URL (the document's Editor.bin). */
+    fun coSetFile(url: String, path: String) {
+        execute("eoEngine.coSetFile(${JSONObject.quote(url)}, ${JSONObject.quote(path)})")
+    }
+
+    /** sdkjs' timers while co-editing: layout, sending changes, applying the others'. */
+    fun coTick(budgetMs: Int): EditorState = command("eoEngine.tick($budgetMs); eoEngine.coTick()")
+
+    /**
+     * Whether the engine started again on the server's version of the document since the last
+     * call: pages, languages and translations are to be set again.
+     */
+    fun coTakeReloaded(): Boolean = execute("String(eoEngine.coTakeReloaded())") == "true"
+
     /** Texts sdkjs puts into documents (table of contents, headers, ...), by their English text. */
     fun setTranslations(translations: Map<String, String>) {
         execute("eoEngine.setTranslations(${JSONObject(translations)})")

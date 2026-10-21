@@ -38,10 +38,13 @@ import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import lib.editors.base.convert.DocumentConverter
 import lib.editors.base.engine.Alignment
+import lib.editors.base.engine.CoEditingConnection
 import lib.editors.base.engine.DrawingFileResult
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
@@ -152,6 +155,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        stopCoEditing()
         val documents = listOfNotNull(document, drawingDocument)
         document = null
         drawingDocument = null
@@ -316,7 +320,66 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 findViewById<View>(R.id.toolEdit).isVisible = true
                 findViewById<View>(R.id.toolEdit).setOnClickListener { enableEditing() }
             }
+            // Co-editing through the integration's Document Server (Nextcloud): the copy just
+            // opened is replaced by the session's version
+            val editorConfig = intent.getStringExtra(EditorsContract.KEY_DOC_SERVER)
+            if (editorConfig != null && isEditable && editorsType == EditorsType.DOCS) startCoEditing(editorConfig)
         }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Co-editing: sdkjs' co-authoring client in the engine talks through the connection
+    // (socket.io); the server's events go to the engine in their order, sdkjs' timers run every
+    // CO_TICK_MS and what sdkjs sends is carried after each command. The Document Server saves
+    // the document into the integration: the editor saves and uploads nothing.
+
+    private var coConnection: CoEditingConnection? = null
+
+    private fun startCoEditing(json: String) {
+        val config = runCatching { org.json.JSONObject(json) }.getOrNull() ?: return
+        val key = config.optJSONObject("document")?.optString("key").orEmpty()
+        val server = config.optString("documentServerUrl")
+        if (key.isEmpty() || server.isEmpty()) return
+        val events = Channel<CoEditingConnection.Event>(Channel.UNLIMITED)
+        coConnection = CoEditingConnection(server, key, File(cacheDir, "coediting")) { events.trySend(it) }
+        findViewById<View>(R.id.toolSave).isVisible = false
+        lifecycleScope.launch {
+            for (event in events) coEdit {
+                event.file?.let { (url, path) -> coSetFile(url, path) }
+                coReceive(event.name, event.args)
+            }
+        }
+        coEdit { coOpen(json) }
+        lifecycleScope.launch {
+            while (coConnection != null) {
+                delay(CO_TICK_MS)
+                coEdit { coTick(CO_TICK_BUDGET_MS) }
+            }
+        }
+    }
+
+    // A command, then what sdkjs sends goes out; after the session's document was loaded the
+    // pages and settings are read again
+    private fun coEdit(command: EditorDocument.() -> EditorState) = edit {
+        val state = command()
+        coConnection?.handle(coTakeOutbox())
+        if (coTakeReloaded()) {
+            setTranslations(EditorTranslations.sdkjs(this@BaseEditorActivity))
+            val pages = (0 until pageCount).map { pageSize(it) }
+            val languages = spellService?.let { EditorSpelling.dictionaries(this@BaseEditorActivity).installedLanguages() }
+            runOnUiThread {
+                documentView.updatePages(pages)
+                documentView.reloadPages()
+            }
+            languages?.let { setSpellLanguages(it) } ?: state()
+        } else {
+            state
+        }
+    }
+
+    private fun stopCoEditing() {
+        coConnection?.disconnect()
+        coConnection = null
     }
 
     /** From viewing to editing the document. */
@@ -992,12 +1055,19 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        // The app may be closed in the background: keep the edits
-        if (modified && !isChangingConfigurations) save {}
+        // The app may be closed in the background: keep the edits (co-editing: the server keeps them)
+        if (modified && !isChangingConfigurations && coConnection == null) save {}
     }
 
     /** Leaves the editor, saving the edits first; asks what to do if that doesn't work. */
     private fun leave() {
+        // Co-editing: the Document Server saves into the integration when everybody left
+        if (coConnection != null) {
+            stopCoEditing()
+            setResult(RESULT_OK, Intent().setData(documentUri).putExtra(EditorsContract.EXTRA_IS_MODIFIED, false))
+            finish()
+            return
+        }
         // A changed PDF goes back into the file the app gave
         if (pdfEdited) {
             val file = pdfFile
@@ -1245,6 +1315,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         const val TAG = "EditorViewer"
         val ENGINE_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION, EditorsType.CELLS)
         const val LAYOUT_SLICE_MS = 30
+        const val CO_TICK_MS = 100L
+        const val CO_TICK_BUDGET_MS = 20
         const val MAX_ERROR_CHARS = 2000
         const val SPELL_SLICE_MS = 30
         const val MAX_SUGGESTIONS = 3
