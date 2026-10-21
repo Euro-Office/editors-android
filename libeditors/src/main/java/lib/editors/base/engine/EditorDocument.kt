@@ -33,6 +33,10 @@ interface EditorDocument : Closeable {
     fun touch(action: TouchAction, page: Int, xMm: Double, yMm: Double, clickCount: Int = 1): EditorState =
         command("eoEngine.mouse(${action.value}, $page, $xMm, $yMm, $clickCount)")
 
+    /** Selects from the start to the end point, in page millimeters (selection handles). */
+    fun select(startPage: Int, startXMm: Double, startYMm: Double, endPage: Int, endXMm: Double, endYMm: Double): EditorState =
+        command("eoEngine.select($startPage, $startXMm, $startYMm, $endPage, $endXMm, $endYMm)")
+
     /** Key with its web key code (8 backspace, 13 enter, 37-40 arrows, 46 delete). */
     fun keyDown(keyCode: Int, shift: Boolean = false, ctrl: Boolean = false): EditorState =
         command("eoEngine.keyDown($keyCode, $shift, $ctrl)")
@@ -55,11 +59,27 @@ interface EditorDocument : Closeable {
 
     fun setAlignment(alignment: Alignment): EditorState = command("eoEngine.setAlign(${alignment.value})")
 
+    /** The selection as plain text and in sdkjs' internal format (keeps formatting). */
+    fun copy(): ClipboardContent = JSONObject(execute("eoEngine.copy()")).let {
+        ClipboardContent(it.getString("text"), it.getString("internal"))
+    }
+
+    fun cut(): EditorState = command("eoEngine.cut()")
+
+    /** Pastes [internal] if given (from [copy] in this app), [text] otherwise. */
+    fun paste(text: String, internal: String? = null): EditorState =
+        command("eoEngine.paste(${JSONObject.quote(text)}, ${JSONObject.quote(internal.orEmpty())})")
+
+    fun selectAll(): EditorState = command("eoEngine.selectAll()")
+
     fun undo(): EditorState = command("eoEngine.undo()")
 
     fun redo(): EditorState = command("eoEngine.redo()")
 
     private fun command(script: String): EditorState = EditorState.parse(execute("$script; eoEngine.getState()"))
 }
+
+/** Copied content: [internal] is empty when the selection can't be copied in sdkjs' format. */
+data class ClipboardContent(val text: String, val internal: String)
 
 enum class TouchAction(val value: Int) { DOWN(0), MOVE(1), UP(2) }
