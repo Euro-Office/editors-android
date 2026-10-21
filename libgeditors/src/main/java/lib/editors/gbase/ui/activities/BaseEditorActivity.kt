@@ -9,7 +9,10 @@ import android.provider.OpenableColumns
 import android.util.Log
 import android.view.View
 import android.view.WindowManager
+import android.text.InputType
 import android.widget.Button
+import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
@@ -28,9 +31,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import lib.editors.base.convert.DocumentConverter
 import lib.editors.base.engine.Alignment
+import lib.editors.base.engine.DrawingFileResult
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
+import lib.editors.base.engine.PagedDocument
 import lib.editors.base.engine.TouchAction
 import lib.editors.base.engine.WRITABLE_FORMATS
 import lib.editors.gbase.R
@@ -46,7 +51,8 @@ import java.io.File
  * Base for the editor activities the app launches by class name (see [EditorsContract]).
  *
  * Documents and presentations on the device are opened by the editor engine, for editing unless
- * the app asks for viewing only. Slides are shown below each other, like pages. Everything else is still a placeholder that reports
+ * the app asks for viewing only. Slides are shown below each other, like pages. PDF, XPS and DjVu
+ * files are shown read-only. Spreadsheets are still a placeholder that reports
  * [EditorsContract.RESULT_FAILED_OPEN].
  *
  * Edits are saved into the document the app passed (the save button, leaving the editor and
@@ -59,6 +65,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     @Volatile
     private var document: EditorDocument? = null
+
+    // PDF, XPS and DjVu files (PdfActivity), read-only
+    @Volatile
+    private var drawingDocument: PagedDocument? = null
 
     private lateinit var documentView: DocumentView
 
@@ -80,6 +90,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         val uri = intent.data
         if (uri != null && editorsType in ENGINE_EDITORS && EditorEngine.isAvailable) {
             showViewer(uri)
+        } else if (uri != null && editorsType == EditorsType.PDF && EditorEngine.isAvailable) {
+            showDrawingViewer(uri)
         } else {
             showPlaceholder(uri)
         }
@@ -87,16 +99,15 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        val document = document ?: return
-        this.document = null
-        CoroutineScope(EditorEngine.dispatcher).launch { document.close() }
+        val documents = listOfNotNull(document, drawingDocument)
+        document = null
+        drawingDocument = null
+        if (documents.isNotEmpty()) CoroutineScope(EditorEngine.dispatcher).launch { documents.forEach { it.close() } }
     }
 
-    private fun showViewer(uri: Uri) {
+    private fun setUpViewer() {
         setContentView(R.layout.activity_editor_viewer)
         documentView = findViewById(R.id.documentView)
-        val progress = findViewById<View>(R.id.documentProgress)
-        val isEditable = isEditable()
 
         // Room for the system bars and the keyboard (the toolbar stays above it). The window
         // is laid out edge to edge, so the keyboard's size arrives as insets.
@@ -106,6 +117,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             view.updatePadding(left = bars.left, top = bars.top, right = bars.right, bottom = bars.bottom)
             WindowInsetsCompat.CONSUMED
         }
+    }
+
+    private fun showViewer(uri: Uri) {
+        setUpViewer()
+        val progress = findViewById<View>(R.id.documentProgress)
+        val isEditable = isEditable()
 
         lifecycleScope.launch {
             val file = withContext(Dispatchers.IO) { runCatching { copyToCache(uri) }.getOrNull() }
@@ -144,6 +161,73 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             }
             applyState(opened.third)
         }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // PDF, XPS and DjVu: drawn by core's readers, without sdkjs
+
+    private fun showDrawingViewer(uri: Uri) {
+        setUpViewer()
+        lifecycleScope.launch {
+            val file = withContext(Dispatchers.IO) { runCatching { copyToCache(uri) }.getOrNull() }
+            if (file == null) {
+                Log.e(TAG, "Can't read $uri")
+                finish()
+                return@launch
+            }
+            openDrawingFile(uri, file, password = "")
+        }
+    }
+
+    private fun openDrawingFile(uri: Uri, file: File, password: String) {
+        lifecycleScope.launch {
+            val opened = withContext(EditorEngine.dispatcher) {
+                val start = SystemClock.elapsedRealtime()
+                val result = EditorEngine.openDrawingFile(this@BaseEditorActivity, file, password)
+                val pages = (result as? DrawingFileResult.Opened)?.document?.let { document ->
+                    (0 until document.pageCount).map { document.pageSize(it) }
+                }
+                Log.i(TAG, "open ${file.extension}: ${SystemClock.elapsedRealtime() - start} ms, ${pages?.size} pages")
+                result to pages
+            }
+            when (val result = opened.first) {
+                is DrawingFileResult.Opened -> {
+                    if (isDestroyed) {
+                        withContext(EditorEngine.dispatcher) { result.document.close() }
+                        return@launch
+                    }
+                    drawingDocument = result.document
+                    setResult(RESULT_OK, Intent().setData(uri).putExtra(EditorsContract.EXTRA_IS_MODIFIED, false))
+                    findViewById<View>(R.id.documentProgress).isVisible = false
+                    documentView.setPages(opened.second.orEmpty(), ::renderTile, lifecycleScope)
+                }
+                DrawingFileResult.NeedsPassword -> askPassword(wrong = password.isNotEmpty()) { openDrawingFile(uri, file, it) }
+                DrawingFileResult.Failed -> finish()
+            }
+        }
+    }
+
+    private fun askPassword(wrong: Boolean, onPassword: (String) -> Unit) {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            isSingleLine = true
+        }
+        val container = FrameLayout(this).apply {
+            val padding = (20 * resources.displayMetrics.density).toInt()
+            setPadding(padding, 0, padding, 0)
+            addView(input)
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(Resources.string.editors_password_title)
+            .setMessage(if (wrong) Resources.string.editors_password_wrong else Resources.string.editors_password_message)
+            .setView(container)
+            .setPositiveButton(Resources.string.editors_open) { _, _ -> onPassword(input.text.toString()) }
+            .setNegativeButton(android.R.string.cancel) { _, _ -> finish() }
+            .setOnCancelListener { finish() }
+            .create()
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+        dialog.show()
+        input.requestFocus()
     }
 
     private fun isEditable(): Boolean {
@@ -337,7 +421,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private suspend fun renderTile(page: Int, pageWidth: Int, pageHeight: Int, x: Int, y: Int, width: Int, height: Int): Bitmap? =
         withContext(EditorEngine.dispatcher) {
-            val document = document ?: return@withContext null
+            val document = document ?: drawingDocument ?: return@withContext null
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             val start = SystemClock.elapsedRealtime()
             val rendered = document.renderTile(page, pageWidth, pageHeight, x, y, bitmap)
