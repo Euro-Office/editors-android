@@ -11,6 +11,7 @@ internal object NativeEngine {
     external fun nativeCreateDocument(): Long
     external fun nativeDestroyDocument(handle: Long)
     external fun nativeOpen(handle: Long, path: String, tempDir: String): Boolean
+    external fun nativeExecute(handle: Long, script: String): ByteArray
     external fun nativeGetPageCount(handle: Long): Int
     external fun nativeGetPageSize(handle: Long, page: Int): DoubleArray
     external fun nativeRenderTile(
