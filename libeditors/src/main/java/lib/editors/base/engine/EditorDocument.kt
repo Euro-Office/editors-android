@@ -255,6 +255,44 @@ interface EditorDocument : PagedDocument {
     fun endFind(): EditorState = command("eoEngine.endFind()")
 
     // ---------------------------------------------------------------------------------
+    // Forms (documents with form fields)
+
+    fun forms(): List<FormField> {
+        val json = org.json.JSONArray(execute("eoEngine.getForms()"))
+        return (0 until json.length()).map { FormField.parse(json.getJSONObject(it)) }
+    }
+
+    /** Filling: only the fields of [role] ("" for the form's first role) take input. */
+    fun setFillMode(fill: Boolean, role: String = ""): EditorState = command("eoEngine.setFillMode($fill, ${JSONObject.quote(role)})")
+
+    /** The value of a field: text, checked, a list item's value or a date (yyyy-MM-dd). */
+    fun setFormValue(field: FormField, value: Any): EditorState {
+        val json = when (value) {
+            is Boolean -> value.toString()
+            else -> JSONObject.quote(if (field.type == "date") "${value}T00:00:00Z" else value.toString())
+        }
+        // Lists and text are applied once their fonts are checked (a promise)
+        return asyncCommand("eoEngine.setFormValue(${JSONObject.quote(field.id)}, ${JSONObject.quote(field.type)}, $json)")
+    }
+
+    /** A picture field gets a picture from the images directory (see [imagesDirectory]). */
+    fun setFormPicture(field: FormField, name: String, width: Int, height: Int): EditorState {
+        val picture = JSONObject().put("name", name).put("width", width).put("height", height)
+        return asyncCommand("eoEngine.setFormValue(${JSONObject.quote(field.id)}, ${JSONObject.quote(field.type)}, $picture)")
+    }
+
+    /** next, previous, nextRequired or clear (all fields). */
+    fun formAction(action: String): EditorState = command("eoEngine.formAction(${JSONObject.quote(action)})")
+
+    fun formRoles(): List<FormRole> {
+        val json = org.json.JSONArray(execute("eoEngine.getFormRoles()"))
+        return (0 until json.length()).map {
+            val role = json.getJSONObject(it)
+            FormRole(role.optString("name"), role.optString("color"), role.optInt("fieldCount"))
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
     // Comments (all editors)
 
     /** The author of new comments and replies. */
@@ -499,7 +537,7 @@ data class ClipboardContent(val text: String, val internal: String)
 
 /** Formats documents can be saved in, by extension; others (doc, ...) can only be opened. */
 val WRITABLE_FORMATS = setOf(
-    "docx", "docm", "dotx", "dotm", "odt", "ott", "rtf", "txt", "html", "epub", "fb2",
+    "docx", "docm", "dotx", "dotm", "docxf", "oform", "odt", "ott", "rtf", "txt", "html", "epub", "fb2",
     "pptx", "pptm", "ppsx", "ppsm", "potx", "potm", "odp", "otp",
     "xlsx", "xlsm", "xltx", "xltm", "ods", "ots", "csv",
     "pdf"

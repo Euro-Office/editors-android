@@ -195,6 +195,40 @@ data class Comment(
     val sheet: Int = -1, val col: Int = -1, val row: Int = -1
 )
 
+data class FormListItem(val text: String, val value: String)
+
+/**
+ * A form field: [type] text, complex, checkBox, radio, comboBox, dropDownList, picture,
+ * signature or date; [text] its content ("" while it shows its [placeholder]); where it is on
+ * [page] (mm).
+ */
+data class FormField(
+    val id: String, val key: String, val type: String, val placeholder: String, val required: Boolean,
+    val empty: Boolean, val text: String, val role: String, val help: String,
+    val checked: Boolean = false, val items: List<FormListItem> = emptyList(), val dateFormat: String = "",
+    val page: Int = -1, val x: Double = 0.0, val y: Double = 0.0, val width: Double = 0.0, val height: Double = 0.0
+) {
+    companion object {
+        internal fun parse(json: JSONObject): FormField {
+            val items = json.optJSONArray("items") ?: org.json.JSONArray()
+            return FormField(
+                json.getString("id"), json.optString("key"), json.optString("type"), json.optString("placeholder"),
+                json.optBoolean("required"), json.optBoolean("empty"), json.optString("text"), json.optString("role"),
+                json.optString("help"), json.optBoolean("checked"),
+                (0 until items.length()).map { FormListItem(items.getJSONObject(it).optString("text"), items.getJSONObject(it).optString("value")) },
+                json.optString("dateFormat"), json.optInt("page", -1),
+                json.optDouble("x", 0.0), json.optDouble("y", 0.0), json.optDouble("width", 0.0), json.optDouble("height", 0.0)
+            )
+        }
+    }
+}
+
+/** Documents with form fields: the one at the cursor, whether only fields take input and whether the required ones are filled. */
+data class FormsState(val current: FormField?, val filling: Boolean, val allRequiredFilled: Boolean)
+
+/** A role of a form with roles (oform): who fills which fields. [color] as "RRGGBB". */
+data class FormRole(val name: String, val color: String, val fieldCount: Int)
+
 data class ToolbarState(
     val bold: Boolean = false,
     val italic: Boolean = false,
@@ -234,7 +268,9 @@ class EditorState(
     val openUrl: String? = null,
     /** Documents only. */
     val structure: DocumentStructure? = null,
-    val chart: ChartState? = null
+    val chart: ChartState? = null,
+    /** Documents with form fields. */
+    val forms: FormsState? = null
 ) {
     companion object {
         /** Throws [org.json.JSONException] if [json] isn't a state (the engine failed). */
@@ -271,7 +307,10 @@ class EditorState(
                 root.optJSONObject("link")?.let { Link(it.optString("url"), it.optString("anchor")) },
                 root.optString("openUrl").takeIf { it.isNotEmpty() && it != "null" },
                 root.optJSONObject("structure")?.let { parseStructure(it) },
-                root.optJSONObject("chart")?.let {
+                forms = root.optJSONObject("forms")?.let {
+                    FormsState(it.optJSONObject("current")?.let { field -> FormField.parse(field) }, it.optBoolean("filling"), it.optBoolean("allRequiredFilled"))
+                },
+                chart = root.optJSONObject("chart")?.let {
                     ChartState(
                         it.optInt("type"), it.optBoolean("title"), it.optInt("legend"), it.optBoolean("labels"),
                         it.optBoolean("gridlines"), it.optBoolean("dataInCells")
