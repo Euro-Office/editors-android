@@ -25,7 +25,30 @@ internal class NativeDrawingDocument(private var handle: Long) : PagedDocument {
         @Suppress("UNCHECKED_CAST")
         val urls = result[0] as Array<String>
         val areas = result[1] as FloatArray
-        return urls.mapIndexed { i, url -> PageLink(url, areas[4 * i], areas[4 * i + 1], areas[4 * i + 2], areas[4 * i + 3]) }
+        return urls.mapIndexed { i, url ->
+            PageLink(url, areas[6 * i], areas[6 * i + 1], areas[6 * i + 2], areas[6 * i + 3], areas[6 * i + 4].toInt(), areas[6 * i + 5])
+        }
+    }
+
+    override fun fileOutline(): List<PageOutlineItem> {
+        val result = NativeEngine.nativeGetDrawingOutline(handle) ?: return emptyList()
+        @Suppress("UNCHECKED_CAST")
+        val titles = result[0] as Array<String>
+        val values = result[1] as FloatArray
+        return titles.mapIndexed { i, title -> PageOutlineItem(title, values[3 * i].toInt(), values[3 * i + 1].toInt(), values[3 * i + 2]) }
+    }
+
+    override fun saveWithChanges(path: String, markups: List<PdfMarkup>, images: List<PdfImage>, author: String): Int {
+        val ints = markups.flatMap { listOf(it.page, it.type, it.quads.size / 8) }.toIntArray()
+        val floats = markups.flatMap { it.color.toList() + it.quads.toList() }.toFloatArray()
+        val result = NativeEngine.nativeSaveDrawingWithChanges(
+            handle, path, ints, floats, author,
+            images.map { it.page }.toIntArray(), images.map { it.path }.toTypedArray(),
+            images.flatMap { listOf(it.x, it.y, it.width, it.height) }.toFloatArray()
+        )
+        // Closed by saving
+        close()
+        return result
     }
 
     override fun close() {

@@ -19,8 +19,17 @@ interface PagedDocument : Closeable {
     /** The text of [page] (PDF, XPS and DjVu files), or null if there is none. */
     fun pageText(page: Int): PageText? = null
 
-    /** Web addresses in the text of [page] (PDF files). */
+    /** Links on [page] (PDF files): web addresses and places in the file. */
     fun links(page: Int): List<PageLink> = emptyList()
+
+    /** The file's outline (bookmarks), in order. */
+    fun fileOutline(): List<PageOutlineItem> = emptyList()
+
+    /**
+     * PDF files: saves to [path] with the markups and pictures added (an incremental update).
+     * The document is closed then; open the saved file to go on. 0 or an error.
+     */
+    fun saveWithChanges(path: String, markups: List<PdfMarkup>, images: List<PdfImage>, author: String): Int = -1
 }
 
 /**
@@ -60,8 +69,27 @@ class PageText(val text: String, val boxes: FloatArray) {
     }
 }
 
-/** A web address in a page's text, with its area in mm from the page's top left. */
-class PageLink(val url: String, val x: Float, val y: Float, val width: Float, val height: Float) {
+/**
+ * Text marked up on a PDF page: [type] 8 highlight, 9 underline, 11 strikeout; [quads] four
+ * corners each (top left, top right, bottom left, bottom right as x, y in mm from the page's top
+ * left); [color] as red, green, blue from 0 to 1.
+ */
+class PdfMarkup(val page: Int, val type: Int, val color: FloatArray, val quads: FloatArray)
+
+/** A picture (PNG file) put on a PDF page, such as a drawn signature: its area in mm from the top left. */
+class PdfImage(val page: Int, val path: String, val x: Float, val y: Float, val width: Float, val height: Float)
+
+/** An outline entry of a PDF, XPS or DjVu file: [level] 1 for the top; the place is [page] and [yMm] from its top. */
+data class PageOutlineItem(val title: String, val level: Int, val page: Int, val yMm: Float)
+
+/**
+ * A link on a page, with its area in mm from the page's top left: a web address ([url]) or a
+ * place in the file ([destPage] >= 0, [destY] mm from its top).
+ */
+class PageLink(
+    val url: String, val x: Float, val y: Float, val width: Float, val height: Float,
+    val destPage: Int = -1, val destY: Float = 0f
+) {
     fun contains(px: Float, py: Float) = px >= x && px <= x + width && py >= y && py <= y + height
 }
 

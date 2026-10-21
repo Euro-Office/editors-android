@@ -28,6 +28,12 @@ internal object NativeEngine {
     external fun nativeGetDrawingPageText(handle: Long, page: Int): Array<Any>?
     /** The page's links: [Array<String> of addresses, FloatArray of areas]. */
     external fun nativeGetDrawingLinks(handle: Long, page: Int): Array<Any>?
+    /** The outline: [Array<String> of titles, FloatArray of level, page and y per entry]. */
+    external fun nativeGetDrawingOutline(handle: Long): Array<Any>?
+    external fun nativeSaveDrawingWithChanges(
+        handle: Long, path: String, markupInts: IntArray, markupFloats: FloatArray, author: String,
+        imagePages: IntArray, imagePaths: Array<String>, imageAreas: FloatArray
+    ): Int
     external fun nativeRenderDrawingTile(
         handle: Long, page: Int, pageWidth: Int, pageHeight: Int, x: Int, y: Int, bitmap: android.graphics.Bitmap
     ): Boolean
