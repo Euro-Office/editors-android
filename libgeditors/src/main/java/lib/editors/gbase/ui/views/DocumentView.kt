@@ -96,6 +96,12 @@ class DocumentView @JvmOverloads constructor(
     /** Editing: taps place the cursor and the keyboard sends text. Otherwise read-only. */
     var editListener: EditListener? = null
 
+    /**
+     * Viewing only: text can be selected and copied through [editListener], but nothing is
+     * typed, pasted or moved.
+     */
+    var readOnly = false
+
     // Layout at zoom 1, in view pixels
     private var pageWidth = 0f
     private val pageTops = mutableListOf<Float>()
@@ -197,9 +203,13 @@ class DocumentView @JvmOverloads constructor(
 
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
             if (editListener == null) return false
+            hideActionMenu()
+            if (readOnly) {
+                click(e.x, e.y, 1)
+                return true
+            }
             // A tap on the cursor opens the menu (paste, select all)
             val onCursor = isNearCursor(e.x, e.y)
-            hideActionMenu()
             click(e.x, e.y, 1)
             showKeyboard()
             if (onCursor) showActionMenu(insertion = true) else menuAfterUpdate = true
@@ -207,7 +217,7 @@ class DocumentView @JvmOverloads constructor(
         }
 
         override fun onDoubleTap(e: MotionEvent): Boolean {
-            if (editListener != null) {
+            if (editListener != null && !readOnly) {
                 click(e.x, e.y, 2)
                 menuAfterUpdate = true
             } else {
@@ -262,6 +272,7 @@ class DocumentView @JvmOverloads constructor(
     /** Shows the cursor and selection and draws changed pages again. */
     fun setEditorState(state: EditorState) {
         val previousCursor = editorState?.cursor
+        val previousSearch = editorState?.search
         val previousPage = editorState?.currentPage
         editorState = state
         for (page in state.dirtyPages) {
@@ -274,6 +285,8 @@ class DocumentView @JvmOverloads constructor(
         restartBlink()
         // Only when it moved: states also come from layout in the background, while scrolling
         if (editListener != null && state.cursor != null && state.cursor != previousCursor) scrollToCursor()
+        // Find selects the match
+        if (state.search != null && state.search != previousSearch) scrollToSelection()
         // Presentations: a new slide, for example, becomes the current one
         if (previousPage != null && state.currentPage != previousPage && state.currentPage in pageSizes.indices) {
             showPage(state.currentPage)
@@ -378,6 +391,23 @@ class DocumentView @JvmOverloads constructor(
         requestDetails()
     }
 
+    /** Scrolls so that the start of the selection is visible, with some room around it. */
+    fun scrollToSelection() {
+        val area = editorState?.selection?.firstOrNull { it.page in pageSizes.indices } ?: return
+        if (height == 0) return
+        val xs = (0 until 4).map { screenX(area.page, area.points[2 * it]) }
+        val ys = (0 until 4).map { screenY(area.page, area.points[2 * it + 1]) }
+        val margin = 96 * density
+        var dx = 0f
+        var dy = 0f
+        if (ys.max() > height - margin) dy = ys.max() - (height - margin) else if (ys.min() < margin) dy = ys.min() - margin
+        if (xs.max() > width - margin / 2) dx = xs.max() - (width - margin / 2) else if (xs.min() < margin / 2) dx = xs.min() - margin / 2
+        if (dx != 0f || dy != 0f) {
+            scrollTo(scrollPosX + dx, scrollPosY + dy)
+            requestDetails()
+        }
+    }
+
     private fun scrollToCursor() {
         val cursor = editorState?.cursor ?: return
         if (cursor.page !in pageSizes.indices || height == 0) return
@@ -441,7 +471,7 @@ class DocumentView @JvmOverloads constructor(
 
     // True if the event belongs to a drag of a picture or shape
     private fun handleDrawingTouch(event: MotionEvent): Boolean {
-        val listener = editListener ?: return false
+        val listener = editListener?.takeIf { !readOnly } ?: return false
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 drawingDragging = false
@@ -581,11 +611,11 @@ class DocumentView @JvmOverloads constructor(
             val hasDrawings = !insertionMenu && visibleDrawings().isNotEmpty()
             val hasSelection = !insertionMenu && (editorState?.selection?.isNotEmpty() == true || hasDrawings)
             val canPaste = context.getSystemService(ClipboardManager::class.java)?.hasPrimaryClip() == true
-            menu.findItem(android.R.id.cut).isVisible = hasSelection
+            menu.findItem(android.R.id.cut).isVisible = hasSelection && !readOnly
             menu.findItem(android.R.id.copy).isVisible = hasSelection
-            menu.findItem(android.R.id.paste).isVisible = canPaste
-            menu.findItem(android.R.id.selectAll).isVisible = !hasDrawings
-            menu.findItem(MENU_DELETE).isVisible = hasDrawings
+            menu.findItem(android.R.id.paste).isVisible = canPaste && !readOnly
+            menu.findItem(android.R.id.selectAll).isVisible = !hasDrawings && !readOnly
+            menu.findItem(MENU_DELETE).isVisible = hasDrawings && !readOnly
             return true
         }
 
@@ -667,10 +697,10 @@ class DocumentView @JvmOverloads constructor(
     // ---------------------------------------------------------------------------------
     // Keyboard
 
-    override fun onCheckIsTextEditor(): Boolean = editListener != null
+    override fun onCheckIsTextEditor(): Boolean = editListener != null && !readOnly
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
-        if (editListener == null) return null
+        if (editListener == null || readOnly) return null
         outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_FULLSCREEN
         return DocumentInputConnection()
@@ -682,7 +712,7 @@ class DocumentView @JvmOverloads constructor(
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        val listener = editListener ?: return super.onKeyDown(keyCode, event)
+        val listener = editListener?.takeIf { !readOnly } ?: return super.onKeyDown(keyCode, event)
         return sendKey(listener, event) || super.onKeyDown(keyCode, event)
     }
 
@@ -802,7 +832,7 @@ class DocumentView @JvmOverloads constructor(
             canvas.drawPath(path, selectionPaint)
         }
         // Selected pictures and shapes: their frame with handles
-        if (editListener != null) drawingHandles.draw(canvas, visibleDrawings(), toScreen)
+        if (editListener != null && !readOnly) drawingHandles.draw(canvas, visibleDrawings(), toScreen)
         selectionHandles()?.let { (start, end) ->
             for (handle in listOf(start, end)) {
                 val isStart = handle === start

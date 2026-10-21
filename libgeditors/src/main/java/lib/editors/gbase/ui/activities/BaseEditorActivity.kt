@@ -15,6 +15,10 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.TextView
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.view.ViewGroup
+import androidx.activity.OnBackPressedCallback
 import android.widget.Toast
 import androidx.activity.addCallback
 import androidx.activity.result.PickVisualMediaRequest
@@ -77,6 +81,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private lateinit var documentView: DocumentView
     // Spreadsheets: the sheet instead of the document view
     private var spreadsheetUi: SpreadsheetUi? = null
+    private var searchBar: SearchBar? = null
+    private lateinit var linkBar: View
     private val isSpreadsheet get() = editorsType == EditorsType.CELLS
 
     // The document the app passed, and the format edits are saved in (its extension)
@@ -119,6 +125,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             setContentView(R.layout.activity_editor_viewer)
             documentView = findViewById(R.id.documentView)
         }
+
+        linkBar = createLinkBar()
+        val root = findViewById<ViewGroup>(R.id.editorRoot)
+        root.addView(linkBar, root.indexOfChild(findViewById(R.id.editorToolbar)))
 
         // Room for the system bars and the keyboard (the toolbar stays above it). The window
         // is laid out edge to edge, so the keyboard's size arrives as insets.
@@ -178,12 +188,25 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             } else {
                 documentView.setPages(opened.second, ::renderTile, lifecycleScope)
             }
+            // Viewing only: text can still be selected, copied and found
+            if (!isSpreadsheet) {
+                documentView.editListener = editListener
+                documentView.readOnly = !isEditable
+            }
+            showToolbar(isEditable)
             if (isEditable) {
-                if (!isSpreadsheet) documentView.editListener = editListener
-                findViewById<View>(R.id.editorToolbar).isVisible = true
                 bindToolbar()
                 onBackPressedDispatcher.addCallback(this@BaseEditorActivity) { leave() }
             }
+            // After leaving's back callback: back closes the search bar first
+            addSearchBar(object : SearchBar.Target {
+                override val canReplace = isEditable
+                override fun find(text: String, matchCase: Boolean, wholeWords: Boolean, forward: Boolean) =
+                    edit { find(text, matchCase, wholeWords, forward) }
+                override fun replace(text: String, replacement: String, matchCase: Boolean, wholeWords: Boolean, all: Boolean) =
+                    edit { replace(text, replacement, matchCase, wholeWords, all) }
+                override fun close() = edit { endFind() }
+            })
             applyState(opened.third)
         }
     }
@@ -224,7 +247,21 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     drawingDocument = result.document
                     setResult(RESULT_OK, Intent().setData(uri).putExtra(EditorsContract.EXTRA_IS_MODIFIED, false))
                     findViewById<View>(R.id.documentProgress).isVisible = false
-                    documentView.setPages(opened.second.orEmpty(), ::renderTile, lifecycleScope)
+                    val pages = opened.second.orEmpty()
+                    documentView.setPages(pages, ::renderTile, lifecycleScope)
+                    val pdfText = PdfText(lifecycleScope, result.document, pages.size,
+                        onState = { state ->
+                            documentView.setEditorState(state)
+                            searchBar?.update(state.search)
+                        },
+                        onLink = { url -> showLink(url, url?.let { { openUrl(it) } }) },
+                        onCopy = { text ->
+                            getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText(null, text))
+                        })
+                    documentView.editListener = pdfText
+                    documentView.readOnly = true
+                    addSearchBar(pdfText)
+                    showToolbar(editable = false)
                 }
                 DrawingFileResult.NeedsPassword -> askPassword(wrong = password.isNotEmpty()) { openDrawingFile(uri, file, it) }
                 DrawingFileResult.Failed -> finish()
@@ -342,6 +379,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolShape).isVisible = isEditable() && state.drawings.any { !it.tracking }
         formatPanel.update(state.format)
         state.sheet?.let { cellFormatPanel.update(it.cellFormat) }
+        searchBar?.update(state.search)
+        val link = state.link?.takeIf { state.selection.isEmpty() }
+        showLink(link?.let { it.url.ifEmpty { it.anchor } }, link?.let { { edit { followLink() } } })
+        state.openUrl?.let { openUrl(it) }
     }
 
     // ---------------------------------------------------------------------------------
@@ -433,6 +474,53 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolSave).setOnClickListener {
             save { error -> if (error == 0) toast(getString(Resources.string.editors_saved)) else toast(saveErrorMessage(error)) }
         }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Find, links
+
+    // The toolbar; viewing only, it has just the search
+    private fun showToolbar(editable: Boolean) {
+        val toolbar = findViewById<View>(R.id.editorToolbar)
+        toolbar.isVisible = true
+        if (!editable) {
+            val buttons = findViewById<View>(R.id.toolSearch).parent as ViewGroup
+            for (i in 0 until buttons.childCount) buttons.getChildAt(i).isVisible = buttons.getChildAt(i).id == R.id.toolSearch
+        }
+        findViewById<View>(R.id.toolSearch).setOnClickListener { searchBar?.show() }
+    }
+
+    private fun addSearchBar(target: SearchBar.Target) {
+        val bar = SearchBar(this, target)
+        findViewById<ViewGroup>(R.id.editorRoot).addView(bar.view, 0)
+        searchBar = bar
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (bar.isShown) {
+                    bar.hide()
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
+                }
+            }
+        })
+    }
+
+    private fun createLinkBar(): View = layoutInflater.inflate(R.layout.editor_link_bar, findViewById(R.id.editorRoot), false)
+
+    /** Shows the link (its address or place) with a button that opens it; hides it for null. */
+    private fun showLink(text: String?, onOpen: (() -> Unit)?) {
+        linkBar.isVisible = text != null && onOpen != null
+        if (text == null || onOpen == null) return
+        linkBar.findViewById<TextView>(R.id.linkText).text = text
+        linkBar.findViewById<View>(R.id.linkOpen).setOnClickListener { onOpen() }
+    }
+
+    private fun openUrl(url: String) {
+        val address = if (Regex("^[a-zA-Z][a-zA-Z0-9+.-]*:").containsMatchIn(url)) url else "https://$url"
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(address))) }
+            .onFailure { toast(getString(Resources.string.editors_link_failed)) }
     }
 
     // ---------------------------------------------------------------------------------
