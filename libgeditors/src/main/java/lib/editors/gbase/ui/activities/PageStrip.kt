@@ -74,7 +74,7 @@ internal class PageStrip(
                     setBackgroundColor(Color.WHITE)
                 })
                 addView(TextView(context).apply {
-                    text = (index + 1).toString()
+                    text = "%d".format(index + 1)
                     textSize = 10f
                     setTextColor(Color.WHITE)
                     setBackgroundColor(0x88000000.toInt())

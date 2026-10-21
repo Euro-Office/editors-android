@@ -115,7 +115,7 @@ internal class SlidesUi(
         setPaddingRelative(dp(3), dp(3), dp(3), dp(3))
         addView(ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_XY })
         addView(TextView(context).apply {
-            text = (index + 1).toString()
+            text = "%d".format(index + 1)
             textSize = 10f
             setTextColor(Color.WHITE)
             setBackgroundColor(0x88000000.toInt())
@@ -139,7 +139,8 @@ internal class SlidesUi(
             } else null
         }
         thumbnails.getChildAt(currentSlide)?.let { child ->
-            strip.post { strip.requestChildFocus(thumbnails, child) }
+            // Not if the strip was built anew meanwhile (another slide count)
+            strip.post { if (child.parent === thumbnails) strip.requestChildFocus(thumbnails, child) }
         }
     }
 
