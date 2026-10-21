@@ -382,6 +382,20 @@ class DocumentView @JvmOverloads constructor(
         return hypot(x - cursorX, y - cursorY) < handleTouchRadius
     }
 
+    /** The page in the middle of the view. */
+    fun visiblePage(): Int {
+        if (pageTops.isEmpty()) return 0
+        val contentY = (scrollPosY + height / 2) / zoom
+        return pageTops.indexOfLast { it <= contentY }.coerceAtLeast(0)
+    }
+
+    /** Scrolls to the top of [page]. */
+    fun goToPage(page: Int) {
+        if (page !in pageSizes.indices) return
+        scrollTo(scrollPosX, pageTops[page] * zoom - pageMargin)
+        requestDetails()
+    }
+
     /** Scrolls so that [page] is visible, if it isn't. */
     private fun showPage(page: Int) {
         val top = pageTop(page)
@@ -706,7 +720,8 @@ class DocumentView @JvmOverloads constructor(
         return DocumentInputConnection()
     }
 
-    private fun showKeyboard() {
+    /** Takes the focus and shows the keyboard, for typing at the cursor. */
+    fun showKeyboard() {
         requestFocus()
         context.getSystemService(InputMethodManager::class.java)?.showSoftInput(this, 0)
     }

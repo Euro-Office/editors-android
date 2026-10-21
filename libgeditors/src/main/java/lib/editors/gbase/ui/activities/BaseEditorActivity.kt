@@ -82,6 +82,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // Spreadsheets: the sheet instead of the document view
     private var spreadsheetUi: SpreadsheetUi? = null
     private var searchBar: SearchBar? = null
+    private var documentUi: DocumentUi? = null
     private lateinit var linkBar: View
     private val isSpreadsheet get() = editorsType == EditorsType.CELLS
 
@@ -194,6 +195,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 documentView.readOnly = !isEditable
             }
             showToolbar(isEditable)
+            if (isEditable && editorsType == EditorsType.DOCS) {
+                val ui = DocumentUi(this@BaseEditorActivity, lifecycleScope, documentView, { document }) { command -> edit(command = command) }
+                val root = findViewById<ViewGroup>(R.id.editorRoot)
+                root.addView(ui.bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
+                documentUi = ui
+            }
             if (isEditable) {
                 bindToolbar()
                 onBackPressedDispatcher.addCallback(this@BaseEditorActivity) { leave() }
@@ -380,6 +387,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         formatPanel.update(state.format)
         state.sheet?.let { cellFormatPanel.update(it.cellFormat) }
         searchBar?.update(state.search)
+        documentUi?.let { ui ->
+            ui.update(state)
+            findViewById<View>(R.id.toolTable).isVisible = ui.isInTable
+        }
         val link = state.link?.takeIf { state.selection.isEmpty() }
         showLink(link?.let { it.url.ifEmpty { it.anchor } }, link?.let { { edit { followLink() } } })
         state.openUrl?.let { openUrl(it) }
@@ -468,6 +479,11 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             bind(R.id.toolDeleteSlide) { deleteSlide() }
         }
         findViewById<View>(R.id.toolInsert).setOnClickListener { drawingUi.showInsertMenu(it) }
+        documentUi?.let { ui ->
+            findViewById<View>(R.id.toolDocument).isVisible = true
+            findViewById<View>(R.id.toolDocument).setOnClickListener { ui.showDocumentMenu(it) }
+            findViewById<View>(R.id.toolTable).setOnClickListener { ui.showTableMenu(it) }
+        }
         findViewById<View>(R.id.toolFormat).isVisible = true
         findViewById<View>(R.id.toolFormat).setOnClickListener { if (isSpreadsheet) cellFormatPanel.show() else formatPanel.show() }
         findViewById<View>(R.id.toolShape).setOnClickListener { drawingUi.showShapeMenu(it) }
