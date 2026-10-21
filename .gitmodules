@@ -1,0 +1,3 @@
+[submodule "engine/third_party/hunspell"]
+	path = engine/third_party/hunspell
+	url = https://github.com/hunspell/hunspell.git
