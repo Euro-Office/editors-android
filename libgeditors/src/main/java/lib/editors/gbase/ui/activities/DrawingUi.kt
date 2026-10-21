@@ -9,6 +9,7 @@ import android.net.Uri
 import android.view.View
 import android.widget.PopupMenu
 import androidx.appcompat.app.AlertDialog
+import lib.editors.base.engine.ChartState
 import lib.editors.base.engine.DrawingOrder
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
@@ -25,8 +26,12 @@ internal class DrawingUi(
     private val context: Context,
     private val edit: (EditorDocument.() -> EditorState) -> Unit,
     private val pickPicture: () -> Unit,
-    private val takePhoto: () -> Unit
+    private val takePhoto: () -> Unit,
+    private val chartUi: ChartUi
 ) {
+
+    /** The selected chart, for its own entries in the shape menu. */
+    var chart: ChartState? = null
 
     private class Choice(val label: Int, val value: String)
 
@@ -35,11 +40,15 @@ internal class DrawingUi(
             menu.add(0, 0, 0, Resources.string.editors_insert_picture)
             menu.add(0, 1, 1, Resources.string.editors_insert_photo)
             menu.add(0, 2, 2, Resources.string.editors_insert_shape)
+            menu.add(0, 3, 3, Resources.string.editors_chart_insert)
+            menu.add(0, 4, 4, Resources.string.editors_smartart_insert)
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {
                     0 -> pickPicture()
                     1 -> takePhoto()
-                    else -> chooseShape()
+                    2 -> chooseShape()
+                    3 -> chartUi.chooseType(Resources.string.editors_chart_insert) { type -> edit { insertChart(type) } }
+                    else -> chartUi.chooseSmartArt()
                 }
                 true
             }
@@ -54,8 +63,17 @@ internal class DrawingUi(
             menu.add(0, 3, 3, Resources.string.editors_shape_back)
             menu.add(0, 4, 4, Resources.string.editors_shape_group)
             menu.add(0, 5, 5, Resources.string.editors_shape_ungroup)
+            val selectedChart = chart
+            if (selectedChart != null) {
+                menu.add(0, 10, 0, Resources.string.editors_chart_type)
+                menu.add(0, 11, 0, Resources.string.editors_chart_elements)
+                if (!selectedChart.dataInCells) menu.add(0, 12, 0, Resources.string.editors_chart_data)
+            }
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {
+                    10 -> chartUi.chooseType(Resources.string.editors_chart_type) { type -> edit { setChartType(type) } }
+                    11 -> selectedChart?.let { chartUi.showElements(it) }
+                    12 -> chartUi.editData()
                     0 -> chooseColor(Resources.string.editors_shape_fill) { color -> edit { setShapeFill(color) } }
                     1 -> chooseColor(Resources.string.editors_shape_outline) { color -> edit { setShapeOutline(color) } }
                     2 -> edit { arrange(DrawingOrder.TO_FRONT) }

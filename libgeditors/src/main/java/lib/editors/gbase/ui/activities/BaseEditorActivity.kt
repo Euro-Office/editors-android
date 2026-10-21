@@ -403,6 +403,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         state.sheet?.let { cellFormatPanel.update(it.cellFormat) }
         searchBar?.update(state.search)
         slidesUi?.update(state)
+        drawingUi.chart = state.chart
         documentUi?.let { ui ->
             ui.update(state)
             findViewById<View>(R.id.toolTable).isVisible = ui.isInTable
@@ -438,7 +439,11 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     }
 
     private val drawingUi by lazy {
-        DrawingUi(this, { command -> edit(command = command) }, { pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, ::takePhoto)
+        DrawingUi(
+            this, { command -> edit(command = command) },
+            { pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, ::takePhoto,
+            ChartUi(this, lifecycleScope, { document }) { command -> edit(command = command) }
+        )
     }
 
     private val pickPicture = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
