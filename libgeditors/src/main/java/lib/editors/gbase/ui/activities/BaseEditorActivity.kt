@@ -43,6 +43,7 @@ import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.DocumentResult
+import lib.editors.base.engine.FormField
 import lib.editors.base.engine.PageSize
 import lib.editors.base.engine.PdfImage
 import lib.editors.base.engine.PdfMarkup
@@ -101,6 +102,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private val hiddenTools = mutableListOf<View>()
     private var documentUi: DocumentUi? = null
     private var commentsUi: CommentsUi? = null
+    private var formsUi: FormsUi? = null
+    // A picture field waiting for a picture from the gallery
+    private var pictureField: FormField? = null
     private var slidesUi: SlidesUi? = null
     private lateinit var linkBar: View
     private val isSpreadsheet get() = editorsType == EditorsType.CELLS
@@ -268,8 +272,19 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 override fun close() = edit { endFind() }
             })
             applyState(opened.third)
+            if (editorsType == EditorsType.DOCS && isEditable) {
+                val forms = FormsUi(this@BaseEditorActivity, { command -> edit(command = command) },
+                    pickPicture = { field ->
+                        pictureField = field
+                        pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                    onStartFilling = if (startsFilling()) ({ startFilling() }) else null)
+                val root = findViewById<ViewGroup>(R.id.editorRoot)
+                root.addView(forms.bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
+                formsUi = forms
+            }
             // The app may ask to show the document first (EditType.Edit.initialView): editing then starts with a button
-            if (isEditable && !startsInView()) {
+            if (isEditable && (!startsInView() || fillsForms() || startsFilling())) {
                 enableEditing()
             } else if (isEditable) {
                 findViewById<View>(R.id.toolEdit).isVisible = true
@@ -298,6 +313,32 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             }
         }
         bindToolbar()
+        if (fillsForms()) edit { setFillMode(true) }
+    }
+
+    // Sends the form to its roles: the app's StartFillingActivity assigns people to them
+    private fun startFilling() {
+        val document = document ?: return
+        lifecycleScope.launch {
+            val roles = withContext(EditorEngine.dispatcher) { runCatching { document.formRoles() }.getOrDefault(emptyList()) }
+            val json = org.json.JSONObject().put("formRoles", org.json.JSONArray(roles.map { role ->
+                org.json.JSONObject().put("name", role.name)
+                    .put("color", (role.color.toIntOrNull(16) ?: 0) or 0xFF000000.toInt())
+                    .put("fieldCount", role.fieldCount)
+            })).toString()
+            val request = Intent().setClassName(this@BaseEditorActivity, EditorsContract.START_FILLING_CLASSNAME)
+                .putExtra(EditorsContract.EXTRA_FORM_ROLES, json)
+                .putExtra(EditorsContract.EXTRA_ROOM_ID, intent.getStringExtra(EditorsContract.EXTRA_ROOM_ID))
+                .putExtra(EditorsContract.EXTRA_ITEM_ID, intent.getStringExtra(EditorsContract.EXTRA_ITEM_ID))
+            runCatching { startFillingResult.launch(request) }.onFailure { toast(getString(Resources.string.editors_forms_start_failed)) }
+        }
+    }
+
+    private val startFillingResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            setResult(EditorsContract.RESULT_START_FILLING_COMPLETE, Intent().setData(documentUri))
+            finish()
+        }
     }
 
     private fun editAccess() = intent.getIntExtra(EditorsContract.KEY_EDIT_ACCESS, EditorsContract.INTERNAL_EDIT_ACCESS_EDIT)
@@ -414,8 +455,22 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         val access = editAccess()
         val accessEdits = access == EditorsContract.INTERNAL_EDIT_ACCESS_EDIT ||
             access == EditorsContract.INTERNAL_EDIT_ACCESS_TRACKED_CHANGES ||
-            access == EditorsContract.INTERNAL_EDIT_ACCESS_CUSTOM_FILTER
-        return (editType == null || editType is EditType.Edit) && accessEdits
+            access == EditorsContract.INTERNAL_EDIT_ACCESS_CUSTOM_FILTER ||
+            access == EditorsContract.INTERNAL_EDIT_ACCESS_FILLING_FORMS
+        return (editType == null || editType is EditType.Edit || editType is EditType.Fill || editType is EditType.StartFilling) && accessEdits
+    }
+
+    // Only form fields take input: filling (EditType.Fill, form filling access) and finished forms (oform, PDF forms)
+    private fun fillsForms(): Boolean {
+        @Suppress("DEPRECATION")
+        val editType = intent.getSerializableExtra(EditorsContract.KEY_EDIT_TYPE) as? EditType
+        return editType is EditType.Fill || editAccess() == EditorsContract.INTERNAL_EDIT_ACCESS_FILLING_FORMS ||
+            extension == "oform" || extension == "pdf"
+    }
+
+    private fun startsFilling(): Boolean {
+        @Suppress("DEPRECATION")
+        return intent.getSerializableExtra(EditorsContract.KEY_EDIT_TYPE) is EditType.StartFilling
     }
 
     // ---------------------------------------------------------------------------------
@@ -503,6 +558,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         slidesUi?.update(state)
         drawingUi.chart = state.chart
         commentsUi?.onState()
+        formsUi?.update(state)
         documentUi?.let { ui ->
             ui.update(state)
             findViewById<View>(R.id.toolTable).isVisible = ui.isInTable
@@ -546,7 +602,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     }
 
     private val pickPicture = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) insertPicture(uri)
+        if (uri != null) insertPicture(uri) else pictureField = null
     }
 
     private val photoFile by lazy { File(cacheDir, "editor-camera/photo.jpg") }
@@ -576,7 +632,13 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 toast(getString(Resources.string.editors_picture_failed))
                 return@launch
             }
-            edit { insertImage(picture.first, picture.second, picture.third) }
+            val field = pictureField
+            pictureField = null
+            if (field != null) {
+                edit { setFormPicture(field, picture.first, picture.second, picture.third) }
+            } else {
+                edit { insertImage(picture.first, picture.second, picture.third) }
+            }
         }
     }
 

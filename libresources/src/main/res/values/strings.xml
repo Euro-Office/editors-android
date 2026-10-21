@@ -297,6 +297,12 @@
     <string name="editors_sign_place">Place</string>
     <string name="editors_sign_clear">Clear</string>
     <string name="editors_sign_tap">Tap where the signature goes</string>
+    <string name="editors_forms_clear">Clear</string>
+    <string name="editors_forms_clear_confirm">Clear all fields?</string>
+    <string name="editors_forms_start_filling">Start filling</string>
+    <string name="editors_forms_start_failed">Filling can\'t be started here</string>
+    <string name="editors_forms_all_filled">All required fields are filled</string>
+    <string name="editors_forms_required_missing">Fill in the required fields</string>
     <string name="editors_save">Save</string>
     <string name="editors_delete">Delete</string>
     <string name="editors_saved">Saved</string>
