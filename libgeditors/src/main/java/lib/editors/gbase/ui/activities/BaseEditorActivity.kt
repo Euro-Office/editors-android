@@ -41,6 +41,7 @@ import lib.editors.base.engine.WRITABLE_FORMATS
 import lib.editors.gbase.R
 import lib.editors.gbase.ui.clipboard.EditorClipboard
 import lib.editors.gbase.ui.views.DocumentView
+import lib.editors.gbase.ui.views.SheetView
 import lib.toolkit.base.managers.utils.EditType
 import lib.toolkit.base.managers.utils.EditorsContract
 import lib.toolkit.base.managers.utils.EditorsType
@@ -52,8 +53,8 @@ import java.io.File
  *
  * Documents and presentations on the device are opened by the editor engine, for editing unless
  * the app asks for viewing only. Slides are shown below each other, like pages. PDF, XPS and DjVu
- * files are shown read-only. Spreadsheets are still a placeholder that reports
- * [EditorsContract.RESULT_FAILED_OPEN].
+ * files are shown read-only. Spreadsheets show one sheet at a time, with cells edited in a
+ * formula bar (see [SpreadsheetUi]).
  *
  * Edits are saved into the document the app passed (the save button, leaving the editor and
  * going to the background save). The result then reports the document as modified, and the
@@ -71,6 +72,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private var drawingDocument: PagedDocument? = null
 
     private lateinit var documentView: DocumentView
+    // Spreadsheets: the sheet instead of the document view
+    private var spreadsheetUi: SpreadsheetUi? = null
+    private val isSpreadsheet get() = editorsType == EditorsType.CELLS
 
     // The document the app passed, and the format edits are saved in (its extension)
     private var documentUri: Uri? = null
@@ -106,8 +110,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     }
 
     private fun setUpViewer() {
-        setContentView(R.layout.activity_editor_viewer)
-        documentView = findViewById(R.id.documentView)
+        if (isSpreadsheet) {
+            setContentView(R.layout.activity_editor_cells)
+        } else {
+            setContentView(R.layout.activity_editor_viewer)
+            documentView = findViewById(R.id.documentView)
+        }
 
         // Room for the system bars and the keyboard (the toolbar stays above it). The window
         // is laid out edge to edge, so the keyboard's size arrives as insets.
@@ -152,9 +160,20 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             extension = file.extension.lowercase()
             setResult(RESULT_OK, Intent().setData(uri).putExtra(EditorsContract.EXTRA_IS_MODIFIED, false))
             progress.isVisible = false
-            documentView.setPages(opened.second, ::renderTile, lifecycleScope)
+            if (isSpreadsheet) {
+                val sheetView = findViewById<SheetView>(R.id.sheetView)
+                sheetView.setRenderer(::renderTile, lifecycleScope)
+                spreadsheetUi = SpreadsheetUi(this@BaseEditorActivity, sheetView, { command -> edit(command = command) }, object : SpreadsheetUi.Clipboard {
+                    override fun cut() = this@BaseEditorActivity.copy(cut = true)
+                    override fun copy() = this@BaseEditorActivity.copy(cut = false)
+                    override fun paste() = editListener.onPaste()
+                })
+                if (isEditable) spreadsheetUi?.enableEditing()
+            } else {
+                documentView.setPages(opened.second, ::renderTile, lifecycleScope)
+            }
             if (isEditable) {
-                documentView.editListener = editListener
+                if (!isSpreadsheet) documentView.editListener = editListener
                 findViewById<View>(R.id.editorToolbar).isVisible = true
                 bindToolbar()
                 onBackPressedDispatcher.addCallback(this@BaseEditorActivity) { leave() }
@@ -288,13 +307,13 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             }
             if (isLayoutSlice) layingOut = false
             if (result == null) return@launch
-            result.second?.let { documentView.updatePages(it) }
+            if (!isSpreadsheet) result.second?.let { documentView.updatePages(it) }
             applyState(result.first)
         }
     }
 
     private fun applyState(state: EditorState) {
-        documentView.setEditorState(state)
+        if (isSpreadsheet) spreadsheetUi?.setState(state) else documentView.setEditorState(state)
         // The pages after the first ones are laid out in slices; input in between runs first
         if (state.layoutPending && !layingOut) {
             layingOut = true
@@ -490,7 +509,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private companion object {
         const val TAG = "EditorViewer"
-        val ENGINE_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION)
+        val ENGINE_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION, EditorsType.CELLS)
         const val LAYOUT_SLICE_MS = 30
         const val UNSUPPORTED_FORMAT = -1
         const val WRITE_ERROR = -2

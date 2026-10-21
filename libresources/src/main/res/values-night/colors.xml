@@ -5,4 +5,7 @@
     <color name="editors_tool_pressed">#33FFFFFF</color>
     <color name="editors_document_background">#202124</color>
     <color name="editors_selection_handle">#8AB4F8</color>
+    <color name="editors_sheet_header">#2D2E30</color>
+    <color name="editors_sheet_header_selected">#3C4A5E</color>
+    <color name="editors_sheet_header_line">#4A4B4F</color>
 </resources>

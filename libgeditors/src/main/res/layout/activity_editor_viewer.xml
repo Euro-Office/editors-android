@@ -23,47 +23,6 @@
 
     </FrameLayout>
 
-    <HorizontalScrollView
-        android:id="@+id/editorToolbar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="?android:attr/colorBackground"
-        android:elevation="4dp"
-        android:visibility="gone">
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:orientation="horizontal"
-            android:paddingHorizontal="4dp">
-
-            <ImageButton android:id="@+id/toolSave" style="@style/EditorToolButton"
-                android:contentDescription="@string/editors_save" android:src="@drawable/ic_editor_save" />
-            <ImageButton android:id="@+id/toolAddSlide" style="@style/EditorToolButton"
-                android:contentDescription="@string/editors_add_slide" android:src="@drawable/ic_editor_slide_add"
-                android:visibility="gone" />
-            <ImageButton android:id="@+id/toolDeleteSlide" style="@style/EditorToolButton"
-                android:contentDescription="@string/editors_delete_slide" android:src="@drawable/ic_editor_slide_delete"
-                android:visibility="gone" />
-            <ImageButton android:id="@+id/toolBold" style="@style/EditorToolButton"
-                android:contentDescription="@string/editors_bold" android:src="@drawable/ic_editor_bold" />
-            <ImageButton android:id="@+id/toolItalic" style="@style/EditorToolButton"
-                android:contentDescription="@string/editors_italic" android:src="@drawable/ic_editor_italic" />
-            <ImageButton android:id="@+id/toolUnderline" style="@style/EditorToolButton"
-                android:contentDescription="@string/editors_underline" android:src="@drawable/ic_editor_underline" />
-            <ImageButton android:id="@+id/toolAlignLeft" style="@style/EditorToolButton"
-                android:contentDescription="@string/editors_align_left" android:src="@drawable/ic_editor_align_left" />
-            <ImageButton android:id="@+id/toolAlignCenter" style="@style/EditorToolButton"
-                android:contentDescription="@string/editors_align_center" android:src="@drawable/ic_editor_align_center" />
-            <ImageButton android:id="@+id/toolAlignRight" style="@style/EditorToolButton"
-                android:contentDescription="@string/editors_align_right" android:src="@drawable/ic_editor_align_right" />
-            <ImageButton android:id="@+id/toolUndo" style="@style/EditorToolButton"
-                android:contentDescription="@string/editors_undo" android:src="@drawable/ic_editor_undo" />
-            <ImageButton android:id="@+id/toolRedo" style="@style/EditorToolButton"
-                android:contentDescription="@string/editors_redo" android:src="@drawable/ic_editor_redo" />
-
-        </LinearLayout>
-
-    </HorizontalScrollView>
+    <include layout="@layout/editor_toolbar" />
 
 </LinearLayout>

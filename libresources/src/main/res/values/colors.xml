@@ -7,4 +7,8 @@
     <color name="editors_document_background">#E8E8E8</color>
     <color name="editors_selection">#503367D6</color>
     <color name="editors_selection_handle">#3367D6</color>
+    <!-- Spreadsheet headings -->
+    <color name="editors_sheet_header">#F1F3F4</color>
+    <color name="editors_sheet_header_selected">#D3E3FD</color>
+    <color name="editors_sheet_header_line">#DADCE0</color>
 </resources>
