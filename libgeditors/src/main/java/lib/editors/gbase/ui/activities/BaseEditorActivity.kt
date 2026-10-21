@@ -45,8 +45,8 @@ import java.io.File
 /**
  * Base for the editor activities the app launches by class name (see [EditorsContract]).
  *
- * Documents on the device are opened by the editor engine, for editing unless the app asks
- * for viewing only. Everything else is still a placeholder that reports
+ * Documents and presentations on the device are opened by the editor engine, for editing unless
+ * the app asks for viewing only. Slides are shown below each other, like pages. Everything else is still a placeholder that reports
  * [EditorsContract.RESULT_FAILED_OPEN].
  *
  * Edits are saved into the document the app passed (the save button, leaving the editor and
@@ -78,7 +78,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         setResult(EditorsContract.RESULT_FAILED_OPEN)
 
         val uri = intent.data
-        if (uri != null && editorsType == EditorsType.DOCS && EditorEngine.isAvailable) {
+        if (uri != null && editorsType in ENGINE_EDITORS && EditorEngine.isAvailable) {
             showViewer(uri)
         } else {
             showPlaceholder(uri)
@@ -243,6 +243,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         bind(R.id.toolAlignRight) { setAlignment(Alignment.RIGHT) }
         bind(R.id.toolUndo) { undo() }
         bind(R.id.toolRedo) { redo() }
+        if (editorsType == EditorsType.PRESENTATION) {
+            findViewById<View>(R.id.toolAddSlide).isVisible = true
+            findViewById<View>(R.id.toolDeleteSlide).isVisible = true
+            bind(R.id.toolAddSlide) { addSlide() }
+            bind(R.id.toolDeleteSlide) { deleteSlide() }
+        }
         findViewById<View>(R.id.toolSave).setOnClickListener {
             save { error -> if (error == 0) toast(getString(Resources.string.editors_saved)) else toast(saveErrorMessage(error)) }
         }
@@ -400,6 +406,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private companion object {
         const val TAG = "EditorViewer"
+        val ENGINE_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION)
         const val LAYOUT_SLICE_MS = 30
         const val UNSUPPORTED_FORMAT = -1
         const val WRITE_ERROR = -2

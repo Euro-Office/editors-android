@@ -15,6 +15,8 @@
     <string name="editors_align_right">Align right</string>
     <string name="editors_undo">Undo</string>
     <string name="editors_redo">Redo</string>
+    <string name="editors_add_slide">New slide</string>
+    <string name="editors_delete_slide">Delete slide</string>
     <string name="editors_save">Save</string>
     <string name="editors_saved">Saved</string>
     <string name="editors_save_failed">The document couldn\'t be saved (error %1$d).</string>

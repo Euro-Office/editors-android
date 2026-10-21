@@ -147,6 +147,11 @@ class DocumentView @JvmOverloads constructor(
         color = ContextCompat.getColor(context, Resources.color.editors_selection_handle)
         strokeWidth = 2 * density
     }
+    private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = ContextCompat.getColor(context, Resources.color.editors_selection_handle)
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f * density
+    }
     private val scroller = OverScroller(context)
 
     private val blink = object : Runnable {
@@ -245,6 +250,7 @@ class DocumentView @JvmOverloads constructor(
     /** Shows the cursor and selection and draws changed pages again. */
     fun setEditorState(state: EditorState) {
         val previousCursor = editorState?.cursor
+        val previousPage = editorState?.currentPage
         editorState = state
         for (page in state.dirtyPages) {
             if (page !in pageSizes.indices) continue
@@ -256,6 +262,10 @@ class DocumentView @JvmOverloads constructor(
         restartBlink()
         // Only when it moved: states also come from layout in the background, while scrolling
         if (editListener != null && state.cursor != null && state.cursor != previousCursor) scrollToCursor()
+        // Presentations: a new slide, for example, becomes the current one
+        if (previousPage != null && state.currentPage != previousPage && state.currentPage in pageSizes.indices) {
+            showPage(state.currentPage)
+        }
         if (menuAfterUpdate && state.selection.isNotEmpty()) {
             showActionMenu(insertion = false)
         } else if (!insertionMenu && state.selection.isEmpty()) {
@@ -340,6 +350,15 @@ class DocumentView @JvmOverloads constructor(
         val cursorX = screenX(cursor.page, (cursor.x1 + cursor.x2) / 2)
         val cursorY = screenY(cursor.page, (cursor.y1 + cursor.y2) / 2)
         return hypot(x - cursorX, y - cursorY) < handleTouchRadius
+    }
+
+    /** Scrolls so that [page] is visible, if it isn't. */
+    private fun showPage(page: Int) {
+        val top = pageTop(page)
+        val bottom = top + pageHeights[page] * zoom
+        if (top >= 0 && bottom <= height) return
+        scrollTo(scrollPosX, pageTops[page] * zoom - pageMargin)
+        requestDetails()
     }
 
     private fun scrollToCursor() {
@@ -688,6 +707,19 @@ class DocumentView @JvmOverloads constructor(
             }
             path.close()
             canvas.drawPath(path, selectionPaint)
+        }
+        // Selected pictures and shapes: their frame with handles at the corners
+        for (area in state.drawings) {
+            if (area.page !in pageSizes.indices) continue
+            val path = Path()
+            for (i in 0 until 4) {
+                val x = screenX(area.page, area.points[2 * i])
+                val y = screenY(area.page, area.points[2 * i + 1])
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                canvas.drawCircle(x, y, 4 * density, handlePaint)
+            }
+            path.close()
+            canvas.drawPath(path, framePaint)
         }
         selectionHandles()?.let { (start, end) ->
             for (handle in listOf(start, end)) {
