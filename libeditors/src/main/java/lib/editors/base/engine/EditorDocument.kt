@@ -1,8 +1,6 @@
 package lib.editors.base.engine
 
-import android.graphics.Bitmap
 import org.json.JSONObject
-import java.io.Closeable
 
 /** Page size in millimeters. */
 data class PageSize(val widthMm: Double, val heightMm: Double)
@@ -12,17 +10,7 @@ data class PageSize(val widthMm: Double, val heightMm: Double)
  *
  * Editing commands return the editor's state afterwards (see engine.js in editors-android/engine).
  */
-interface EditorDocument : Closeable {
-
-    val pageCount: Int
-
-    fun pageSize(page: Int): PageSize
-
-    /**
-     * Draws the area at ([x], [y]) of [page] rendered at [pageWidth] x [pageHeight] pixels into
-     * [bitmap] (ARGB_8888), whose size is the size of the area.
-     */
-    fun renderTile(page: Int, pageWidth: Int, pageHeight: Int, x: Int, y: Int, bitmap: Bitmap): Boolean
+interface EditorDocument : PagedDocument {
 
     /**
      * Saves the document with its edits to [path] in the format of [extension] ("docx", "odt",

@@ -75,6 +75,28 @@ object EditorEngine {
         return NativeEditorDocument(handle)
     }
 
+    /**
+     * Opens a PDF, XPS or DjVu file, drawn by core's readers (no sdkjs). [password] is for
+     * encrypted PDFs. Call on [dispatcher].
+     */
+    fun openDrawingFile(context: Context, file: File, password: String = ""): DrawingFileResult {
+        if (!initialize(context)) return DrawingFileResult.Failed
+
+        val tempDir = File(context.cacheDir, "drawing").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val handle = NativeEngine.nativeCreateDrawingDocument()
+        val result = NativeEngine.nativeOpenDrawing(handle, file.absolutePath, password, tempDir.absolutePath)
+        if (result == OPENED) return DrawingFileResult.Opened(NativeDrawingDocument(handle))
+        NativeEngine.nativeDestroyDrawingDocument(handle)
+        return if (result == NEEDS_PASSWORD) DrawingFileResult.NeedsPassword else DrawingFileResult.Failed
+    }
+
+    // eo::DrawingDocument::OpenResult
+    private const val OPENED = 0
+    private const val NEEDS_PASSWORD = 2
+
     private fun copyAssets(assets: AssetManager, path: String, target: File) {
         val children = assets.list(path).orEmpty()
         if (children.isEmpty()) {

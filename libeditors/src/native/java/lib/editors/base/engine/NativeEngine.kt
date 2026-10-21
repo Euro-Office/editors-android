@@ -18,6 +18,14 @@ internal object NativeEngine {
     external fun nativeExecute(handle: Long, script: String): ByteArray
     external fun nativeGetPageCount(handle: Long): Int
     external fun nativeGetPageSize(handle: Long, page: Int): DoubleArray
+    external fun nativeCreateDrawingDocument(): Long
+    external fun nativeDestroyDrawingDocument(handle: Long)
+    external fun nativeOpenDrawing(handle: Long, path: String, password: String, tempDir: String): Int
+    external fun nativeGetDrawingPageCount(handle: Long): Int
+    external fun nativeGetDrawingPageSize(handle: Long, page: Int): DoubleArray
+    external fun nativeRenderDrawingTile(
+        handle: Long, page: Int, pageWidth: Int, pageHeight: Int, x: Int, y: Int, bitmap: android.graphics.Bitmap
+    ): Boolean
     external fun nativeRenderTile(
         handle: Long, page: Int, pageWidth: Int, pageHeight: Int, x: Int, y: Int, bitmap: android.graphics.Bitmap
     ): Boolean

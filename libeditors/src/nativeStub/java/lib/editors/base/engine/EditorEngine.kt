@@ -15,4 +15,6 @@ object EditorEngine {
     fun initialize(context: Context): Boolean = false
 
     fun open(context: Context, file: File): EditorDocument? = null
+
+    fun openDrawingFile(context: Context, file: File, password: String = ""): DrawingFileResult = DrawingFileResult.Failed
 }
