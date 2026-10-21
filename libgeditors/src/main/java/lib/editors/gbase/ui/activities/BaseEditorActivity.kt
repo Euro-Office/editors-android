@@ -12,6 +12,9 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.ImageButton
 import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.addCallback
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -29,6 +32,7 @@ import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.TouchAction
+import lib.editors.base.engine.WRITABLE_FORMATS
 import lib.editors.gbase.R
 import lib.editors.gbase.ui.clipboard.EditorClipboard
 import lib.editors.gbase.ui.views.DocumentView
@@ -44,6 +48,10 @@ import java.io.File
  * Documents on the device are opened by the editor engine, for editing unless the app asks
  * for viewing only. Everything else is still a placeholder that reports
  * [EditorsContract.RESULT_FAILED_OPEN].
+ *
+ * Edits are saved into the document the app passed (the save button, leaving the editor and
+ * going to the background save). The result then reports the document as modified, and the
+ * app uploads it if it comes from a server.
  */
 abstract class BaseEditorActivity : AppCompatActivity() {
 
@@ -53,6 +61,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private var document: EditorDocument? = null
 
     private lateinit var documentView: DocumentView
+
+    // The document the app passed, and the format edits are saved in (its extension)
+    private var documentUri: Uri? = null
+    private var extension = ""
+    private var modified = false
+    private var saving = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -115,6 +129,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             }
 
             document = opened.first
+            documentUri = uri
+            extension = file.extension.lowercase()
             setResult(RESULT_OK, Intent().setData(uri).putExtra(EditorsContract.EXTRA_IS_MODIFIED, false))
             progress.isVisible = false
             documentView.setPages(opened.second, ::renderTile, lifecycleScope)
@@ -122,6 +138,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 documentView.editListener = editListener
                 findViewById<View>(R.id.editorToolbar).isVisible = true
                 bindToolbar()
+                onBackPressedDispatcher.addCallback(this@BaseEditorActivity) { leave() }
                 applyState(opened.third)
             }
         }
@@ -187,6 +204,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun applyState(state: EditorState) {
         documentView.setEditorState(state)
+        modified = state.modified
+        findViewById<ImageButton>(R.id.toolSave).imageAlpha = if (modified) 255 else 80
         val toolbar = state.toolbar
         findViewById<View>(R.id.toolBold).isSelected = toolbar.bold
         findViewById<View>(R.id.toolItalic).isSelected = toolbar.italic
@@ -212,7 +231,91 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         bind(R.id.toolAlignRight) { setAlignment(Alignment.RIGHT) }
         bind(R.id.toolUndo) { undo() }
         bind(R.id.toolRedo) { redo() }
+        findViewById<View>(R.id.toolSave).setOnClickListener {
+            save { error -> if (error == 0) toast(getString(Resources.string.editors_saved)) else toast(saveErrorMessage(error)) }
+        }
     }
+
+    // ---------------------------------------------------------------------------------
+    // Saving
+
+    override fun onStop() {
+        super.onStop()
+        // The app may be closed in the background: keep the edits
+        if (modified && !isChangingConfigurations) save {}
+    }
+
+    /** Leaves the editor, saving the edits first; asks what to do if that doesn't work. */
+    private fun leave() {
+        if (!modified) {
+            finish()
+            return
+        }
+        save { error ->
+            if (error == 0) {
+                finish()
+            } else if (!isFinishing) {
+                AlertDialog.Builder(this)
+                    .setTitle(Resources.string.editors_leave_unsaved_title)
+                    .setMessage(saveErrorMessage(error))
+                    .setPositiveButton(Resources.string.editors_leave) { _, _ -> finish() }
+                    .setNegativeButton(Resources.string.editors_stay, null)
+                    .show()
+            }
+        }
+    }
+
+    /**
+     * Saves into the document the app passed. [onDone] gets 0, the converter's error code,
+     * [UNSUPPORTED_FORMAT] or [WRITE_ERROR].
+     */
+    private fun save(onDone: (Int) -> Unit) {
+        val uri = documentUri ?: return
+        // Taken now: onDestroy forgets it, but closes it only after this save (same thread)
+        val document = document ?: return
+        if (saving) return
+        if (extension !in WRITABLE_FORMATS) return onDone(UNSUPPORTED_FORMAT)
+        saving = true
+        // Not tied to the activity: saving finishes even if it is destroyed meanwhile
+        CoroutineScope(Dispatchers.Main).launch {
+            val (error, state) = withContext(EditorEngine.dispatcher) { saveInto(document, uri) to document.state() }
+            saving = false
+            if (error == 0) {
+                setResult(RESULT_OK, Intent().setData(uri).putExtra(EditorsContract.EXTRA_IS_MODIFIED, true))
+            } else {
+                Log.e(TAG, "save failed: $error")
+            }
+            if (!isDestroyed) applyState(state)
+            onDone(error)
+        }
+    }
+
+    // Runs on the engine's thread: x2t writes a file, which then replaces the document
+    private fun saveInto(document: EditorDocument, uri: Uri): Int {
+        val start = SystemClock.elapsedRealtime()
+        val dir = File(cacheDir, "editor-output").apply { mkdirs() }
+        val file = File(dir, "document.$extension")
+        file.delete()
+        val error = document.save(file.path, extension)
+        if (error != 0) return error
+        val written = runCatching {
+            contentResolver.openOutputStream(uri, "wt")?.use { output -> file.inputStream().use { it.copyTo(output) } }
+        }.getOrNull() != null
+        file.delete()
+        if (!written) {
+            // sdkjs considers the document saved
+            document.execute("Asc.editor.SetDocumentModified(true)")
+            return WRITE_ERROR
+        }
+        Log.i(TAG, "saved: ${SystemClock.elapsedRealtime() - start} ms")
+        return 0
+    }
+
+    private fun saveErrorMessage(error: Int): String =
+        if (error == UNSUPPORTED_FORMAT) getString(Resources.string.editors_save_unsupported, extension)
+        else getString(Resources.string.editors_save_failed, error)
+
+    private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
 
     private suspend fun renderTile(page: Int, pageWidth: Int, pageHeight: Int, x: Int, y: Int, width: Int, height: Int): Bitmap? =
         withContext(EditorEngine.dispatcher) {
@@ -285,5 +388,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private companion object {
         const val TAG = "EditorViewer"
+        const val UNSUPPORTED_FORMAT = -1
+        const val WRITE_ERROR = -2
     }
 }

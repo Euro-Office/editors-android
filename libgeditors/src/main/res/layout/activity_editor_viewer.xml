@@ -37,6 +37,8 @@
             android:orientation="horizontal"
             android:paddingHorizontal="4dp">
 
+            <ImageButton android:id="@+id/toolSave" style="@style/EditorToolButton"
+                android:contentDescription="@string/editors_save" android:src="@drawable/ic_editor_save" />
             <ImageButton android:id="@+id/toolBold" style="@style/EditorToolButton"
                 android:contentDescription="@string/editors_bold" android:src="@drawable/ic_editor_bold" />
             <ImageButton android:id="@+id/toolItalic" style="@style/EditorToolButton"

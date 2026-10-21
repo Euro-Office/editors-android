@@ -15,6 +15,13 @@
     <string name="editors_align_right">Align right</string>
     <string name="editors_undo">Undo</string>
     <string name="editors_redo">Redo</string>
+    <string name="editors_save">Save</string>
+    <string name="editors_saved">Saved</string>
+    <string name="editors_save_failed">The document couldn\'t be saved (error %1$d).</string>
+    <string name="editors_save_unsupported">.%1$s files can\'t be saved yet.</string>
+    <string name="editors_leave_unsaved_title">Leave without saving?</string>
+    <string name="editors_leave">Leave</string>
+    <string name="editors_stay">Stay</string>
     <string name="editors_converting">Converting…</string>
     <string name="editors_convert_success">Converted in %1$d ms (%2$d KB)</string>
     <string name="editors_convert_failed">Conversion failed (x2t code %1$d)</string>
