@@ -35,6 +35,8 @@ class EditorState(
     val selection: List<SelectionArea>,
     val dirtyPages: Set<Int>,
     val layoutChanged: Boolean,
+    /** Changed since opening or the last save. */
+    val modified: Boolean,
     val toolbar: ToolbarState
 ) {
     companion object {
@@ -59,7 +61,7 @@ class EditorState(
                 canUndo = ui.optBoolean("CanUndo"),
                 canRedo = ui.optBoolean("CanRedo")
             )
-            return EditorState(cursor, selection, dirtyPages, root.getBoolean("layoutChanged"), toolbar)
+            return EditorState(cursor, selection, dirtyPages, root.getBoolean("layoutChanged"), root.getBoolean("modified"), toolbar)
         }
     }
 }

@@ -24,6 +24,13 @@ interface EditorDocument : Closeable {
      */
     fun renderTile(page: Int, pageWidth: Int, pageHeight: Int, x: Int, y: Int, bitmap: Bitmap): Boolean
 
+    /**
+     * Saves the document with its edits to [path] in the format of [extension] ("docx", "odt",
+     * "pdf", ...; see [WRITABLE_FORMATS]). Returns 0, the converter's error code or -1 for a
+     * format the engine can't write. Editing continues afterwards.
+     */
+    fun save(path: String, extension: String): Int
+
     /** Runs JavaScript in sdkjs and returns its result if it is a string. */
     fun execute(script: String): String
 
@@ -81,5 +88,8 @@ interface EditorDocument : Closeable {
 
 /** Copied content: [internal] is empty when the selection can't be copied in sdkjs' format. */
 data class ClipboardContent(val text: String, val internal: String)
+
+/** Formats documents can be saved in, by extension; others (doc, ...) can only be opened. */
+val WRITABLE_FORMATS = setOf("docx", "docm", "dotx", "dotm", "odt", "ott", "rtf", "txt", "html", "epub", "fb2", "pdf")
 
 enum class TouchAction(val value: Int) { DOWN(0), MOVE(1), UP(2) }
