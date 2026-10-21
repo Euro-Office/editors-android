@@ -63,7 +63,8 @@ class DocumentView @JvmOverloads constructor(
 
     /** Input for the document, in page coordinates (millimeters) and web key codes. */
     interface EditListener {
-        fun onTouch(action: TouchAction, page: Int, xMm: Double, yMm: Double, clickCount: Int)
+        /** [addToSelection]: adds a picture or shape to the selected ones (see EditorDocument.touch). */
+        fun onTouch(action: TouchAction, page: Int, xMm: Double, yMm: Double, clickCount: Int, addToSelection: Boolean = false)
         fun onKey(keyCode: Int, shift: Boolean, ctrl: Boolean)
         fun onCommitText(text: String)
         fun onComposingText(text: String)
@@ -118,6 +119,15 @@ class DocumentView @JvmOverloads constructor(
     private var editorState: EditorState? = null
     private var cursorShown = true
     private var selecting = false
+
+    // Pictures and shapes: what a touch grabbed, and whether it is being dragged
+    private val drawingHandles = DrawingHandles(context)
+    private var drawingGrab: DrawingHandles.Grab? = null
+    private var drawingDragging = false
+    private var grabX = 0f
+    private var grabY = 0f
+    private val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+    private val toScreen = DrawingHandles.ToScreen { page, xMm, yMm -> android.graphics.PointF(screenX(page, xMm), screenY(page, yMm)) }
     private var lastMoveTime = 0L
 
     // Dragging a selection handle: the other end stays, the dragged end follows the finger
@@ -146,11 +156,6 @@ class DocumentView @JvmOverloads constructor(
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = ContextCompat.getColor(context, Resources.color.editors_selection_handle)
         strokeWidth = 2 * density
-    }
-    private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = ContextCompat.getColor(context, Resources.color.editors_selection_handle)
-        style = Paint.Style.STROKE
-        strokeWidth = 1.5f * density
     }
     private val scroller = OverScroller(context)
 
@@ -197,7 +202,7 @@ class DocumentView @JvmOverloads constructor(
             hideActionMenu()
             click(e.x, e.y, 1)
             showKeyboard()
-            if (onCursor) showActionMenu(insertion = true)
+            if (onCursor) showActionMenu(insertion = true) else menuAfterUpdate = true
             return true
         }
 
@@ -212,10 +217,17 @@ class DocumentView @JvmOverloads constructor(
             return true
         }
 
-        // Long press selects a word, dragging extends the selection by words
+        // Long press selects a word, dragging extends the selection by words. With pictures or
+        // shapes selected, it adds the one pressed to them.
         override fun onLongPress(e: MotionEvent) {
             val listener = editListener ?: return
             val point = toPage(e.x, e.y) ?: return
+            if (visibleDrawings().isNotEmpty()) {
+                performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                listener.onTouch(TouchAction.DOWN, point.page, point.xMm, point.yMm, 1, addToSelection = true)
+                listener.onTouch(TouchAction.UP, point.page, point.xMm, point.yMm, 1, addToSelection = true)
+                return
+            }
             selecting = true
             hideActionMenu()
             performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
@@ -266,9 +278,14 @@ class DocumentView @JvmOverloads constructor(
         if (previousPage != null && state.currentPage != previousPage && state.currentPage in pageSizes.indices) {
             showPage(state.currentPage)
         }
-        if (menuAfterUpdate && state.selection.isNotEmpty()) {
+        val hasDrawings = visibleDrawings().any { !it.tracking }
+        // A selected picture or shape takes no typing
+        if (hasDrawings && state.cursor == null) {
+            context.getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(windowToken, 0)
+        }
+        if (menuAfterUpdate && (state.selection.isNotEmpty() || hasDrawings)) {
             showActionMenu(insertion = false)
-        } else if (!insertionMenu && state.selection.isEmpty()) {
+        } else if (!insertionMenu && state.selection.isEmpty() && !hasDrawings) {
             hideActionMenu()
         }
         menuAfterUpdate = false
@@ -382,6 +399,7 @@ class DocumentView @JvmOverloads constructor(
     // Touch
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (handleDrawingTouch(event)) return true
         if (event.actionMasked == MotionEvent.ACTION_DOWN && startHandleDrag(event)) return true
         if (fixedHandle != null) {
             handleHandleDrag(event)
@@ -414,6 +432,71 @@ class DocumentView @JvmOverloads constructor(
                 menuAfterUpdate = true
             }
         }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Pictures and shapes: dragging their handles or frame
+
+    private fun visibleDrawings() = editorState?.drawings.orEmpty().filter { it.page in pageSizes.indices }
+
+    // True if the event belongs to a drag of a picture or shape
+    private fun handleDrawingTouch(event: MotionEvent): Boolean {
+        val listener = editListener ?: return false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                drawingDragging = false
+                drawingGrab = visibleDrawings().takeIf { it.isNotEmpty() }?.let { drawingHandles.hitTest(it, event.x, event.y, toScreen) }
+                val grab = drawingGrab ?: return false
+                grabX = event.x
+                grabY = event.y
+                if (grab.immediate) {
+                    startDrawingDrag(listener, grab)
+                    return true
+                }
+                return false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val grab = drawingGrab ?: return false
+                if (!drawingDragging) {
+                    if (hypot(event.x - grabX, event.y - grabY) < touchSlop) return false
+                    // A drag, not a tap: the gestures don't get the rest
+                    val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+                    gestureDetector.onTouchEvent(cancel)
+                    cancel.recycle()
+                    startDrawingDrag(listener, grab)
+                }
+                val now = SystemClock.uptimeMillis()
+                if (now - lastMoveTime < MOVE_INTERVAL_MS) return true
+                lastMoveTime = now
+                val (x, y) = dragTarget(grab, event)
+                listener.onTouch(TouchAction.MOVE, grab.page, x, y, 1)
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val grab = drawingGrab
+                drawingGrab = null
+                if (grab == null || !drawingDragging) return false
+                drawingDragging = false
+                val (x, y) = dragTarget(grab, event)
+                listener.onTouch(TouchAction.UP, grab.page, x, y, 1)
+                menuAfterUpdate = true
+                return true
+            }
+        }
+        return drawingDragging
+    }
+
+    private fun startDrawingDrag(listener: EditListener, grab: DrawingHandles.Grab) {
+        drawingDragging = true
+        hideActionMenu()
+        parent?.requestDisallowInterceptTouchEvent(true)
+        listener.onTouch(TouchAction.DOWN, grab.page, grab.xMm, grab.yMm, 1)
+    }
+
+    // The grabbed point moved by the finger's offset, in page millimeters
+    private fun dragTarget(grab: DrawingHandles.Grab, event: MotionEvent): Pair<Double, Double> {
+        val scale = scale(grab.page)
+        return (grab.xMm + (event.x - grabX) / scale) to (grab.yMm + (event.y - grabY) / scale)
     }
 
     // ---------------------------------------------------------------------------------
@@ -490,15 +573,19 @@ class DocumentView @JvmOverloads constructor(
             menu.add(Menu.NONE, android.R.id.copy, 1, android.R.string.copy)
             menu.add(Menu.NONE, android.R.id.paste, 2, android.R.string.paste)
             menu.add(Menu.NONE, android.R.id.selectAll, 3, android.R.string.selectAll)
+            menu.add(Menu.NONE, MENU_DELETE, 4, Resources.string.editors_delete)
             return true
         }
 
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
-            val hasSelection = !insertionMenu && editorState?.selection?.isNotEmpty() == true
+            val hasDrawings = !insertionMenu && visibleDrawings().isNotEmpty()
+            val hasSelection = !insertionMenu && (editorState?.selection?.isNotEmpty() == true || hasDrawings)
             val canPaste = context.getSystemService(ClipboardManager::class.java)?.hasPrimaryClip() == true
             menu.findItem(android.R.id.cut).isVisible = hasSelection
             menu.findItem(android.R.id.copy).isVisible = hasSelection
             menu.findItem(android.R.id.paste).isVisible = canPaste
+            menu.findItem(android.R.id.selectAll).isVisible = !hasDrawings
+            menu.findItem(MENU_DELETE).isVisible = hasDrawings
             return true
         }
 
@@ -512,6 +599,7 @@ class DocumentView @JvmOverloads constructor(
                     listener.onSelectAll()
                     menuAfterUpdate = true
                 }
+                MENU_DELETE -> listener.onKey(KEY_DELETE, false, false)
                 else -> return false
             }
             mode.finish()
@@ -528,7 +616,12 @@ class DocumentView @JvmOverloads constructor(
             val state = editorState
             val bounds = RectF()
             val areas = state?.selection?.filter { it.page in pageSizes.indices }.orEmpty()
-            if (!insertionMenu && areas.isNotEmpty()) {
+            val frames = visibleDrawings()
+            if (!insertionMenu && areas.isEmpty() && frames.isNotEmpty()) {
+                val xs = frames.flatMap { frame -> (0 until 4).map { screenX(frame.page, frame.points[2 * it]) } }
+                val ys = frames.flatMap { frame -> (0 until 4).map { screenY(frame.page, frame.points[2 * it + 1]) } }
+                bounds.set(xs.min(), ys.min(), xs.max(), ys.max())
+            } else if (!insertionMenu && areas.isNotEmpty()) {
                 val xs = areas.flatMap { area -> (0 until 4).map { screenX(area.page, area.points[2 * it]) } }
                 val ys = areas.flatMap { area -> (0 until 4).map { screenY(area.page, area.points[2 * it + 1]) } }
                 bounds.set(xs.min(), ys.min(), xs.max(), ys.max())
@@ -708,19 +801,8 @@ class DocumentView @JvmOverloads constructor(
             path.close()
             canvas.drawPath(path, selectionPaint)
         }
-        // Selected pictures and shapes: their frame with handles at the corners
-        for (area in state.drawings) {
-            if (area.page !in pageSizes.indices) continue
-            val path = Path()
-            for (i in 0 until 4) {
-                val x = screenX(area.page, area.points[2 * i])
-                val y = screenY(area.page, area.points[2 * i + 1])
-                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                canvas.drawCircle(x, y, 4 * density, handlePaint)
-            }
-            path.close()
-            canvas.drawPath(path, framePaint)
-        }
+        // Selected pictures and shapes: their frame with handles
+        if (editListener != null) drawingHandles.draw(canvas, visibleDrawings(), toScreen)
         selectionHandles()?.let { (start, end) ->
             for (handle in listOf(start, end)) {
                 val isStart = handle === start
@@ -813,6 +895,7 @@ class DocumentView @JvmOverloads constructor(
     private companion object {
         const val BLINK_MS = 500L
         const val MOVE_INTERVAL_MS = 40L
+        const val MENU_DELETE = 1
         val CLIPBOARD_KEYS = setOf(KeyEvent.KEYCODE_X, KeyEvent.KEYCODE_C, KeyEvent.KEYCODE_V, KeyEvent.KEYCODE_A)
 
         const val KEY_BACKSPACE = 8

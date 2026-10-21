@@ -24,8 +24,10 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import lib.editors.base.engine.DrawingFrame
 import lib.editors.base.engine.SheetGeometry
 import lib.editors.base.engine.SheetState
+import lib.editors.base.engine.TouchAction
 import lib.editors.resources.R as Resources
 import kotlin.math.floor
 import kotlin.math.hypot
@@ -37,7 +39,9 @@ import kotlin.math.roundToInt
 
 /**
  * Shows a spreadsheet: the cells of the active sheet with column and row headings that stay in
- * place, scrolling and zoom, the selection and a handle to extend it.
+ * place, frozen panes, scrolling and zoom, the selection and a handle to extend it. Headings
+ * select whole columns and rows, their borders resize them; a hardware keyboard moves the
+ * selection and typing starts editing the active cell.
  *
  * A sheet can be much larger than the screen, so only the visible area is rendered, in tiles at
  * the current zoom (rounded to a few levels; while zooming, tiles of the previous level are
@@ -56,6 +60,21 @@ class SheetView @JvmOverloads constructor(
         fun onCut()
         fun onCopy()
         fun onPaste()
+        /** Touch on pictures, shapes and charts, in sheet millimeters (see EditorDocument.touchDrawing). */
+        fun onTouchDrawing(action: TouchAction, xMm: Double, yMm: Double, addToSelection: Boolean)
+        fun onSelectColumns(c1: Int, c2: Int)
+        fun onSelectRows(r1: Int, r2: Int)
+        /** Long press on a column or row heading. */
+        fun onHeadingMenu(isColumn: Boolean, index: Int)
+        fun onResizeColumn(col: Int, widthMm: Double)
+        fun onResizeRow(row: Int, heightMm: Double)
+        /** Keyboard: moves the active cell by the offset; [extend] extends the selection instead. */
+        fun onMoveSelection(dCol: Int, dRow: Int, extend: Boolean)
+        fun onClearCells()
+        /** Text typed while the sheet has the focus: starts editing the active cell with it. */
+        fun onTypeText(text: String)
+        /** Fills the selection from its filled cells. */
+        fun onFillSelection()
     }
 
     private class TileKey(val level: Int, val column: Int, val row: Int) {
@@ -99,6 +118,32 @@ class SheetView @JvmOverloads constructor(
 
     // Extending the selection: by its handle, or by dragging after a long press
     private var dragging = false
+
+    // Resizing a column or row by its heading's border: which one and where the border is now
+    private var resizingColumn = -1
+    private var resizingRow = -1
+    private var resizePosition = 0f
+    private var resizeStart = 0f
+    private var resizeArmedColumn = -1
+    private var resizeArmedRow = -1
+
+    /** Text of the active cell being edited (in the formula bar), shown in the cell; null when not editing. */
+    var editingText: String? = null
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    // Pictures, shapes and charts: the selected ones, what a touch grabbed, whether it's dragged
+    private var drawings: List<DrawingFrame> = emptyList()
+    private val drawingHandles = DrawingHandles(context)
+    private var drawingGrab: DrawingHandles.Grab? = null
+    private var drawingDragging = false
+    private var grabX = 0f
+    private var grabY = 0f
+    private var lastMoveTime = 0L
+    private val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+    private val toScreen = DrawingHandles.ToScreen { _, xMm, yMm -> android.graphics.PointF(viewX(xMm), viewY(yMm)) }
     private var actionMode: ActionMode? = null
 
     private val cellBackground = Paint().apply { color = Color.WHITE }
@@ -125,6 +170,14 @@ class SheetView @JvmOverloads constructor(
     }
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = ContextCompat.getColor(context, Resources.color.editors_selection_handle)
+    }
+    private val freezePaint = Paint().apply {
+        color = ContextCompat.getColor(context, Resources.color.editors_sheet_header_line)
+        strokeWidth = 2 * density
+    }
+    private val editTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.BLACK
+        textSize = 13 * density
     }
     private val handleRadius = 6 * density
     private val handleTouchRadius = 28 * density
@@ -166,6 +219,17 @@ class SheetView @JvmOverloads constructor(
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             val listener = listener ?: return false
             hideActionMenu()
+            // The listener moves the focus: typed text must be entered first, and the formula bar keeps it while a formula is edited
+            headingAt(e.x, e.y)?.let { (isColumn, index) ->
+                if (isColumn) listener.onSelectColumns(index, index) else listener.onSelectRows(index, index)
+                return true
+            }
+            if (objectAt(e.x, e.y)) {
+                val (xMm, yMm) = sheetPoint(e.x, e.y)
+                listener.onTouchDrawing(TouchAction.DOWN, xMm, yMm, false)
+                listener.onTouchDrawing(TouchAction.UP, xMm, yMm, false)
+                return true
+            }
             val (col, row) = cellAt(e.x, e.y) ?: return true
             val current = state
             if (current != null && col == current.col && row == current.row && current.isSingleCell) {
@@ -178,6 +242,19 @@ class SheetView @JvmOverloads constructor(
 
         override fun onLongPress(e: MotionEvent) {
             val listener = listener ?: return
+            headingAt(e.x, e.y)?.let { (isColumn, index) ->
+                performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                listener.onHeadingMenu(isColumn, index)
+                return
+            }
+            // With drawings selected: add the one pressed to them
+            if (drawings.isNotEmpty() && objectAt(e.x, e.y)) {
+                performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                val (xMm, yMm) = sheetPoint(e.x, e.y)
+                listener.onTouchDrawing(TouchAction.DOWN, xMm, yMm, true)
+                listener.onTouchDrawing(TouchAction.UP, xMm, yMm, true)
+                return
+            }
             val (col, row) = cellAt(e.x, e.y) ?: return
             performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             val current = state
@@ -202,9 +279,10 @@ class SheetView @JvmOverloads constructor(
     }
 
     /** The sheet's state after a command; [changed] if cells may look different. */
-    fun setState(sheet: SheetState, changed: Boolean) {
+    fun setState(sheet: SheetState, changed: Boolean, selectedDrawings: List<DrawingFrame> = emptyList()) {
         val previous = state
         state = sheet
+        drawings = selectedDrawings
         sheet.geometry?.let { setGeometry(it) }
         if (previous != null && previous.active != sheet.active) {
             // Another sheet: nothing of the old one fits
@@ -241,15 +319,50 @@ class SheetView @JvmOverloads constructor(
 
     private fun scale(): Float = baseScale * zoom
 
-    private fun viewX(mm: Double): Float = (headerWidth + mm * scale() - scrollPosX).toFloat()
+    // Frozen panes: the columns and rows before them don't scroll
+    private fun frozenWidthMm(): Double = state?.frozenCol?.takeIf { it in 1..geometry.colCount }?.let { geometry.cols[it] } ?: 0.0
 
-    private fun viewY(mm: Double): Float = (headerHeight + mm * scale() - scrollPosY).toFloat()
+    private fun frozenHeightMm(): Double = state?.frozenRow?.takeIf { it in 1..geometry.rowCount }?.let { geometry.rows[it] } ?: 0.0
+
+    private fun frozenWidth(): Float = (frozenWidthMm() * scale()).toFloat()
+
+    private fun frozenHeight(): Float = (frozenHeightMm() * scale()).toFloat()
+
+    private fun viewX(mm: Double): Float = (headerWidth + mm * scale() - if (mm >= frozenWidthMm()) scrollPosX else 0f).toFloat()
+
+    private fun viewY(mm: Double): Float = (headerHeight + mm * scale() - if (mm >= frozenHeightMm()) scrollPosY else 0f).toFloat()
+
+    // The right and bottom edges of a cell: the edge on the freeze line belongs to the frozen cell before it
+    private fun columnRight(col: Int): Float =
+        (headerWidth + geometry.cols[col + 1] * scale() - if (col >= (state?.frozenCol ?: 0)) scrollPosX else 0f).toFloat()
+
+    private fun rowBottom(row: Int): Float =
+        (headerHeight + geometry.rows[row + 1] * scale() - if (row >= (state?.frozenRow ?: 0)) scrollPosY else 0f).toFloat()
+
+    private fun sheetPoint(x: Float, y: Float): Pair<Double, Double> {
+        val scrollX = if (x < headerWidth + frozenWidth()) 0f else scrollPosX
+        val scrollY = if (y < headerHeight + frozenHeight()) 0f else scrollPosY
+        return ((x - headerWidth + scrollX) / scale()).toDouble() to ((y - headerHeight + scrollY) / scale()).toDouble()
+    }
+
+    // A column (true) or row heading at the view point
+    private fun headingAt(x: Float, y: Float): Pair<Boolean, Int>? {
+        if (geometry.colCount == 0) return null
+        return when {
+            y < headerHeight && x > headerWidth -> true to geometry.columnAt(sheetPoint(x, headerHeight).first)
+            x < headerWidth && y > headerHeight -> false to geometry.rowAt(sheetPoint(headerWidth, y).second)
+            else -> null
+        }
+    }
+
+    // Whether a picture, shape or chart is at the view point
+    private fun objectAt(x: Float, y: Float): Boolean =
+        state?.objects?.any { drawingHandles.isInsidePolygon(0, it, x, y, toScreen) } == true
 
     private fun cellAt(x: Float, y: Float): Pair<Int, Int>? {
         if (geometry.colCount == 0 || geometry.rowCount == 0) return null
-        val xMm = (x - headerWidth + scrollPosX) / scale()
-        val yMm = (y - headerHeight + scrollPosY) / scale()
-        return geometry.columnAt(xMm.toDouble()) to geometry.rowAt(yMm.toDouble())
+        val (xMm, yMm) = sheetPoint(x, y)
+        return geometry.columnAt(xMm) to geometry.rowAt(yMm)
     }
 
     private fun maxScrollX() = max(0f, (geometry.widthMm * scale()).toFloat() + headerWidth - width)
@@ -281,13 +394,15 @@ class SheetView @JvmOverloads constructor(
         var dx = 0f
         var dy = 0f
         val left = viewX(geometry.cols[col])
-        val right = viewX(geometry.cols[col + 1])
+        val right = columnRight(col)
         val top = viewY(geometry.rows[row])
-        val bottom = viewY(geometry.rows[row + 1])
+        val bottom = rowBottom(row)
         if (right > width - margin) dx = right - (width - margin)
-        if (left - dx < headerWidth + margin) dx = left - headerWidth - margin
+        if (col >= (state?.frozenCol ?: 0) && left - dx < headerWidth + frozenWidth() + margin) dx = left - headerWidth - frozenWidth() - margin
         if (bottom > height - margin) dy = bottom - (height - margin)
-        if (top - dy < headerHeight + margin) dy = top - headerHeight - margin
+        if (row >= (state?.frozenRow ?: 0) && top - dy < headerHeight + frozenHeight() + margin) dy = top - headerHeight - frozenHeight() - margin
+        if (col < (state?.frozenCol ?: 0)) dx = 0f
+        if (row < (state?.frozenRow ?: 0)) dy = 0f
         if (dx != 0f || dy != 0f) scrollTo(scrollPosX + dx, scrollPosY + dy)
     }
 
@@ -295,7 +410,9 @@ class SheetView @JvmOverloads constructor(
     // Touch
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN && isOnHandle(event.x, event.y)) {
+        if (handleResize(event)) return true
+        if (handleDrawingTouch(event)) return true
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && drawings.isEmpty() && isOnHandle(event.x, event.y)) {
             dragging = true
             hideActionMenu()
             parent?.requestDisallowInterceptTouchEvent(true)
@@ -310,11 +427,126 @@ class SheetView @JvmOverloads constructor(
         return true
     }
 
+    // Dragging the border between two column or row headings resizes the column or row before it.
+    // A press there is only armed: taps and long presses still reach the gesture detector.
+    private fun handleResize(event: MotionEvent): Boolean {
+        val listener = listener ?: return false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                resizingColumn = -1
+                resizingRow = -1
+                resizeArmedColumn = -1
+                resizeArmedRow = -1
+                val reach = 10 * density
+                if (event.y < headerHeight && event.x > headerWidth) {
+                    val col = geometry.columnAt(sheetPoint(event.x, headerHeight).first)
+                    // The border on the right of the column, or of the one before
+                    resizeArmedColumn = listOf(col, col - 1).firstOrNull { it >= 0 && kotlin.math.abs(columnRight(it) - event.x) < reach } ?: -1
+                } else if (event.x < headerWidth && event.y > headerHeight) {
+                    val row = geometry.rowAt(sheetPoint(headerWidth, event.y).second)
+                    resizeArmedRow = listOf(row, row - 1).firstOrNull { it >= 0 && kotlin.math.abs(rowBottom(it) - event.y) < reach } ?: -1
+                }
+                resizeStart = if (resizeArmedColumn >= 0) event.x else event.y
+                return false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (resizingColumn < 0 && resizingRow < 0) {
+                    if (resizeArmedColumn < 0 && resizeArmedRow < 0) return false
+                    val position = if (resizeArmedColumn >= 0) event.x else event.y
+                    if (kotlin.math.abs(position - resizeStart) < touchSlop) return false
+                    resizingColumn = resizeArmedColumn
+                    resizingRow = resizeArmedRow
+                    // The gestures must not see the rest as a scroll or long press
+                    gestureDetector.onTouchEvent(MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL })
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                resizePosition = if (resizingColumn >= 0) event.x else event.y
+                invalidate()
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                resizeArmedColumn = -1
+                resizeArmedRow = -1
+                if (resizingColumn < 0 && resizingRow < 0) return false
+                val delta = (resizePosition - resizeStart) / scale()
+                if (event.actionMasked == MotionEvent.ACTION_UP) {
+                    if (resizingColumn >= 0) {
+                        val widthMm = geometry.cols[resizingColumn + 1] - geometry.cols[resizingColumn] + delta
+                        listener.onResizeColumn(resizingColumn, maxOf(2.0, widthMm.toDouble()))
+                    } else {
+                        val heightMm = geometry.rows[resizingRow + 1] - geometry.rows[resizingRow] + delta
+                        listener.onResizeRow(resizingRow, maxOf(2.0, heightMm.toDouble()))
+                    }
+                }
+                resizingColumn = -1
+                resizingRow = -1
+                invalidate()
+                return true
+            }
+        }
+        return false
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Keyboard: hardware keys and typing start editing (soft keyboard input goes to the formula bar)
+
+    override fun onCheckIsTextEditor(): Boolean = listener != null
+
+    override fun onCreateInputConnection(outAttrs: android.view.inputmethod.EditorInfo): android.view.inputmethod.InputConnection? {
+        if (listener == null) return null
+        outAttrs.inputType = android.text.InputType.TYPE_CLASS_TEXT
+        outAttrs.imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
+        return object : android.view.inputmethod.BaseInputConnection(this, false) {
+            override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
+                if (text.isNotEmpty()) listener?.onTypeText(text.toString())
+                return true
+            }
+
+            override fun sendKeyEvent(event: android.view.KeyEvent): Boolean {
+                if (event.action == android.view.KeyEvent.ACTION_DOWN) handleKey(event)
+                return true
+            }
+        }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean =
+        handleKey(event) || super.onKeyDown(keyCode, event)
+
+    private fun handleKey(event: android.view.KeyEvent): Boolean {
+        val listener = listener ?: return false
+        val shift = event.isShiftPressed
+        when (event.keyCode) {
+            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> listener.onMoveSelection(-1, 0, shift)
+            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> listener.onMoveSelection(1, 0, shift)
+            android.view.KeyEvent.KEYCODE_DPAD_UP -> listener.onMoveSelection(0, -1, shift)
+            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> listener.onMoveSelection(0, 1, shift)
+            android.view.KeyEvent.KEYCODE_TAB -> listener.onMoveSelection(if (shift) -1 else 1, 0, false)
+            android.view.KeyEvent.KEYCODE_ENTER, android.view.KeyEvent.KEYCODE_NUMPAD_ENTER -> listener.onMoveSelection(0, if (shift) -1 else 1, false)
+            android.view.KeyEvent.KEYCODE_DEL, android.view.KeyEvent.KEYCODE_FORWARD_DEL -> listener.onClearCells()
+            android.view.KeyEvent.KEYCODE_F2 -> listener.onEditCell()
+            else -> {
+                if (event.isCtrlPressed) {
+                    when (event.keyCode) {
+                        android.view.KeyEvent.KEYCODE_C -> listener.onCopy()
+                        android.view.KeyEvent.KEYCODE_X -> listener.onCut()
+                        android.view.KeyEvent.KEYCODE_V -> listener.onPaste()
+                        else -> return false
+                    }
+                    return true
+                }
+                val char = event.unicodeChar
+                if (char == 0) return false
+                listener.onTypeText(String(Character.toChars(char)))
+            }
+        }
+        return true
+    }
+
     private fun isOnHandle(x: Float, y: Float): Boolean {
         val sheet = state ?: return false
         if (listener == null || sheet.c2 >= geometry.colCount || sheet.r2 >= geometry.rowCount) return false
-        val handleX = viewX(geometry.cols[sheet.c2 + 1])
-        val handleY = viewY(geometry.rows[sheet.r2 + 1])
+        val handleX = columnRight(sheet.c2)
+        val handleY = rowBottom(sheet.r2)
         return hypot(x - handleX, y - handleY) < handleTouchRadius
     }
 
@@ -338,6 +570,56 @@ class SheetView @JvmOverloads constructor(
                 if (!sheet.isSingleCell) showActionMenu()
             }
         }
+    }
+
+    // Dragging the handles or frame of selected drawings, as in DocumentView
+    private fun handleDrawingTouch(event: MotionEvent): Boolean {
+        val listener = listener ?: return false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                drawingDragging = false
+                drawingGrab = drawings.takeIf { it.isNotEmpty() }?.let { drawingHandles.hitTest(it, event.x, event.y, toScreen) }
+                val grab = drawingGrab ?: return false
+                grabX = event.x
+                grabY = event.y
+                if (grab.immediate) {
+                    startDrawingDrag(listener, grab)
+                    return true
+                }
+                return false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val grab = drawingGrab ?: return false
+                if (!drawingDragging) {
+                    if (hypot(event.x - grabX, event.y - grabY) < touchSlop) return false
+                    val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+                    gestureDetector.onTouchEvent(cancel)
+                    cancel.recycle()
+                    startDrawingDrag(listener, grab)
+                }
+                val now = android.os.SystemClock.uptimeMillis()
+                if (now - lastMoveTime < MOVE_INTERVAL_MS) return true
+                lastMoveTime = now
+                listener.onTouchDrawing(TouchAction.MOVE, grab.xMm + (event.x - grabX) / scale(), grab.yMm + (event.y - grabY) / scale(), false)
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val grab = drawingGrab
+                drawingGrab = null
+                if (grab == null || !drawingDragging) return false
+                drawingDragging = false
+                listener.onTouchDrawing(TouchAction.UP, grab.xMm + (event.x - grabX) / scale(), grab.yMm + (event.y - grabY) / scale(), false)
+                return true
+            }
+        }
+        return drawingDragging
+    }
+
+    private fun startDrawingDrag(listener: SheetListener, grab: DrawingHandles.Grab) {
+        drawingDragging = true
+        hideActionMenu()
+        parent?.requestDisallowInterceptTouchEvent(true)
+        listener.onTouchDrawing(TouchAction.DOWN, grab.xMm, grab.yMm, false)
     }
 
     override fun computeScroll() {
@@ -369,12 +651,14 @@ class SheetView @JvmOverloads constructor(
             menu.add(Menu.NONE, android.R.id.cut, 0, android.R.string.cut)
             menu.add(Menu.NONE, android.R.id.copy, 1, android.R.string.copy)
             menu.add(Menu.NONE, android.R.id.paste, 2, android.R.string.paste)
+            menu.add(Menu.NONE, MENU_FILL, 3, Resources.string.editors_cells_fill)
             return true
         }
 
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
             menu.findItem(android.R.id.paste).isVisible =
                 context.getSystemService(ClipboardManager::class.java)?.hasPrimaryClip() == true
+            menu.findItem(MENU_FILL).isVisible = state?.isSingleCell == false
             return true
         }
 
@@ -384,6 +668,7 @@ class SheetView @JvmOverloads constructor(
                 android.R.id.cut -> listener.onCut()
                 android.R.id.copy -> listener.onCopy()
                 android.R.id.paste -> listener.onPaste()
+                MENU_FILL -> listener.onFillSelection()
                 else -> return false
             }
             mode.finish()
@@ -417,21 +702,66 @@ class SheetView @JvmOverloads constructor(
         val sheetBottom = viewY(geometry.heightMm)
         canvas.drawRect(headerWidth, headerHeight, sheetRight, sheetBottom, cellBackground)
         val level = levelFor(zoom)
-        if (fallbackLevel != level) drawTiles(canvas, fallbackLevel)
-        drawTiles(canvas, level)
-        state?.let { drawSelection(canvas, it) }
+        for (region in regions()) {
+            canvas.save()
+            canvas.clipRect(region.area)
+            if (fallbackLevel != level) drawTiles(canvas, fallbackLevel, region)
+            drawTiles(canvas, level, region)
+            canvas.restore()
+        }
+        if (frozenWidth() > 0) canvas.drawLine(headerWidth + frozenWidth(), headerHeight, headerWidth + frozenWidth(), height.toFloat(), freezePaint)
+        if (frozenHeight() > 0) canvas.drawLine(headerWidth, headerHeight + frozenHeight(), width.toFloat(), headerHeight + frozenHeight(), freezePaint)
+        if (drawings.isEmpty()) {
+            state?.let { drawSelection(canvas, it) }
+        } else if (listener != null) {
+            drawingHandles.draw(canvas, drawings, toScreen)
+        }
+        drawEditingText(canvas)
         canvas.restore()
 
         drawHeadings(canvas)
+        // Where a resized column or row will end
+        if (resizingColumn >= 0) canvas.drawLine(resizePosition, 0f, resizePosition, height.toFloat(), selectionBorder)
+        if (resizingRow >= 0) canvas.drawLine(0f, resizePosition, width.toFloat(), resizePosition, selectionBorder)
     }
 
-    private fun drawTiles(canvas: Canvas, level: Int) {
+    // A part of the view and how it is scrolled: frozen columns and rows don't scroll
+    private class Region(val area: RectF, val scrollX: Float, val scrollY: Float)
+
+    private fun regions(): List<Region> {
+        val left = headerWidth + frozenWidth()
+        val top = headerHeight + frozenHeight()
+        val w = width.toFloat()
+        val h = height.toFloat()
+        return listOf(
+            Region(RectF(left, top, w, h), scrollPosX, scrollPosY),
+            Region(RectF(left, headerHeight, w, top), scrollPosX, 0f),
+            Region(RectF(headerWidth, top, left, h), 0f, scrollPosY),
+            Region(RectF(headerWidth, headerHeight, left, top), 0f, 0f)
+        ).filter { it.area.width() > 0 && it.area.height() > 0 }
+    }
+
+    // The text being edited, over the active cell and as far right as it needs
+    private fun drawEditingText(canvas: Canvas) {
+        val text = editingText ?: return
+        val sheet = state ?: return
+        if (sheet.col >= geometry.colCount || sheet.row >= geometry.rowCount) return
+        val left = viewX(geometry.cols[sheet.col])
+        val top = viewY(geometry.rows[sheet.row])
+        val right = maxOf(columnRight(sheet.col), left + editTextPaint.measureText(text) + 8 * density)
+        val bottom = maxOf(rowBottom(sheet.row), top + editTextPaint.textSize * 1.4f)
+        canvas.drawRect(left, top, right, bottom, cellBackground)
+        canvas.drawText(text, left + 4 * density, (top + bottom) / 2 - (editTextPaint.descent() + editTextPaint.ascent()) / 2, editTextPaint)
+        canvas.drawRect(left, top, right, bottom, selectionBorder)
+    }
+
+    private fun drawTiles(canvas: Canvas, level: Int, region: Region) {
         val levelScale = scaleOfLevel(level)
         val factor = scale() / levelScale
-        visibleTiles(level).forEach { key ->
+        visibleTiles(level, region).forEach { key ->
             val tile = tiles.get(key) ?: return@forEach
-            val left = headerWidth + key.column * tileSize * factor - scrollPosX
-            val top = headerHeight + key.row * tileSize * factor - scrollPosY
+            val left = headerWidth + key.column * tileSize * factor - region.scrollX
+            val top = headerHeight + key.row * tileSize * factor - region.scrollY
             canvas.drawBitmap(
                 tile.bitmap, null,
                 RectF(left, top, left + tile.bitmap.width * factor, top + tile.bitmap.height * factor),
@@ -441,10 +771,13 @@ class SheetView @JvmOverloads constructor(
     }
 
     private fun selectionRect(sheet: SheetState): RectF? {
-        if (sheet.c2 >= geometry.colCount || sheet.r2 >= geometry.rowCount) return null
+        if (sheet.c1 >= geometry.colCount || sheet.r1 >= geometry.rowCount) return null
+        // Whole rows and columns end at the last laid-out cell
+        val c2 = minOf(sheet.c2, geometry.colCount - 1)
+        val r2 = minOf(sheet.r2, geometry.rowCount - 1)
         return RectF(
             viewX(geometry.cols[sheet.c1]), viewY(geometry.rows[sheet.r1]),
-            viewX(geometry.cols[sheet.c2 + 1]), viewY(geometry.rows[sheet.r2 + 1])
+            columnRight(c2), rowBottom(r2)
         )
     }
 
@@ -458,7 +791,7 @@ class SheetView @JvmOverloads constructor(
                 if (sheet.col < geometry.colCount && sheet.row < geometry.rowCount) {
                     addRect(
                         viewX(geometry.cols[sheet.col]), viewY(geometry.rows[sheet.row]),
-                        viewX(geometry.cols[sheet.col + 1]), viewY(geometry.rows[sheet.row + 1]),
+                        columnRight(sheet.col), rowBottom(sheet.row),
                         Path.Direction.CW
                     )
                 }
@@ -473,40 +806,46 @@ class SheetView @JvmOverloads constructor(
         val sheet = state
         val textOffset = (headerTextPaint.descent() + headerTextPaint.ascent()) / 2
 
-        // Column headings: A, B, ... at the top
+        val frozenCol = minOf(state?.frozenCol ?: 0, geometry.colCount)
+        val frozenRow = minOf(state?.frozenRow ?: 0, geometry.rowCount)
+
+        // Column headings: A, B, ... at the top; the frozen ones, then those scrolled into view
         canvas.drawRect(headerWidth, 0f, width.toFloat(), headerHeight, headerPaint)
-        val firstCol = geometry.columnAt(((scrollPosX) / scale()).toDouble())
-        var col = firstCol
-        while (col < geometry.colCount) {
+        fun drawColumn(col: Int) {
             val left = viewX(geometry.cols[col])
-            if (left > width) break
-            val right = viewX(geometry.cols[col + 1])
-            if (right - left >= 1f) {
-                if (sheet != null && col in sheet.c1..sheet.c2) canvas.drawRect(left, 0f, right, headerHeight, headerSelectedPaint)
-                canvas.drawLine(right, 0f, right, headerHeight, headerLinePaint)
-                if (right - left > headerTextPaint.textSize) {
-                    canvas.drawText(columnName(col), (left + right) / 2, headerHeight / 2 - textOffset, headerTextPaint)
-                }
+            val right = columnRight(col)
+            if (right - left < 1f) return
+            if (sheet != null && col in sheet.c1..sheet.c2) canvas.drawRect(left, 0f, right, headerHeight, headerSelectedPaint)
+            canvas.drawLine(right, 0f, right, headerHeight, headerLinePaint)
+            if (right - left > headerTextPaint.textSize) {
+                canvas.drawText(columnName(col), (left + right) / 2, headerHeight / 2 - textOffset, headerTextPaint)
             }
-            col++
         }
+        for (col in 0 until frozenCol) drawColumn(col)
+        canvas.save()
+        canvas.clipRect(headerWidth + frozenWidth(), 0f, width.toFloat(), headerHeight)
+        var col = maxOf(frozenCol, geometry.columnAt(((scrollPosX + frozenWidth()) / scale()).toDouble()))
+        while (col < geometry.colCount && viewX(geometry.cols[col]) <= width) drawColumn(col++)
+        canvas.restore()
 
         // Row headings: 1, 2, ... on the left
         canvas.drawRect(0f, headerHeight, headerWidth, height.toFloat(), headerPaint)
-        var row = geometry.rowAt((scrollPosY / scale()).toDouble())
-        while (row < geometry.rowCount) {
+        fun drawRow(row: Int) {
             val top = viewY(geometry.rows[row])
-            if (top > height) break
-            val bottom = viewY(geometry.rows[row + 1])
-            if (bottom - top >= 1f) {
-                if (sheet != null && row in sheet.r1..sheet.r2) canvas.drawRect(0f, top, headerWidth, bottom, headerSelectedPaint)
-                canvas.drawLine(0f, bottom, headerWidth, bottom, headerLinePaint)
-                if (bottom - top > headerTextPaint.textSize * 0.8f) {
-                    canvas.drawText((row + 1).toString(), headerWidth / 2, (top + bottom) / 2 - textOffset, headerTextPaint)
-                }
+            val bottom = rowBottom(row)
+            if (bottom - top < 1f) return
+            if (sheet != null && row in sheet.r1..sheet.r2) canvas.drawRect(0f, top, headerWidth, bottom, headerSelectedPaint)
+            canvas.drawLine(0f, bottom, headerWidth, bottom, headerLinePaint)
+            if (bottom - top > headerTextPaint.textSize * 0.8f) {
+                canvas.drawText((row + 1).toString(), headerWidth / 2, (top + bottom) / 2 - textOffset, headerTextPaint)
             }
-            row++
         }
+        for (row in 0 until frozenRow) drawRow(row)
+        canvas.save()
+        canvas.clipRect(0f, headerHeight + frozenHeight(), headerWidth, height.toFloat())
+        var row = maxOf(frozenRow, geometry.rowAt(((scrollPosY + frozenHeight()) / scale()).toDouble()))
+        while (row < geometry.rowCount && viewY(geometry.rows[row]) <= height) drawRow(row++)
+        canvas.restore()
 
         // Corner and the lines between headings and cells
         canvas.drawRect(0f, 0f, headerWidth, headerHeight, headerPaint)
@@ -522,14 +861,14 @@ class SheetView @JvmOverloads constructor(
 
     private fun scaleOfLevel(level: Int): Float = baseScale * LEVEL_STEP.pow(level).toFloat()
 
-    private fun visibleTiles(level: Int): List<TileKey> {
+    private fun visibleTiles(level: Int, region: Region): List<TileKey> {
         val levelScale = scaleOfLevel(level)
         val factor = scale() / levelScale
-        // Visible content, in pixels of the level
-        val left = scrollPosX / factor
-        val top = scrollPosY / factor
-        val right = min((scrollPosX + width - headerWidth) / factor, (geometry.widthMm * levelScale).toFloat())
-        val bottom = min((scrollPosY + height - headerHeight) / factor, (geometry.heightMm * levelScale).toFloat())
+        // Content visible in the region, in pixels of the level
+        val left = (region.area.left - headerWidth + region.scrollX) / factor
+        val top = (region.area.top - headerHeight + region.scrollY) / factor
+        val right = min((region.area.right - headerWidth + region.scrollX) / factor, (geometry.widthMm * levelScale).toFloat())
+        val bottom = min((region.area.bottom - headerHeight + region.scrollY) / factor, (geometry.heightMm * levelScale).toFloat())
         if (right <= left || bottom <= top) return emptyList()
         val keys = mutableListOf<TileKey>()
         for (row in (top / tileSize).toInt()..(bottom / tileSize).toInt()) {
@@ -548,7 +887,7 @@ class SheetView @JvmOverloads constructor(
         renderJob = scope?.launch {
             while (true) {
                 val level = levelFor(zoom)
-                val needed = visibleTiles(level).filter { tiles.get(it)?.version != version }
+                val needed = regions().flatMap { visibleTiles(level, it) }.distinct().filter { tiles.get(it)?.version != version }
                 if (needed.isEmpty()) {
                     // All tiles of the level are there: the fallback isn't needed any more
                     fallbackLevel = level
@@ -579,17 +918,26 @@ class SheetView @JvmOverloads constructor(
 
     private companion object {
         const val LEVEL_STEP = 1.4142135623730951
+        const val MOVE_INTERVAL_MS = 40L
+        const val MENU_FILL = 1
 
-        // A, B, ..., Z, AA, AB, ...
-        fun columnName(index: Int): String {
-            var number = index + 1
-            val name = StringBuilder()
-            while (number > 0) {
-                val rest = (number - 1) % 26
-                name.insert(0, ('A' + rest))
-                number = (number - 1) / 26
-            }
-            return name.toString()
-        }
     }
+}
+
+/** A, B, ..., Z, AA, AB, ... */
+internal fun columnName(index: Int): String {
+    var number = index + 1
+    val name = StringBuilder()
+    while (number > 0) {
+        val rest = (number - 1) % 26
+        name.insert(0, ('A' + rest))
+        number = (number - 1) / 26
+    }
+    return name.toString()
+}
+
+/** A cell reference like "B2", or a range like "B2:D5". */
+internal fun cellReference(c1: Int, r1: Int, c2: Int = c1, r2: Int = r1): String {
+    val start = columnName(minOf(c1, c2)) + (minOf(r1, r2) + 1)
+    return if (c1 == c2 && r1 == r2) start else start + ":" + columnName(maxOf(c1, c2)) + (maxOf(r1, r2) + 1)
 }

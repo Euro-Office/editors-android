@@ -17,6 +17,9 @@ import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.addCallback
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -163,10 +166,13 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             if (isSpreadsheet) {
                 val sheetView = findViewById<SheetView>(R.id.sheetView)
                 sheetView.setRenderer(::renderTile, lifecycleScope)
+                val openedDocument = opened.first
                 spreadsheetUi = SpreadsheetUi(this@BaseEditorActivity, sheetView, { command -> edit(command = command) }, object : SpreadsheetUi.Clipboard {
                     override fun cut() = this@BaseEditorActivity.copy(cut = true)
                     override fun copy() = this@BaseEditorActivity.copy(cut = false)
                     override fun paste() = editListener.onPaste()
+                }, loadFunctions = { onLoaded ->
+                    lifecycleScope.launch { onLoaded(withContext(EditorEngine.dispatcher) { openedDocument.functions() }) }
                 })
                 if (isEditable) spreadsheetUi?.enableEditing()
             } else {
@@ -259,8 +265,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // Editing: input goes to the engine in order, its state comes back to the view
 
     private val editListener = object : DocumentView.EditListener {
-        override fun onTouch(action: TouchAction, page: Int, xMm: Double, yMm: Double, clickCount: Int) =
-            edit { touch(action, page, xMm, yMm, clickCount) }
+        override fun onTouch(action: TouchAction, page: Int, xMm: Double, yMm: Double, clickCount: Int, addToSelection: Boolean) =
+            edit { touch(action, page, xMm, yMm, clickCount, addToSelection) }
 
         override fun onKey(keyCode: Int, shift: Boolean, ctrl: Boolean) = edit { keyDown(keyCode, shift, ctrl) }
 
@@ -332,6 +338,74 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolRedo).isEnabled = toolbar.canRedo
         findViewById<ImageButton>(R.id.toolUndo).imageAlpha = if (toolbar.canUndo) 255 else 80
         findViewById<ImageButton>(R.id.toolRedo).imageAlpha = if (toolbar.canRedo) 255 else 80
+        // Formatting of pictures and shapes while some are selected
+        findViewById<View>(R.id.toolShape).isVisible = isEditable() && state.drawings.any { !it.tracking }
+        formatPanel.update(state.format)
+        state.sheet?.let { cellFormatPanel.update(it.cellFormat) }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Pictures and shapes
+
+    private val formatPanel by lazy {
+        FormatPanel(
+            this, { command -> edit(command = command) },
+            load = { onLoaded ->
+                val document = document ?: return@FormatPanel
+                lifecycleScope.launch {
+                    val lists = withContext(EditorEngine.dispatcher) { document.fonts() to document.styles() }
+                    onLoaded(lists.first, lists.second)
+                }
+            },
+            withParagraphs = editorsType != EditorsType.CELLS,
+            withStyles = editorsType == EditorsType.DOCS
+        )
+    }
+
+    private val cellFormatPanel by lazy {
+        CellFormatPanel(this, { command -> edit(command = command) }) { onLoaded ->
+            val document = document ?: return@CellFormatPanel
+            lifecycleScope.launch { onLoaded(withContext(EditorEngine.dispatcher) { document.fonts() }) }
+        }
+    }
+
+    private val drawingUi by lazy {
+        DrawingUi(this, { command -> edit(command = command) }, { pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, ::takePhoto)
+    }
+
+    private val pickPicture = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) insertPicture(uri)
+    }
+
+    private val photoFile by lazy { File(cacheDir, "editor-camera/photo.jpg") }
+
+    private val photo = registerForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
+        if (taken) insertPicture(Uri.fromFile(photoFile))
+    }
+
+    private fun takePhoto() {
+        photoFile.parentFile?.mkdirs()
+        photoFile.delete()
+        // The app's FileProvider (documents-app-android) shares the cache directory
+        val uri = FileProvider.getUriForFile(this, "$packageName.asc.provider", photoFile)
+        runCatching { photo.launch(uri) }.onFailure { Log.e(TAG, "no camera", it) }
+    }
+
+    // Copies the picture into the document's images and inserts it at the cursor
+    private fun insertPicture(uri: Uri) {
+        val document = document ?: return
+        lifecycleScope.launch {
+            val directory = withContext(EditorEngine.dispatcher) { document.imagesDirectory() }
+            val picture = withContext(Dispatchers.IO) {
+                runCatching { DrawingUi.importPicture(this@BaseEditorActivity, uri, File(directory)) }
+                    .onFailure { Log.e(TAG, "can't import $uri", it) }.getOrNull()
+            }
+            if (picture == null) {
+                toast(getString(Resources.string.editors_picture_failed))
+                return@launch
+            }
+            edit { insertImage(picture.first, picture.second, picture.third) }
+        }
     }
 
     private fun bindToolbar() {
@@ -352,6 +426,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             bind(R.id.toolAddSlide) { addSlide() }
             bind(R.id.toolDeleteSlide) { deleteSlide() }
         }
+        findViewById<View>(R.id.toolInsert).setOnClickListener { drawingUi.showInsertMenu(it) }
+        findViewById<View>(R.id.toolFormat).isVisible = true
+        findViewById<View>(R.id.toolFormat).setOnClickListener { if (isSpreadsheet) cellFormatPanel.show() else formatPanel.show() }
+        findViewById<View>(R.id.toolShape).setOnClickListener { drawingUi.showShapeMenu(it) }
         findViewById<View>(R.id.toolSave).setOnClickListener {
             save { error -> if (error == 0) toast(getString(Resources.string.editors_saved)) else toast(saveErrorMessage(error)) }
         }

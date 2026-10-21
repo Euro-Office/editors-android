@@ -29,6 +29,7 @@ dependencies {
 
     implementation(libs.ktx)
     implementation(libs.appcompat)
+    implementation(libs.google.material)
     implementation(libs.lifecycle.runtime)
     implementation(libs.kotlin.coroutines.android)
 }
