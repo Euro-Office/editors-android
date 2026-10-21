@@ -5,28 +5,40 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
+import android.os.SystemClock
+import android.text.InputType
 import android.util.AttributeSet
 import android.util.LruCache
 import android.view.GestureDetector
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import android.view.inputmethod.BaseInputConnection
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
 import android.widget.OverScroller
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.PageSize
+import lib.editors.base.engine.TouchAction
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * Shows document pages below each other, with scrolling and zoom.
+ * Shows document pages below each other, with scrolling and zoom, and the cursor and
+ * selection when editing.
  *
  * Each page is rendered once at the width of the view (zoom 1) and cached. When zoomed in,
  * the visible part of each page is rendered again at full resolution once the gesture ends.
+ * Pages changed by an edit keep their old picture until the new one is ready.
  */
 class DocumentView @JvmOverloads constructor(
     context: Context,
@@ -36,6 +48,15 @@ class DocumentView @JvmOverloads constructor(
     /** Renders the area (x, y, width, height) of a page drawn at pageWidth x pageHeight pixels. */
     fun interface Renderer {
         suspend fun render(page: Int, pageWidth: Int, pageHeight: Int, x: Int, y: Int, width: Int, height: Int): Bitmap?
+    }
+
+    /** Input for the document, in page coordinates (millimeters) and web key codes. */
+    interface EditListener {
+        fun onTouch(action: TouchAction, page: Int, xMm: Double, yMm: Double, clickCount: Int)
+        fun onKey(keyCode: Int, shift: Boolean, ctrl: Boolean)
+        fun onCommitText(text: String)
+        fun onComposingText(text: String)
+        fun onFinishComposingText()
     }
 
     // contentRect: in pixels of the zoomed content (screen position plus scroll position)
@@ -48,6 +69,9 @@ class DocumentView @JvmOverloads constructor(
     private var pageSizes: List<PageSize> = emptyList()
     private var renderer: Renderer? = null
     private var scope: CoroutineScope? = null
+
+    /** Editing: taps place the cursor and the keyboard sends text. Otherwise read-only. */
+    var editListener: EditListener? = null
 
     // Layout at zoom 1, in view pixels
     private var pageWidth = 0f
@@ -63,12 +87,33 @@ class DocumentView @JvmOverloads constructor(
         override fun sizeOf(key: Int, value: Bitmap) = value.byteCount
     }
     private val pageJobs = mutableMapOf<Int, Job>()
+    // Incremented when a page changes; a render of an older version doesn't replace the picture
+    private val pageVersions = mutableMapOf<Int, Int>()
+    private val stalePages = mutableSetOf<Int>()
     private var details: List<Detail> = emptyList()
     private var detailJob: Job? = null
 
+    private var editorState: EditorState? = null
+    private var cursorShown = true
+    private var selecting = false
+    private var lastMoveTime = 0L
+
     private val paperPaint = Paint().apply { color = Color.WHITE }
     private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.BLACK
+        strokeWidth = 2 * density
+    }
+    private val selectionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(80, 51, 103, 214) }
     private val scroller = OverScroller(context)
+
+    private val blink = object : Runnable {
+        override fun run() {
+            cursorShown = !cursorShown
+            invalidate()
+            postDelayed(this, BLINK_MS)
+        }
+    }
 
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
@@ -97,18 +142,68 @@ class DocumentView @JvmOverloads constructor(
             return true
         }
 
-        override fun onDoubleTap(e: MotionEvent): Boolean {
-            zoomTo(if (zoom > 1.5f) 1f else 2.5f, e.x, e.y)
-            requestDetails()
+        override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+            if (editListener == null) return false
+            click(e.x, e.y, 1)
+            showKeyboard()
             return true
+        }
+
+        override fun onDoubleTap(e: MotionEvent): Boolean {
+            if (editListener != null) {
+                click(e.x, e.y, 2)
+            } else {
+                zoomTo(if (zoom > 1.5f) 1f else 2.5f, e.x, e.y)
+                requestDetails()
+            }
+            return true
+        }
+
+        // Long press and drag selects
+        override fun onLongPress(e: MotionEvent) {
+            val listener = editListener ?: return
+            val point = toPage(e.x, e.y) ?: return
+            selecting = true
+            listener.onTouch(TouchAction.DOWN, point.page, point.xMm, point.yMm, 1)
         }
     })
 
+    init {
+        isFocusable = true
+        isFocusableInTouchMode = true
+    }
+
     fun setPages(sizes: List<PageSize>, renderer: Renderer, scope: CoroutineScope) {
-        this.pageSizes = sizes
         this.renderer = renderer
         this.scope = scope
-        layoutPages()
+        updatePages(sizes)
+    }
+
+    /** New page count or sizes after an edit. */
+    fun updatePages(sizes: List<PageSize>) {
+        if (sizes != pageSizes) {
+            // Bitmaps of pages whose size changed no longer fit
+            for (page in sizes.indices) {
+                if (pageSizes.getOrNull(page) != sizes[page]) pageBitmaps.remove(page)
+            }
+            pageSizes = sizes
+            layoutPages()
+        }
+        invalidate()
+    }
+
+    /** Shows the cursor and selection and draws changed pages again. */
+    fun setEditorState(state: EditorState) {
+        editorState = state
+        for (page in state.dirtyPages) {
+            if (page !in pageSizes.indices) continue
+            pageVersions[page] = (pageVersions[page] ?: 0) + 1
+            stalePages.add(page)
+        }
+        // Sharp renders of the zoomed view are replaced once the new ones are ready
+        if (state.dirtyPages.isNotEmpty()) requestDetails()
+        restartBlink()
+        state.cursor?.let { scrollToCursor() }
         invalidate()
     }
 
@@ -120,6 +215,13 @@ class DocumentView @JvmOverloads constructor(
             details = emptyList()
         }
         layoutPages()
+        // Keep the cursor visible when the keyboard opens
+        if (h < oldh && editorState?.cursor != null) scrollToCursor()
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        removeCallbacks(blink)
     }
 
     private fun layoutPages() {
@@ -137,11 +239,88 @@ class DocumentView @JvmOverloads constructor(
         scrollTo(scrollPosX, scrollPosY)
     }
 
+    // ---------------------------------------------------------------------------------
+    // Page coordinates
+
+    private class PagePoint(val page: Int, val xMm: Double, val yMm: Double)
+
+    /** Pixels per millimeter of a page on screen. */
+    private fun scale(page: Int): Double = pageWidth * zoom / pageSizes[page].widthMm
+
+    private fun pageLeft(): Float = pageMargin * zoom - scrollPosX
+
+    private fun pageTop(page: Int): Float = pageTops[page] * zoom - scrollPosY
+
+    /** The page at (or nearest to) a screen point, and the point in its millimeters. */
+    private fun toPage(x: Float, y: Float): PagePoint? {
+        if (pageSizes.isEmpty()) return null
+        val contentY = (y + scrollPosY) / zoom
+        var page = pageTops.indexOfLast { it <= contentY }.coerceAtLeast(0)
+        if (page > 0 && contentY > pageTops[page] + pageHeights[page] + pageMargin / 2) page = min(page + 1, pageSizes.lastIndex)
+        val scale = scale(page)
+        return PagePoint(page, (x - pageLeft()) / scale, (y - pageTop(page)) / scale)
+    }
+
+    private fun screenX(page: Int, xMm: Double): Float = (pageLeft() + xMm * scale(page)).toFloat()
+
+    private fun screenY(page: Int, yMm: Double): Float = (pageTop(page) + yMm * scale(page)).toFloat()
+
+    private fun click(x: Float, y: Float, clickCount: Int) {
+        val listener = editListener ?: return
+        val point = toPage(x, y) ?: return
+        listener.onTouch(TouchAction.DOWN, point.page, point.xMm, point.yMm, clickCount)
+        listener.onTouch(TouchAction.UP, point.page, point.xMm, point.yMm, clickCount)
+        // The cursor moved: the keyboard starts composing anew
+        context.getSystemService(InputMethodManager::class.java)?.restartInput(this)
+    }
+
+    private fun scrollToCursor() {
+        val cursor = editorState?.cursor ?: return
+        if (cursor.page !in pageSizes.indices || height == 0) return
+        val top = min(screenY(cursor.page, cursor.y1), screenY(cursor.page, cursor.y2))
+        val bottom = max(screenY(cursor.page, cursor.y1), screenY(cursor.page, cursor.y2))
+        val x = screenX(cursor.page, cursor.x1)
+        val margin = 48 * density
+        var dx = 0f
+        var dy = 0f
+        if (bottom > height - margin) dy = bottom - (height - margin) else if (top < margin) dy = top - margin
+        if (x > width - margin) dx = x - (width - margin) else if (x < margin) dx = x - margin
+        if (dx != 0f || dy != 0f) {
+            scrollTo(scrollPosX + dx, scrollPosY + dy)
+            requestDetails()
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Touch
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (selecting) {
+            handleSelectionDrag(event)
+            return true
+        }
         scaleDetector.onTouchEvent(event)
         if (!scaleDetector.isInProgress) gestureDetector.onTouchEvent(event)
         if (event.actionMasked == MotionEvent.ACTION_UP && scroller.isFinished) requestDetails()
         return true
+    }
+
+    private fun handleSelectionDrag(event: MotionEvent) {
+        val listener = editListener ?: return
+        val point = toPage(event.x, event.y) ?: return
+        when (event.actionMasked) {
+            MotionEvent.ACTION_MOVE -> {
+                // The engine needs a few milliseconds per move; don't queue up more than it can do
+                val now = SystemClock.uptimeMillis()
+                if (now - lastMoveTime < MOVE_INTERVAL_MS) return
+                lastMoveTime = now
+                listener.onTouch(TouchAction.MOVE, point.page, point.xMm, point.yMm, 1)
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                selecting = false
+                listener.onTouch(TouchAction.UP, point.page, point.xMm, point.yMm, 1)
+            }
+        }
     }
 
     override fun computeScroll() {
@@ -169,6 +348,82 @@ class DocumentView @JvmOverloads constructor(
         scrollTo((scrollPosX + focusX) * factor - focusX, (scrollPosY + focusY) * factor - focusY)
     }
 
+    // ---------------------------------------------------------------------------------
+    // Keyboard
+
+    override fun onCheckIsTextEditor(): Boolean = editListener != null
+
+    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+        if (editListener == null) return null
+        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_FULLSCREEN
+        return DocumentInputConnection()
+    }
+
+    private fun showKeyboard() {
+        requestFocus()
+        context.getSystemService(InputMethodManager::class.java)?.showSoftInput(this, 0)
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        val listener = editListener ?: return super.onKeyDown(keyCode, event)
+        return sendKey(listener, event) || super.onKeyDown(keyCode, event)
+    }
+
+    private fun sendKey(listener: EditListener, event: KeyEvent): Boolean {
+        val webKeyCode = webKeyCode(event.keyCode)
+        if (webKeyCode != null && (event.isCtrlPressed || event.keyCode !in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z)) {
+            listener.onKey(webKeyCode, event.isShiftPressed, event.isCtrlPressed)
+            return true
+        }
+        val char = event.unicodeChar
+        if (char != 0) {
+            listener.onCommitText(String(Character.toChars(char)))
+            return true
+        }
+        return false
+    }
+
+    /** Talks to the soft keyboard; text goes to the document, not to an Android text buffer. */
+    private inner class DocumentInputConnection : BaseInputConnection(this@DocumentView, false) {
+
+        override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
+            editListener?.onCommitText(text.toString())
+            return true
+        }
+
+        override fun setComposingText(text: CharSequence, newCursorPosition: Int): Boolean {
+            editListener?.onComposingText(text.toString())
+            return true
+        }
+
+        override fun finishComposingText(): Boolean {
+            editListener?.onFinishComposingText()
+            return true
+        }
+
+        override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+            val listener = editListener ?: return true
+            repeat(beforeLength) { listener.onKey(KEY_BACKSPACE, false, false) }
+            repeat(afterLength) { listener.onKey(KEY_DELETE, false, false) }
+            return true
+        }
+
+        override fun sendKeyEvent(event: KeyEvent): Boolean {
+            val listener = editListener ?: return true
+            if (event.action == KeyEvent.ACTION_DOWN) sendKey(listener, event)
+            return true
+        }
+
+        override fun performEditorAction(actionCode: Int): Boolean {
+            editListener?.onKey(KEY_ENTER, false, false)
+            return true
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Drawing
+
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(BACKGROUND)
         if (pageSizes.isEmpty()) return
@@ -189,8 +444,8 @@ class DocumentView @JvmOverloads constructor(
                 canvas.drawBitmap(bitmap, null, rect, bitmapPaint)
             } else {
                 canvas.drawRect(rect, paperPaint)
-                requestPage(page)
             }
+            if (bitmap == null || page in stalePages) requestPage(page)
         }
         canvas.restore()
 
@@ -201,17 +456,53 @@ class DocumentView @JvmOverloads constructor(
             if (detail.zoom == zoom) canvas.drawBitmap(detail.bitmap, null, detail.contentRect, null)
         }
         canvas.restore()
+
+        drawEditorState(canvas)
     }
+
+    private fun drawEditorState(canvas: Canvas) {
+        val state = editorState ?: return
+        for (area in state.selection) {
+            if (area.page !in pageSizes.indices) continue
+            val path = Path()
+            for (i in 0 until 4) {
+                val x = screenX(area.page, area.points[2 * i])
+                val y = screenY(area.page, area.points[2 * i + 1])
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            path.close()
+            canvas.drawPath(path, selectionPaint)
+        }
+        val cursor = state.cursor ?: return
+        if (cursorShown && cursor.page in pageSizes.indices && editListener != null) {
+            canvas.drawLine(
+                screenX(cursor.page, cursor.x1), screenY(cursor.page, cursor.y1),
+                screenX(cursor.page, cursor.x2), screenY(cursor.page, cursor.y2),
+                cursorPaint
+            )
+        }
+    }
+
+    private fun restartBlink() {
+        removeCallbacks(blink)
+        cursorShown = true
+        if (editorState?.cursor != null && editListener != null) postDelayed(blink, BLINK_MS)
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Rendering
 
     private fun requestPage(page: Int) {
         val renderer = renderer ?: return
         if (pageJobs[page]?.isActive == true) return
         val width = pageWidth.roundToInt()
         val height = pageHeights[page].roundToInt()
+        val version = pageVersions[page] ?: 0
         pageJobs[page] = scope?.launch {
             val bitmap = renderer.render(page, width, height, 0, 0, width, height)
-            if (bitmap != null && width == pageWidth.roundToInt()) {
+            if (bitmap != null && width == pageWidth.roundToInt() && page in pageSizes.indices) {
                 pageBitmaps.put(page, bitmap)
+                if (version == (pageVersions[page] ?: 0)) stalePages.remove(page)
                 invalidate()
             }
         } ?: return
@@ -221,8 +512,8 @@ class DocumentView @JvmOverloads constructor(
     private fun requestDetails() {
         val renderer = renderer ?: return
         detailJob?.cancel()
-        details = emptyList()
         if (zoom <= 1.05f) {
+            details = emptyList()
             invalidate()
             return
         }
@@ -261,5 +552,30 @@ class DocumentView @JvmOverloads constructor(
 
     private companion object {
         val BACKGROUND = Color.rgb(0xE8, 0xE8, 0xE8)
+        const val BLINK_MS = 500L
+        const val MOVE_INTERVAL_MS = 40L
+
+        const val KEY_BACKSPACE = 8
+        const val KEY_ENTER = 13
+        const val KEY_DELETE = 46
+
+        // Android key codes to the web key codes sdkjs expects
+        fun webKeyCode(keyCode: Int): Int? = when (keyCode) {
+            KeyEvent.KEYCODE_DEL -> KEY_BACKSPACE
+            KeyEvent.KEYCODE_FORWARD_DEL -> KEY_DELETE
+            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> KEY_ENTER
+            KeyEvent.KEYCODE_TAB -> 9
+            KeyEvent.KEYCODE_ESCAPE -> 27
+            KeyEvent.KEYCODE_PAGE_UP -> 33
+            KeyEvent.KEYCODE_PAGE_DOWN -> 34
+            KeyEvent.KEYCODE_MOVE_END -> 35
+            KeyEvent.KEYCODE_MOVE_HOME -> 36
+            KeyEvent.KEYCODE_DPAD_LEFT -> 37
+            KeyEvent.KEYCODE_DPAD_UP -> 38
+            KeyEvent.KEYCODE_DPAD_RIGHT -> 39
+            KeyEvent.KEYCODE_DPAD_DOWN -> 40
+            in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z -> 65 + keyCode - KeyEvent.KEYCODE_A
+            else -> null
+        }
     }
 }

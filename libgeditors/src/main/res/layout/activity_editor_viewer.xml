@@ -1,18 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/editorRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="true">
+    android:orientation="vertical">
 
-    <lib.editors.gbase.ui.views.DocumentView
-        android:id="@+id/documentView"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="0dp"
+        android:layout_weight="1">
 
-    <ProgressBar
-        android:id="@+id/documentProgress"
-        android:layout_width="wrap_content"
+        <lib.editors.gbase.ui.views.DocumentView
+            android:id="@+id/documentView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <ProgressBar
+            android:id="@+id/documentProgress"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center" />
+
+    </FrameLayout>
+
+    <HorizontalScrollView
+        android:id="@+id/editorToolbar"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center" />
+        android:background="?android:attr/colorBackground"
+        android:elevation="4dp"
+        android:visibility="gone">
 
-</FrameLayout>
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:paddingHorizontal="4dp">
+
+            <ImageButton android:id="@+id/toolBold" style="@style/EditorToolButton"
+                android:contentDescription="@string/editors_bold" android:src="@drawable/ic_editor_bold" />
+            <ImageButton android:id="@+id/toolItalic" style="@style/EditorToolButton"
+                android:contentDescription="@string/editors_italic" android:src="@drawable/ic_editor_italic" />
+            <ImageButton android:id="@+id/toolUnderline" style="@style/EditorToolButton"
+                android:contentDescription="@string/editors_underline" android:src="@drawable/ic_editor_underline" />
+            <ImageButton android:id="@+id/toolAlignLeft" style="@style/EditorToolButton"
+                android:contentDescription="@string/editors_align_left" android:src="@drawable/ic_editor_align_left" />
+            <ImageButton android:id="@+id/toolAlignCenter" style="@style/EditorToolButton"
+                android:contentDescription="@string/editors_align_center" android:src="@drawable/ic_editor_align_center" />
+            <ImageButton android:id="@+id/toolAlignRight" style="@style/EditorToolButton"
+                android:contentDescription="@string/editors_align_right" android:src="@drawable/ic_editor_align_right" />
+            <ImageButton android:id="@+id/toolUndo" style="@style/EditorToolButton"
+                android:contentDescription="@string/editors_undo" android:src="@drawable/ic_editor_undo" />
+            <ImageButton android:id="@+id/toolRedo" style="@style/EditorToolButton"
+                android:contentDescription="@string/editors_redo" android:src="@drawable/ic_editor_redo" />
+
+        </LinearLayout>
+
+    </HorizontalScrollView>
+
+</LinearLayout>
