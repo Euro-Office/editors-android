@@ -79,9 +79,33 @@ interface EditorDocument : PagedDocument {
     /** Presentations: deletes the current slide. */
     fun deleteSlide(): EditorState = command("eoEngine.deleteSlide()")
 
+    /**
+     * Spreadsheets: selects the cells from ([c1], [r1]) to ([c2], [r2]); ([c1], [r1]) is the
+     * active cell. [enterText] is entered into the active cell first, if given (see [setCellText]).
+     */
+    fun selectCells(c1: Int, r1: Int, c2: Int, r2: Int, enterText: String? = null): EditorState =
+        command("${enterScript(enterText)}eoEngine.selectCells($c1, $r1, $c2, $r2)")
+
+    /** Spreadsheets: the active cell's new content (a value or a formula starting with "="); empty clears it. */
+    fun setCellText(text: String): EditorState = command(enterScript(text))
+
+    /** Spreadsheets: clears the content of the selected cells. */
+    fun clearCells(): EditorState = command("eoEngine.clearCells()")
+
+    /** Spreadsheets: shows another sheet, after entering [enterText] into the active cell, if given. */
+    fun setActiveSheet(index: Int, enterText: String? = null): EditorState =
+        command("${enterScript(enterText)}eoEngine.setActiveSheet($index)")
+
     fun undo(): EditorState = command("eoEngine.undo()")
 
     fun redo(): EditorState = command("eoEngine.redo()")
+
+    // One command, so that the state reports the change of the entered cell too
+    private fun enterScript(text: String?): String = when {
+        text == null -> ""
+        text.isEmpty() -> "eoEngine.clearCells(); "
+        else -> "eoEngine.setCellText(${JSONObject.quote(text)}); "
+    }
 
     private fun command(script: String): EditorState =
         EditorState.parse(execute("try { $script; } catch (e) { eoEngine.reportError(e); } eoEngine.getState()"))
@@ -94,6 +118,7 @@ data class ClipboardContent(val text: String, val internal: String)
 val WRITABLE_FORMATS = setOf(
     "docx", "docm", "dotx", "dotm", "odt", "ott", "rtf", "txt", "html", "epub", "fb2",
     "pptx", "pptm", "ppsx", "ppsm", "potx", "potm", "odp", "otp",
+    "xlsx", "xlsm", "xltx", "xltm", "ods", "ots", "csv",
     "pdf"
 )
 

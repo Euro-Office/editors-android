@@ -76,6 +76,8 @@ val copyEngineAssets by tasks.registering(Copy::class) {
             "slide/sdk-all-min.js",
             "slide/sdk-all.js",
             "slide/themes/**",
+            "cell/sdk-all-min.js",
+            "cell/sdk-all.js",
             "common/Native/*.js",
             "common/libfont/engine/fonts_native.js",
             "vendor/xregexp-all-min.js"
