@@ -16,6 +16,9 @@
 
         <ImageButton android:id="@+id/toolSearch" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_search" android:src="@drawable/ic_editor_search" />
+        <ImageButton android:id="@+id/toolSlideshow" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_slides_slideshow" android:src="@drawable/ic_editor_slideshow"
+            android:visibility="gone" />
         <ImageButton android:id="@+id/toolSave" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_save" android:src="@drawable/ic_editor_save" />
         <ImageButton android:id="@+id/toolInsert" style="@style/EditorToolButton"

@@ -83,6 +83,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private var spreadsheetUi: SpreadsheetUi? = null
     private var searchBar: SearchBar? = null
     private var documentUi: DocumentUi? = null
+    private var slidesUi: SlidesUi? = null
     private lateinit var linkBar: View
     private val isSpreadsheet get() = editorsType == EditorsType.CELLS
 
@@ -195,6 +196,20 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 documentView.readOnly = !isEditable
             }
             showToolbar(isEditable)
+            if (editorsType == EditorsType.PRESENTATION) {
+                val firstSlide = opened.second.firstOrNull()
+                val ui = SlidesUi(
+                    this@BaseEditorActivity, lifecycleScope, { document }, { command -> edit(command = command) },
+                    render = { page, width, height -> renderTile(page, width, height, 0, 0, width, height) },
+                    slideAspect = { firstSlide?.let { (it.widthMm / it.heightMm).toFloat() } ?: (16f / 9f) },
+                    editable = isEditable
+                )
+                val root = findViewById<ViewGroup>(R.id.editorRoot)
+                root.addView(ui.strip, root.indexOfChild(findViewById(R.id.editorToolbar)))
+                slidesUi = ui
+                findViewById<View>(R.id.toolSlideshow).isVisible = true
+                findViewById<View>(R.id.toolSlideshow).setOnClickListener { ui.startSlideshow() }
+            }
             if (isEditable && editorsType == EditorsType.DOCS) {
                 val ui = DocumentUi(this@BaseEditorActivity, lifecycleScope, documentView, { document }) { command -> edit(command = command) }
                 val root = findViewById<ViewGroup>(R.id.editorRoot)
@@ -387,6 +402,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         formatPanel.update(state.format)
         state.sheet?.let { cellFormatPanel.update(it.cellFormat) }
         searchBar?.update(state.search)
+        slidesUi?.update(state)
         documentUi?.let { ui ->
             ui.update(state)
             findViewById<View>(R.id.toolTable).isVisible = ui.isInTable
