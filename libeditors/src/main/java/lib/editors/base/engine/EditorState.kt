@@ -154,6 +154,22 @@ data class OutlineItem(val index: Int, val text: String, val level: Int)
 
 data class Statistics(val pages: Int, val words: Int, val paragraphs: Int, val symbols: Int, val symbolsWithSpaces: Int)
 
+/**
+ * How a slide appears in a slideshow: [type] is Asc.c_oAscSlideTransitionTypes (0 none, 1 fade,
+ * 2 push, 3 wipe, 4 split, 5 uncover, 6 cover, 7 clock, 8 zoom, 9 morph), [option] its
+ * Asc.c_oAscSlideTransitionParams (direction and so on); the next slide comes on a tap
+ * ([onClick]) and/or after [afterMs] ([advanceAfter]).
+ */
+data class SlideTransition(
+    val type: Int, val option: Int, val durationMs: Int,
+    val onClick: Boolean, val advanceAfter: Boolean, val afterMs: Int
+)
+
+data class SlideInfo(val hidden: Boolean, val layout: String, val transition: SlideTransition?, val notes: String)
+
+/** A slide layout; [index] is for [EditorDocument.addSlide] and [EditorDocument.setLayout]. */
+data class SlideLayout(val index: Int, val name: String)
+
 data class ToolbarState(
     val bold: Boolean = false,
     val italic: Boolean = false,

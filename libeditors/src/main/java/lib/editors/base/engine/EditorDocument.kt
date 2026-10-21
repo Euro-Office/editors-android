@@ -255,6 +255,53 @@ interface EditorDocument : PagedDocument {
     fun endFind(): EditorState = command("eoEngine.endFind()")
 
     // ---------------------------------------------------------------------------------
+    // Presentations: slides (the commands act on the current slide)
+
+    fun slides(): List<SlideInfo> {
+        val json = org.json.JSONArray(execute("eoEngine.getSlides()"))
+        return (0 until json.length()).map { i ->
+            val slide = json.getJSONObject(i)
+            SlideInfo(
+                slide.optBoolean("hidden"), slide.optString("layout"),
+                slide.optJSONObject("transition")?.let {
+                    SlideTransition(
+                        it.optInt("type"), it.optInt("option"), it.optInt("duration"),
+                        it.optBoolean("onClick", true), it.optBoolean("after"), it.optInt("afterDuration")
+                    )
+                },
+                slide.optString("notes")
+            )
+        }
+    }
+
+    fun gotoSlide(index: Int): EditorState = command("eoEngine.gotoSlide($index)")
+
+    fun duplicateSlide(): EditorState = command("eoEngine.duplicateSlide()")
+
+    /** Moves the current slide to [position]. */
+    fun moveSlide(position: Int): EditorState = command("eoEngine.moveSlide($position)")
+
+    /** Hidden slides are left out of slideshows. */
+    fun hideSlide(hide: Boolean): EditorState = command("eoEngine.hideSlide($hide)")
+
+    fun layouts(): List<SlideLayout> {
+        val json = org.json.JSONArray(execute("eoEngine.getLayouts()"))
+        return (0 until json.length()).map { SlideLayout(json.getJSONObject(it).getInt("index"), json.getJSONObject(it).getString("name")) }
+    }
+
+    /** A slide with the layout after the current one. */
+    fun addSlide(layoutIndex: Int): EditorState = command("eoEngine.addSlideWithLayout($layoutIndex)")
+
+    fun setLayout(layoutIndex: Int): EditorState = command("eoEngine.setLayout($layoutIndex)")
+
+    /** Replaces the speaker notes of the current slide (lines separated by \n). */
+    fun setNotes(text: String): EditorState = command("eoEngine.setNotes(${JSONObject.quote(text)})")
+
+    /** The transition of the current slide, or of all slides ([all]); see [SlideTransition]. */
+    fun setTransition(type: Int, option: Int, durationMs: Int, all: Boolean): EditorState =
+        command("eoEngine.setTransition($type, $option, $durationMs, $all)")
+
+    // ---------------------------------------------------------------------------------
     // Document structure (documents)
 
     fun insertTable(cols: Int, rows: Int): EditorState = command("eoEngine.insertTable($cols, $rows)")
