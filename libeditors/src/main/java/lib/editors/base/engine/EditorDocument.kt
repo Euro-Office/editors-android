@@ -254,6 +254,86 @@ interface EditorDocument : PagedDocument {
 
     fun endFind(): EditorState = command("eoEngine.endFind()")
 
+    // ---------------------------------------------------------------------------------
+    // Document structure (documents)
+
+    fun insertTable(cols: Int, rows: Int): EditorState = command("eoEngine.insertTable($cols, $rows)")
+
+    /** On the table at the cursor: rowAbove, rowBelow, columnLeft, columnRight, deleteRow, deleteColumn, deleteTable, merge, split, select. */
+    fun tableAction(action: String): EditorState = command("eoEngine.tableAction(${JSONObject.quote(action)})")
+
+    /** page, column, line, sectionNextPage or sectionContinuous. */
+    fun insertBreak(kind: String): EditorState = command("eoEngine.insertBreak(${JSONObject.quote(kind)})")
+
+    /** Edits the header (or footer) of [page]. */
+    fun editHeaderFooter(page: Int, footer: Boolean): EditorState = command("eoEngine.editHeaderFooter($page, $footer)")
+
+    /** Back to the text from a header or footer. */
+    fun endHeaderFooter(): EditorState = command("eoEngine.endHeaderFooter()")
+
+    /** While editing a header or footer: differentFirst or differentOddEven. */
+    fun setHeaderFooterOption(option: String, value: Boolean): EditorState =
+        command("eoEngine.setHeaderFooterOption(${JSONObject.quote(option)}, $value)")
+
+    /** A page number in the header ([where] 1), footer (2) or at the cursor (-1); [align] 0 right, 1 left, 2 center. */
+    fun insertPageNumber(where: Int, align: Int): EditorState = command("eoEngine.insertPageNumber($where, $align)")
+
+    fun pageSetup(): PageSetup {
+        val json = JSONObject(execute("eoEngine.getPageSetup()"))
+        return PageSetup(
+            json.getDouble("width"), json.getDouble("height"), json.getBoolean("landscape"),
+            json.getDouble("left"), json.getDouble("top"), json.getDouble("right"), json.getDouble("bottom"),
+            json.optInt("columns", 1)
+        )
+    }
+
+    /** Changes the given parts: the size as portrait (width < height), orientation, margins (all four) and columns. */
+    fun setPageSetup(
+        width: Double? = null, height: Double? = null, landscape: Boolean? = null,
+        margins: DoubleArray? = null, columns: Int? = null
+    ): EditorState {
+        val setup = JSONObject()
+        if (width != null && height != null) setup.put("width", width).put("height", height)
+        if (landscape != null) setup.put("landscape", landscape)
+        if (margins != null) setup.put("left", margins[0]).put("top", margins[1]).put("right", margins[2]).put("bottom", margins[3])
+        if (columns != null) setup.put("columns", columns)
+        return command("eoEngine.setPageSetup($setup)")
+    }
+
+    /** A footnote (or endnote) at the cursor; editing goes on in it. */
+    fun addNote(endnote: Boolean): EditorState = command(if (endnote) "eoEngine.addEndnote()" else "eoEngine.addFootnote()")
+
+    /** Back to the text from a footnote or endnote. */
+    fun endNoteEditing(): EditorState = command("eoEngine.endNoteEditing()")
+
+    fun addTableOfContents(): EditorState = command("eoEngine.addTableOfContents()")
+
+    fun updateTableOfContents(): EditorState = command("eoEngine.updateTableOfContents()")
+
+    fun outline(): List<OutlineItem> {
+        val json = org.json.JSONArray(execute("eoEngine.getOutline()"))
+        return (0 until json.length()).map {
+            val item = json.getJSONObject(it)
+            OutlineItem(item.getInt("index"), item.getString("text"), item.getInt("level"))
+        }
+    }
+
+    /** Moves the cursor to the heading (its [OutlineItem.index]). */
+    fun gotoOutline(index: Int): EditorState = command("eoEngine.gotoOutline($index)")
+
+    fun statistics(): Statistics {
+        val json = JSONObject(execute("eoEngine.getStatistics()"))
+        return Statistics(json.getInt("pages"), json.getInt("words"), json.getInt("paragraphs"), json.getInt("symbols"), json.getInt("symbolsWithSpaces"))
+    }
+
+    fun setTrackChanges(value: Boolean): EditorState = command("eoEngine.setTrackChanges($value)")
+
+    /** next, previous, accept, reject (the change at the cursor, then the next one), acceptAll, rejectAll. */
+    fun reviewAction(action: String): EditorState = command("eoEngine.reviewAction(${JSONObject.quote(action)})")
+
+    /** How tracked changes are shown: 0 marked up, 1 final, 2 original. */
+    fun setReviewMode(mode: Int): EditorState = command("eoEngine.setReviewMode($mode)")
+
     /**
      * Follows the link at the cursor (the state's link): places in the document are shown
      * here; a web address comes back as the state's openUrl.

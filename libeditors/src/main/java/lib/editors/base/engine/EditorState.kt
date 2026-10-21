@@ -127,6 +127,33 @@ data class SearchState(val count: Int, val current: Int, val replaced: Int)
 /** The hyperlink at the cursor or in the active cell: a web address ([url]) or a place in the document ([anchor]). */
 data class Link(val url: String, val anchor: String)
 
+/** A tracked change: [type] is Asc.c_oAscRevisionsChangeType (1 text added, 2 text removed, 3/4 paragraph added/removed, 5+ formatting). */
+data class TrackedChange(val type: Int, val user: String, val date: String, val text: String)
+
+/** Documents: where the cursor is (table, header or footer, footnote) and track changes. */
+data class DocumentStructure(
+    val inTable: Boolean = false,
+    val inHeaderFooter: Boolean = false,
+    val differentFirst: Boolean = false,
+    val differentOddEven: Boolean = false,
+    val inNote: Boolean = false,
+    val trackChanges: Boolean = false,
+    /** The change at the cursor, after going to the next or previous one. */
+    val change: TrackedChange? = null
+)
+
+/** Page size, orientation and margins of the current section, in mm, and its columns. */
+data class PageSetup(
+    val width: Double, val height: Double, val landscape: Boolean,
+    val left: Double, val top: Double, val right: Double, val bottom: Double,
+    val columns: Int
+)
+
+/** A heading of the document outline, at [level] (0 for the top). */
+data class OutlineItem(val index: Int, val text: String, val level: Int)
+
+data class Statistics(val pages: Int, val words: Int, val paragraphs: Int, val symbols: Int, val symbolsWithSpaces: Int)
+
 data class ToolbarState(
     val bold: Boolean = false,
     val italic: Boolean = false,
@@ -163,7 +190,9 @@ class EditorState(
     val search: SearchState? = null,
     val link: Link? = null,
     /** A web address to open, after following a link (reported once). */
-    val openUrl: String? = null
+    val openUrl: String? = null,
+    /** Documents only. */
+    val structure: DocumentStructure? = null
 ) {
     companion object {
         /** Throws [org.json.JSONException] if [json] isn't a state (the engine failed). */
@@ -198,9 +227,22 @@ class EditorState(
                 root.optJSONObject("format")?.let { parseFormat(it) } ?: TextFormat(),
                 root.optJSONObject("search")?.let { SearchState(it.optInt("count"), it.optInt("current", -1), it.optInt("replaced", -1)) },
                 root.optJSONObject("link")?.let { Link(it.optString("url"), it.optString("anchor")) },
-                root.optString("openUrl").takeIf { it.isNotEmpty() && it != "null" }
+                root.optString("openUrl").takeIf { it.isNotEmpty() && it != "null" },
+                root.optJSONObject("structure")?.let { parseStructure(it) }
             )
         }
+
+        private fun parseStructure(json: JSONObject) = DocumentStructure(
+            inTable = json.optBoolean("inTable"),
+            inHeaderFooter = json.optBoolean("inHeaderFooter"),
+            differentFirst = json.optBoolean("differentFirst"),
+            differentOddEven = json.optBoolean("differentOddEven"),
+            inNote = json.optBoolean("inNote"),
+            trackChanges = json.optBoolean("trackChanges"),
+            change = json.optJSONObject("change")?.let {
+                TrackedChange(it.optInt("type"), it.optString("user"), it.optString("date"), it.optString("text"))
+            }
+        )
 
         private fun parseFormat(json: JSONObject) = TextFormat(
             fontName = json.optString("FontName"),
