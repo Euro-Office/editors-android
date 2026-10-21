@@ -30,6 +30,7 @@ import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.TouchAction
 import lib.editors.gbase.R
+import lib.editors.gbase.ui.clipboard.EditorClipboard
 import lib.editors.gbase.ui.views.DocumentView
 import lib.toolkit.base.managers.utils.EditType
 import lib.toolkit.base.managers.utils.EditorsContract
@@ -146,6 +147,28 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         override fun onComposingText(text: String) = edit { setComposingText(text) }
 
         override fun onFinishComposingText() = edit { finishComposingText() }
+
+        override fun onSelect(startPage: Int, startXMm: Double, startYMm: Double, endPage: Int, endXMm: Double, endYMm: Double) =
+            edit { select(startPage, startXMm, startYMm, endPage, endXMm, endYMm) }
+
+        override fun onCut() = copy(cut = true)
+
+        override fun onCopy() = copy(cut = false)
+
+        override fun onPaste() {
+            val content = EditorClipboard.get(this@BaseEditorActivity) ?: return
+            edit { paste(content.text, content.internal) }
+        }
+
+        override fun onSelectAll() = edit { selectAll() }
+    }
+
+    private fun copy(cut: Boolean) = edit {
+        val content = copy()
+        if (content.text.isNotEmpty() || content.internal.isNotEmpty()) {
+            EditorClipboard.put(this@BaseEditorActivity, content)
+        }
+        if (cut) cut() else state()
     }
 
     private fun edit(command: EditorDocument.() -> EditorState) {

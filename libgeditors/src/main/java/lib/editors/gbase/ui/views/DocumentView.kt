@@ -1,5 +1,6 @@
 package lib.editors.gbase.ui.views
 
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -12,8 +13,12 @@ import android.os.SystemClock
 import android.text.InputType
 import android.util.AttributeSet
 import android.util.LruCache
+import android.view.ActionMode
 import android.view.GestureDetector
+import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
+import android.view.Menu
+import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
@@ -22,12 +27,15 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.OverScroller
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.PageSize
 import lib.editors.base.engine.TouchAction
+import lib.editors.resources.R as Resources
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -39,6 +47,9 @@ import kotlin.math.roundToInt
  * Each page is rendered once at the width of the view (zoom 1) and cached. When zoomed in,
  * the visible part of each page is rendered again at full resolution once the gesture ends.
  * Pages changed by an edit keep their old picture until the new one is ready.
+ *
+ * Text is selected by a long press (then drag), a double tap or the selection handles; a
+ * floating menu offers cut, copy, paste and select all.
  */
 class DocumentView @JvmOverloads constructor(
     context: Context,
@@ -57,10 +68,21 @@ class DocumentView @JvmOverloads constructor(
         fun onCommitText(text: String)
         fun onComposingText(text: String)
         fun onFinishComposingText()
+        /** Selects from the start to the end point: dragging a selection handle. */
+        fun onSelect(startPage: Int, startXMm: Double, startYMm: Double, endPage: Int, endXMm: Double, endYMm: Double)
+        fun onCut()
+        fun onCopy()
+        fun onPaste()
+        fun onSelectAll()
     }
 
     // contentRect: in pixels of the zoomed content (screen position plus scroll position)
     private class Detail(val zoom: Float, val contentRect: Rect, val bitmap: Bitmap)
+
+    // End of the selection at the start or end of a line, in page millimeters
+    private class Handle(val page: Int, val xMm: Double, val topMm: Double, val bottomMm: Double) {
+        val middleMm get() = (topMm + bottomMm) / 2
+    }
 
     private val density = resources.displayMetrics.density
     private val pageMargin = 12 * density
@@ -98,13 +120,33 @@ class DocumentView @JvmOverloads constructor(
     private var selecting = false
     private var lastMoveTime = 0L
 
+    // Dragging a selection handle: the other end stays, the dragged end follows the finger
+    private var fixedHandle: Handle? = null
+    private var handleOffsetX = 0f
+    private var handleOffsetY = 0f
+
+    private var actionMode: ActionMode? = null
+    // The menu at the cursor (paste, select all) rather than for a selection
+    private var insertionMenu = false
+    // Select all from the menu: show the menu again for the new selection
+    private var menuAfterUpdate = false
+
+    private val background = ContextCompat.getColor(context, Resources.color.editors_document_background)
+    private val handleRadius = 11 * density
+    private val handleTouchRadius = 28 * density
     private val paperPaint = Paint().apply { color = Color.WHITE }
     private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK
         strokeWidth = 2 * density
     }
-    private val selectionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(80, 51, 103, 214) }
+    private val selectionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = ContextCompat.getColor(context, Resources.color.editors_selection)
+    }
+    private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = ContextCompat.getColor(context, Resources.color.editors_selection_handle)
+        strokeWidth = 2 * density
+    }
     private val scroller = OverScroller(context)
 
     private val blink = object : Runnable {
@@ -129,6 +171,7 @@ class DocumentView @JvmOverloads constructor(
         }
 
         override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
+            actionMode?.hide(ActionMode.DEFAULT_HIDE_DURATION.toLong())
             scrollTo(scrollPosX + distanceX, scrollPosY + distanceY)
             return true
         }
@@ -144,14 +187,19 @@ class DocumentView @JvmOverloads constructor(
 
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
             if (editListener == null) return false
+            // A tap on the cursor opens the menu (paste, select all)
+            val onCursor = isNearCursor(e.x, e.y)
+            hideActionMenu()
             click(e.x, e.y, 1)
             showKeyboard()
+            if (onCursor) showActionMenu(insertion = true)
             return true
         }
 
         override fun onDoubleTap(e: MotionEvent): Boolean {
             if (editListener != null) {
                 click(e.x, e.y, 2)
+                menuAfterUpdate = true
             } else {
                 zoomTo(if (zoom > 1.5f) 1f else 2.5f, e.x, e.y)
                 requestDetails()
@@ -159,12 +207,14 @@ class DocumentView @JvmOverloads constructor(
             return true
         }
 
-        // Long press and drag selects
+        // Long press selects a word, dragging extends the selection by words
         override fun onLongPress(e: MotionEvent) {
             val listener = editListener ?: return
             val point = toPage(e.x, e.y) ?: return
             selecting = true
-            listener.onTouch(TouchAction.DOWN, point.page, point.xMm, point.yMm, 1)
+            hideActionMenu()
+            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            listener.onTouch(TouchAction.DOWN, point.page, point.xMm, point.yMm, 2)
         }
     })
 
@@ -204,6 +254,13 @@ class DocumentView @JvmOverloads constructor(
         if (state.dirtyPages.isNotEmpty()) requestDetails()
         restartBlink()
         state.cursor?.let { scrollToCursor() }
+        if (menuAfterUpdate && state.selection.isNotEmpty()) {
+            showActionMenu(insertion = false)
+        } else if (!insertionMenu && state.selection.isEmpty()) {
+            hideActionMenu()
+        }
+        menuAfterUpdate = false
+        actionMode?.invalidateContentRect()
         invalidate()
     }
 
@@ -222,6 +279,7 @@ class DocumentView @JvmOverloads constructor(
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         removeCallbacks(blink)
+        hideActionMenu()
     }
 
     private fun layoutPages() {
@@ -274,6 +332,14 @@ class DocumentView @JvmOverloads constructor(
         context.getSystemService(InputMethodManager::class.java)?.restartInput(this)
     }
 
+    private fun isNearCursor(x: Float, y: Float): Boolean {
+        val cursor = editorState?.cursor ?: return false
+        if (cursor.page !in pageSizes.indices || editorState?.selection?.isNotEmpty() == true) return false
+        val cursorX = screenX(cursor.page, (cursor.x1 + cursor.x2) / 2)
+        val cursorY = screenY(cursor.page, (cursor.y1 + cursor.y2) / 2)
+        return hypot(x - cursorX, y - cursorY) < handleTouchRadius
+    }
+
     private fun scrollToCursor() {
         val cursor = editorState?.cursor ?: return
         if (cursor.page !in pageSizes.indices || height == 0) return
@@ -295,6 +361,11 @@ class DocumentView @JvmOverloads constructor(
     // Touch
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && startHandleDrag(event)) return true
+        if (fixedHandle != null) {
+            handleHandleDrag(event)
+            return true
+        }
         if (selecting) {
             handleSelectionDrag(event)
             return true
@@ -314,12 +385,143 @@ class DocumentView @JvmOverloads constructor(
                 val now = SystemClock.uptimeMillis()
                 if (now - lastMoveTime < MOVE_INTERVAL_MS) return
                 lastMoveTime = now
-                listener.onTouch(TouchAction.MOVE, point.page, point.xMm, point.yMm, 1)
+                listener.onTouch(TouchAction.MOVE, point.page, point.xMm, point.yMm, 2)
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 selecting = false
-                listener.onTouch(TouchAction.UP, point.page, point.xMm, point.yMm, 1)
+                listener.onTouch(TouchAction.UP, point.page, point.xMm, point.yMm, 2)
+                menuAfterUpdate = true
             }
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Selection handles
+
+    /** Handles at the start and end of the selection, or null without a selection. */
+    private fun selectionHandles(): Pair<Handle, Handle>? {
+        val areas = editorState?.selection?.filter { it.page in pageSizes.indices }
+        if (editListener == null || areas.isNullOrEmpty()) return null
+        // Areas are in document order; corners clockwise from the top left
+        val first = areas.first().points
+        val last = areas.last().points
+        return Handle(areas.first().page, first[6], first[1], first[7]) to
+            Handle(areas.last().page, last[4], last[3], last[5])
+    }
+
+    // Teardrops as on Android: the start handle hangs to the left of its line, the end handle to the right
+    private fun handleCenterX(handle: Handle, isStart: Boolean) =
+        screenX(handle.page, handle.xMm) + if (isStart) -handleRadius else handleRadius
+
+    private fun handleCenterY(handle: Handle) = screenY(handle.page, handle.bottomMm) + handleRadius
+
+    private fun startHandleDrag(event: MotionEvent): Boolean {
+        val (start, end) = selectionHandles() ?: return false
+        fun distance(handle: Handle) = hypot(event.x - handleCenterX(handle, handle === start), event.y - handleCenterY(handle))
+        val dragged = if (distance(start) <= distance(end)) start else end
+        if (distance(dragged) > handleTouchRadius) return false
+        fixedHandle = if (dragged === start) end else start
+        // The finger is below the text: keep the distance to the line the handle points at
+        handleOffsetX = screenX(dragged.page, dragged.xMm) - event.x
+        handleOffsetY = screenY(dragged.page, dragged.middleMm) - event.y
+        hideActionMenu()
+        parent?.requestDisallowInterceptTouchEvent(true)
+        return true
+    }
+
+    private fun handleHandleDrag(event: MotionEvent) {
+        val fixed = fixedHandle ?: return
+        val listener = editListener ?: return
+        val isUp = event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL
+        if (event.actionMasked != MotionEvent.ACTION_MOVE && !isUp) return
+        val now = SystemClock.uptimeMillis()
+        if (!isUp && now - lastMoveTime < MOVE_INTERVAL_MS) return
+        lastMoveTime = now
+        val point = toPage(event.x + handleOffsetX, event.y + handleOffsetY) ?: return
+        listener.onSelect(fixed.page, fixed.xMm, fixed.middleMm, point.page, point.xMm, point.yMm)
+        if (isUp) {
+            fixedHandle = null
+            menuAfterUpdate = true
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Menu: cut, copy, paste, select all
+
+    private fun showActionMenu(insertion: Boolean) {
+        insertionMenu = insertion
+        val mode = actionMode
+        if (mode != null) {
+            mode.invalidate()
+            mode.invalidateContentRect()
+        } else {
+            actionMode = startActionMode(actionModeCallback, ActionMode.TYPE_FLOATING)
+        }
+    }
+
+    private fun hideActionMenu() {
+        actionMode?.finish()
+    }
+
+    private val actionModeCallback = object : ActionMode.Callback2() {
+        override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+            menu.add(Menu.NONE, android.R.id.cut, 0, android.R.string.cut)
+            menu.add(Menu.NONE, android.R.id.copy, 1, android.R.string.copy)
+            menu.add(Menu.NONE, android.R.id.paste, 2, android.R.string.paste)
+            menu.add(Menu.NONE, android.R.id.selectAll, 3, android.R.string.selectAll)
+            return true
+        }
+
+        override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+            val hasSelection = !insertionMenu && editorState?.selection?.isNotEmpty() == true
+            val canPaste = context.getSystemService(ClipboardManager::class.java)?.hasPrimaryClip() == true
+            menu.findItem(android.R.id.cut).isVisible = hasSelection
+            menu.findItem(android.R.id.copy).isVisible = hasSelection
+            menu.findItem(android.R.id.paste).isVisible = canPaste
+            return true
+        }
+
+        override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+            val listener = editListener ?: return false
+            when (item.itemId) {
+                android.R.id.cut -> listener.onCut()
+                android.R.id.copy -> listener.onCopy()
+                android.R.id.paste -> listener.onPaste()
+                android.R.id.selectAll -> {
+                    listener.onSelectAll()
+                    menuAfterUpdate = true
+                }
+                else -> return false
+            }
+            mode.finish()
+            return true
+        }
+
+        override fun onDestroyActionMode(mode: ActionMode) {
+            actionMode = null
+            insertionMenu = false
+        }
+
+        // Above the selection or the cursor
+        override fun onGetContentRect(mode: ActionMode, view: View, outRect: Rect) {
+            val state = editorState
+            val bounds = RectF()
+            val areas = state?.selection?.filter { it.page in pageSizes.indices }.orEmpty()
+            if (!insertionMenu && areas.isNotEmpty()) {
+                val xs = areas.flatMap { area -> (0 until 4).map { screenX(area.page, area.points[2 * it]) } }
+                val ys = areas.flatMap { area -> (0 until 4).map { screenY(area.page, area.points[2 * it + 1]) } }
+                bounds.set(xs.min(), ys.min(), xs.max(), ys.max())
+                // Room for the handles below
+                bounds.bottom += 2 * handleRadius
+            } else {
+                val cursor = state?.cursor
+                if (cursor != null && cursor.page in pageSizes.indices) {
+                    bounds.set(screenX(cursor.page, cursor.x1), screenY(cursor.page, cursor.y1), screenX(cursor.page, cursor.x2), screenY(cursor.page, cursor.y2))
+                    bounds.sort()
+                }
+            }
+            bounds.intersect(0f, 0f, width.toFloat(), height.toFloat())
+            bounds.roundOut(outRect)
         }
     }
 
@@ -371,6 +573,17 @@ class DocumentView @JvmOverloads constructor(
     }
 
     private fun sendKey(listener: EditListener, event: KeyEvent): Boolean {
+        hideActionMenu()
+        // Clipboard shortcuts: sdkjs leaves the clipboard to the app
+        if (event.isCtrlPressed) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_X -> listener.onCut()
+                KeyEvent.KEYCODE_C -> listener.onCopy()
+                KeyEvent.KEYCODE_V -> listener.onPaste()
+                KeyEvent.KEYCODE_A -> listener.onSelectAll()
+            }
+            if (event.keyCode in CLIPBOARD_KEYS) return true
+        }
         val webKeyCode = webKeyCode(event.keyCode)
         if (webKeyCode != null && (event.isCtrlPressed || event.keyCode !in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z)) {
             listener.onKey(webKeyCode, event.isShiftPressed, event.isCtrlPressed)
@@ -388,6 +601,7 @@ class DocumentView @JvmOverloads constructor(
     private inner class DocumentInputConnection : BaseInputConnection(this@DocumentView, false) {
 
         override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
+            hideActionMenu()
             editListener?.onCommitText(text.toString())
             return true
         }
@@ -425,7 +639,7 @@ class DocumentView @JvmOverloads constructor(
     // Drawing
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawColor(BACKGROUND)
+        canvas.drawColor(background)
         if (pageSizes.isEmpty()) return
 
         canvas.save()
@@ -472,6 +686,18 @@ class DocumentView @JvmOverloads constructor(
             }
             path.close()
             canvas.drawPath(path, selectionPaint)
+        }
+        selectionHandles()?.let { (start, end) ->
+            for (handle in listOf(start, end)) {
+                val isStart = handle === start
+                val x = screenX(handle.page, handle.xMm)
+                val bottom = screenY(handle.page, handle.bottomMm)
+                val centerX = handleCenterX(handle, isStart)
+                canvas.drawLine(x, screenY(handle.page, handle.topMm), x, bottom, handlePaint)
+                canvas.drawCircle(centerX, handleCenterY(handle), handleRadius, handlePaint)
+                // The corner pointing at the line
+                canvas.drawRect(min(x, centerX), bottom, max(x, centerX), bottom + handleRadius, handlePaint)
+            }
         }
         val cursor = state.cursor ?: return
         if (cursorShown && cursor.page in pageSizes.indices && editListener != null) {
@@ -551,9 +777,9 @@ class DocumentView @JvmOverloads constructor(
     private fun pageCacheBytes(): Int = min(64L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 6).toInt()
 
     private companion object {
-        val BACKGROUND = Color.rgb(0xE8, 0xE8, 0xE8)
         const val BLINK_MS = 500L
         const val MOVE_INTERVAL_MS = 40L
+        val CLIPBOARD_KEYS = setOf(KeyEvent.KEYCODE_X, KeyEvent.KEYCODE_C, KeyEvent.KEYCODE_V, KeyEvent.KEYCODE_A)
 
         const val KEY_BACKSPACE = 8
         const val KEY_ENTER = 13
