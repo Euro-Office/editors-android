@@ -1,6 +1,8 @@
 package lib.editors.gbase.ui.activities
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -936,12 +938,27 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         if (taken) insertPicture(Uri.fromFile(photoFile))
     }
 
+    // The app declares the camera permission: the camera app is only started for it once granted
+    private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) takePhoto() else toast(getString(Resources.string.editors_camera_denied))
+    }
+
     private fun takePhoto() {
+        val declared = runCatching {
+            packageManager.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS).requestedPermissions
+        }.getOrNull()?.contains(Manifest.permission.CAMERA) == true
+        if (declared && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            cameraPermission.launch(Manifest.permission.CAMERA)
+            return
+        }
         photoFile.parentFile?.mkdirs()
         photoFile.delete()
         // The app's FileProvider (documents-app-android) shares the cache directory
         val uri = FileProvider.getUriForFile(this, "$packageName.asc.provider", photoFile)
-        runCatching { photo.launch(uri) }.onFailure { Log.e(TAG, "no camera", it) }
+        runCatching { photo.launch(uri) }.onFailure {
+            Log.e(TAG, "no camera", it)
+            toast(getString(Resources.string.editors_camera_failed))
+        }
     }
 
     // Copies the picture into the document's images and inserts it at the cursor
