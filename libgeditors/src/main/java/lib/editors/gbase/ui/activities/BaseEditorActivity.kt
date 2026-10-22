@@ -321,9 +321,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             }
             // Co-editing through the integration's Document Server (Nextcloud): the copy just
             // opened is replaced by the session's version, and editing starts right away (the
-            // others are editing already)
-            val editorConfig = intent.getStringExtra(EditorsContract.KEY_DOC_SERVER)
-                ?.takeIf { isEditable && editorsType in CO_EDITORS }
+            // others are editing already). Viewing, one joins as a viewer and sees the others'
+            // changes as they come.
+            val editorConfig = intent.getStringExtra(EditorsContract.KEY_DOC_SERVER)?.takeIf { editorsType in CO_EDITORS }
             // The app may ask to show the document first (EditType.Edit.initialView): editing then starts with a button
             if (isEditable && (editorConfig != null || !startsInView() || fillsForms() || startsFilling())) {
                 enableEditing()
@@ -331,7 +331,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 findViewById<View>(R.id.toolEdit).isVisible = true
                 findViewById<View>(R.id.toolEdit).setOnClickListener { enableEditing() }
             }
-            if (editorConfig != null) startCoEditing(editorConfig)
+            if (editorConfig != null) startCoEditing(if (isEditable) editorConfig else viewerConfig(editorConfig))
         }
     }
 
@@ -694,8 +694,21 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             access == EditorsContract.INTERNAL_EDIT_ACCESS_TRACKED_CHANGES ||
             access == EditorsContract.INTERNAL_EDIT_ACCESS_CUSTOM_FILTER ||
             access == EditorsContract.INTERNAL_EDIT_ACCESS_FILLING_FORMS
-        return (editType == null || editType is EditType.Edit || editType is EditType.Fill || editType is EditType.StartFilling) && accessEdits
+        return (editType == null || editType is EditType.Edit || editType is EditType.Fill || editType is EditType.StartFilling) && accessEdits &&
+            coEditingAllowsEditing()
     }
+
+    // The integration's editor configuration (KEY_DOC_SERVER) may only allow viewing: a file shared read-only
+    private fun coEditingAllowsEditing(): Boolean {
+        val config = intent.getStringExtra(EditorsContract.KEY_DOC_SERVER)?.let { runCatching { org.json.JSONObject(it) }.getOrNull() } ?: return true
+        return config.optJSONObject("editorConfig")?.optString("mode") != "view" &&
+            config.optJSONObject("document")?.optJSONObject("permissions")?.optBoolean("edit", true) != false
+    }
+
+    // Joining a session to view (sdkjs edits nothing then)
+    private fun viewerConfig(json: String): String = runCatching {
+        org.json.JSONObject(json).apply { optJSONObject("editorConfig")?.put("mode", "view") }.toString()
+    }.getOrDefault(json)
 
     // Only form fields take input: filling (EditType.Fill, form filling access) and finished forms (oform, PDF forms)
     private fun fillsForms(): Boolean {
