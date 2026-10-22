@@ -12,6 +12,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
+import androidx.core.view.isVisible
 import lib.editors.base.engine.CellFormat
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
@@ -35,32 +36,45 @@ internal class CellFormatPanel(
     private var fonts: List<String> = emptyList()
     private val updaters = mutableListOf<(CellFormat) -> Unit>()
 
+    // A chart, picture or shape is selected: only its text's font applies to it (sdkjs would
+    // apply the cells' settings to the cells under it)
+    private var drawingSelected = false
+    private val cellsOnly = mutableListOf<View>()
+
     fun show() {
         loadFonts { fonts = it }
         updaters.clear()
+        cellsOnly.clear()
         val content = content()
         dialog = panels.show(context.getString(Resources.string.editors_format), content) { dialog = null }
-        update(format)
+        update(format, drawingSelected)
     }
 
-    fun update(newFormat: CellFormat) {
+    /** The format of the active cell, or of the selected drawing's text ([drawing]). */
+    fun update(newFormat: CellFormat, drawing: Boolean = false) {
         format = newFormat
-        if (dialog != null) updaters.forEach { it(newFormat) }
+        drawingSelected = drawing
+        if (dialog != null) {
+            updaters.forEach { it(newFormat) }
+            cellsOnly.forEach { it.isVisible = !drawing }
+        }
     }
 
     private fun content(): View = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
 
-        heading(Resources.string.editors_cells_number_format)
-        scrollRow {
-            for ((label, type) in NUMBER_FORMATS) {
-                toggle(context.getString(label), { it.numFormatType == type }) { edit { setNumberFormatType(type) } }
+        cellSection {
+            heading(Resources.string.editors_cells_number_format)
+            scrollRow {
+                for ((label, type) in NUMBER_FORMATS) {
+                    toggle(context.getString(label), { it.numFormatType == type }) { edit { setNumberFormatType(type) } }
+                }
             }
-        }
-        row {
-            button(context.getString(Resources.string.editors_cells_fewer_decimals)) { edit { changeDecimals(false) } }
-            button(context.getString(Resources.string.editors_cells_more_decimals)) { edit { changeDecimals(true) } }
+            row {
+                button(context.getString(Resources.string.editors_cells_fewer_decimals)) { edit { changeDecimals(false) } }
+                button(context.getString(Resources.string.editors_cells_more_decimals)) { edit { changeDecimals(true) } }
+            }
         }
 
         heading(Resources.string.editors_format_text)
@@ -69,34 +83,37 @@ internal class CellFormatPanel(
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             }
             updaters += { fontButton.text = it.fontName.ifEmpty { "—" } }
-            button("−") { edit { setFontSize(maxOf(1.0, format.fontSize - 1)) } }.contentDescription = context.getString(Resources.string.editors_format_size_down)
+            // Not without a size (text of different sizes)
+            button("−") { if (format.fontSize > 1) edit { setFontSize(format.fontSize - 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_down)
             val size = TextView(context).apply { gravity = Gravity.CENTER; minWidth = dp(40) }.also { addView(it) }
             updaters += {
                 size.text = if (it.fontSize > 0) it.fontSize.toInt().toString() else "—"
                 size.contentDescription = context.getString(Resources.string.editors_format_size) + " " + size.text
             }
-            button("+") { edit { setFontSize(format.fontSize + 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_up)
+            button("+") { if (format.fontSize > 0) edit { setFontSize(format.fontSize + 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_up)
             toggle(context.getString(Resources.string.editors_format_strikeout), { it.strikeout }) { edit { setStrikeout(!format.strikeout) } }
                 .paint.flags = Paint.STRIKE_THRU_TEXT_FLAG or Paint.ANTI_ALIAS_FLAG
         }
         caption(Resources.string.editors_format_color)
         colors(TEXT_COLORS, { it.color }) { color -> edit { setTextColor(color) } }
-        caption(Resources.string.editors_cells_fill_color)
-        colors(FILLS, { it.fill }) { color -> edit { setCellFill(color) } }
+        cellSection {
+            caption(Resources.string.editors_cells_fill_color)
+            colors(FILLS, { it.fill }) { color -> edit { setCellFill(color) } }
 
-        heading(Resources.string.editors_cells_cells)
-        caption(Resources.string.editors_cells_borders)
-        row {
-            for ((label, kind) in BORDERS) button(context.getString(label)) { edit { setBorders(kind) } }
-        }
-        row {
-            toggle(context.getString(Resources.string.editors_cells_wrap), { it.wrap }) { edit { setWrap(!format.wrap) } }
-            toggle(context.getString(Resources.string.editors_cells_merge), { it.merged }) { edit { setMerge(!format.merged) } }
-        }
-        caption(Resources.string.editors_cells_vertical_align)
-        row {
-            for ((label, value) in VERTICAL_ALIGNS) {
-                toggle(context.getString(label), { it.verticalAlign == value }) { edit { setVerticalAlign(value) } }
+            heading(Resources.string.editors_cells_cells)
+            caption(Resources.string.editors_cells_borders)
+            row {
+                for ((label, kind) in BORDERS) button(context.getString(label)) { edit { setBorders(kind) } }
+            }
+            row {
+                toggle(context.getString(Resources.string.editors_cells_wrap), { it.wrap }) { edit { setWrap(!format.wrap) } }
+                toggle(context.getString(Resources.string.editors_cells_merge), { it.merged }) { edit { setMerge(!format.merged) } }
+            }
+            caption(Resources.string.editors_cells_vertical_align)
+            row {
+                for ((label, value) in VERTICAL_ALIGNS) {
+                    toggle(context.getString(label), { it.verticalAlign == value }) { edit { setVerticalAlign(value) } }
+                }
             }
         }
     }
@@ -129,6 +146,16 @@ internal class CellFormatPanel(
             setText(text)
             setPaddingRelative(0, dp(8), 0, dp(2))
         })
+    }
+
+    // Settings of cells only, hidden while a drawing is selected
+    private fun LinearLayout.cellSection(build: LinearLayout.() -> Unit) {
+        val section = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            build()
+        }
+        addView(section)
+        cellsOnly += section
     }
 
     private fun LinearLayout.row(build: LinearLayout.() -> Unit) {

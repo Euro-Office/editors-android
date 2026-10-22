@@ -841,24 +841,26 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         }
         checkSpelling(state)
         modified = state.modified
-        findViewById<ImageButton>(R.id.toolSave).imageAlpha = if (modified) 255 else 80
+        findViewById<View>(R.id.toolSave).isEnabled = modified
+        // A picture, shape or chart is selected (not text in it): text formatting goes to its
+        // text, paragraph and cell settings don't apply
+        val drawingSelected = state.drawings.any { !it.tracking }
         val toolbar = state.toolbar
         findViewById<View>(R.id.toolBold).isSelected = toolbar.bold
         findViewById<View>(R.id.toolItalic).isSelected = toolbar.italic
         findViewById<View>(R.id.toolUnderline).isSelected = toolbar.underline
-        findViewById<View>(R.id.toolAlignLeft).isSelected = toolbar.alignment == Alignment.LEFT
-        findViewById<View>(R.id.toolAlignCenter).isSelected = toolbar.alignment == Alignment.CENTER
-        findViewById<View>(R.id.toolAlignRight).isSelected = toolbar.alignment == Alignment.RIGHT
+        findViewById<View>(R.id.toolAlignLeft).isSelected = !drawingSelected && toolbar.alignment == Alignment.LEFT
+        findViewById<View>(R.id.toolAlignCenter).isSelected = !drawingSelected && toolbar.alignment == Alignment.CENTER
+        findViewById<View>(R.id.toolAlignRight).isSelected = !drawingSelected && toolbar.alignment == Alignment.RIGHT
+        listOf(R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight).forEach { findViewById<View>(it).isEnabled = !drawingSelected }
         findViewById<View>(R.id.toolUndo).isEnabled = toolbar.canUndo
         findViewById<View>(R.id.toolRedo).isEnabled = toolbar.canRedo
-        findViewById<ImageButton>(R.id.toolUndo).imageAlpha = if (toolbar.canUndo) 255 else 80
-        findViewById<ImageButton>(R.id.toolRedo).imageAlpha = if (toolbar.canRedo) 255 else 80
         // Formatting of pictures and shapes while some are selected
         findViewById<View>(R.id.toolShape).isVisible = isEditable() && !isPdfEditor && state.drawings.any { !it.tracking }
         // A link or an entry of the contents was followed
         state.navigate?.let { documentView.goToPage(it.page, it.yMm.toFloat()) }
-        formatPanel.update(state.format)
-        state.sheet?.let { cellFormatPanel.update(it.cellFormat) }
+        formatPanel.update(state.format, drawingSelected)
+        state.sheet?.let { cellFormatPanel.update(it.cellFormat, drawingSelected) }
         searchBar?.update(state.search)
         slidesUi?.update(state)
         drawingUi.chart = state.chart

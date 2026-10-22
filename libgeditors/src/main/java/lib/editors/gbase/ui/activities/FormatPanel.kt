@@ -12,6 +12,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
+import androidx.core.view.isVisible
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.TextFormat
@@ -43,21 +44,31 @@ internal class FormatPanel(
     // Views that show the current format
     private val updaters = mutableListOf<(TextFormat) -> Unit>()
 
+    // A picture, shape or chart is selected (not text in it): highlights and paragraph settings
+    // don't apply to it (sdkjs would apply them to the paragraph it is anchored in)
+    private var drawingSelected = false
+    private val textOnly = mutableListOf<View>()
+
     fun show() {
         load { loadedFonts, loadedStyles ->
             fonts = loadedFonts
             styles = loadedStyles
         }
         updaters.clear()
+        textOnly.clear()
         val content = content()
         dialog = panels.show(context.getString(Resources.string.editors_format), content) { dialog = null }
-        update(format)
+        update(format, drawingSelected)
     }
 
-    /** The formatting after a command; updates the panel if it is open. */
-    fun update(newFormat: TextFormat) {
+    /** The formatting after a command, [drawing] if a drawing is selected; updates the panel if it is open. */
+    fun update(newFormat: TextFormat, drawing: Boolean = false) {
         format = newFormat
-        if (dialog != null) updaters.forEach { it(newFormat) }
+        drawingSelected = drawing
+        if (dialog != null) {
+            updaters.forEach { it(newFormat) }
+            textOnly.forEach { it.isVisible = !drawing }
+        }
     }
 
     private fun content(): View = LinearLayout(context).apply {
@@ -70,13 +81,14 @@ internal class FormatPanel(
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             }
             updaters += { fontButton.text = it.fontName.ifEmpty { "—" } }
-            button("−") { edit { setFontSize(maxOf(1.0, format.fontSize - 1)) } }.contentDescription = context.getString(Resources.string.editors_format_size_down)
+            // Not without a size (text of different sizes)
+            button("−") { if (format.fontSize > 1) edit { setFontSize(format.fontSize - 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_down)
             val size = label("")
             updaters += {
                 size.text = if (it.fontSize > 0) trimNumber(it.fontSize) else "—"
                 size.contentDescription = context.getString(Resources.string.editors_format_size) + " " + size.text
             }
-            button("+") { edit { setFontSize(format.fontSize + 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_up)
+            button("+") { if (format.fontSize > 0) edit { setFontSize(format.fontSize + 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_up)
         }
         row {
             toggle(Resources.string.editors_format_strikeout, { it.strikeout }) { edit { setStrikeout(!format.strikeout) } }
@@ -87,10 +99,22 @@ internal class FormatPanel(
         }
         caption(Resources.string.editors_format_color)
         colors(TEXT_COLORS, { it.color }) { color -> edit { setTextColor(color) } }
-        caption(Resources.string.editors_format_highlight)
-        colors(HIGHLIGHTS, { it.highlight }) { color -> edit { setHighlight(color) } }
+        val highlights = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            caption(Resources.string.editors_format_highlight)
+            colors(HIGHLIGHTS, { it.highlight }) { color -> edit { setHighlight(color) } }
+        }
+        addView(highlights)
+        textOnly += highlights
 
         if (!withParagraphs) return@apply
+        val paragraphs = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        addView(paragraphs)
+        textOnly += paragraphs
+        paragraphs.paragraphSettings()
+    }
+
+    private fun LinearLayout.paragraphSettings() {
         heading(Resources.string.editors_format_paragraph)
         if (withStyles) {
             row {
