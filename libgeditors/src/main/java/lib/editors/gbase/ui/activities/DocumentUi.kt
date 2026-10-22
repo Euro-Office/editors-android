@@ -94,23 +94,27 @@ internal class DocumentUi(
 
     /** Breaks, headers and footers, page numbers, notes and the table of contents: in the "Insert" menu. */
     fun addInsertItems(menu: Menu) {
-        menu.addSubMenu(Resources.string.editors_doc_break).let { sub ->
-            item(sub, Resources.string.editors_doc_break_page) { edit { insertBreak("page") } }
-            item(sub, Resources.string.editors_doc_break_line) { edit { insertBreak("line") } }
+        menu.addSubMenu(Resources.string.editors_doc_break).setIcon(Resources.drawable.ic_editor_page_break).let { sub ->
+            item(sub, Resources.string.editors_doc_break_page, Resources.drawable.ic_editor_page_break) { edit { insertBreak("page") } }
+            item(sub, Resources.string.editors_doc_break_line, Resources.drawable.ic_editor_line_break) { edit { insertBreak("line") } }
             item(sub, Resources.string.editors_doc_break_column) { edit { insertBreak("column") } }
-            item(sub, Resources.string.editors_doc_break_section_page) { edit { insertBreak("sectionNextPage") } }
-            item(sub, Resources.string.editors_doc_break_section_continuous) { edit { insertBreak("sectionContinuous") } }
+            item(sub, Resources.string.editors_doc_break_section_page, Resources.drawable.ic_editor_section_break) {
+                edit { insertBreak("sectionNextPage") }
+            }
+            item(sub, Resources.string.editors_doc_break_section_continuous, Resources.drawable.ic_editor_section_break) {
+                edit { insertBreak("sectionContinuous") }
+            }
         }
-        menu.addSubMenu(Resources.string.editors_doc_header_footer).let { sub ->
+        menu.addSubMenu(Resources.string.editors_doc_header_footer).setIcon(Resources.drawable.ic_editor_page_number).let { sub ->
             item(sub, Resources.string.editors_doc_edit_header) { type { editHeaderFooter(documentView.visiblePage(), footer = false) } }
             item(sub, Resources.string.editors_doc_edit_footer) { type { editHeaderFooter(documentView.visiblePage(), footer = true) } }
             item(sub, Resources.string.editors_doc_page_number_footer) { edit { insertPageNumber(2, 2) } }
             item(sub, Resources.string.editors_doc_page_number_header) { edit { insertPageNumber(1, 0) } }
             item(sub, Resources.string.editors_doc_page_number_here) { edit { insertPageNumber(-1, 0) } }
         }
-        item(menu, Resources.string.editors_doc_footnote) { type { addNote(endnote = false) } }
-        item(menu, Resources.string.editors_doc_endnote) { type { addNote(endnote = true) } }
-        menu.addSubMenu(Resources.string.editors_doc_toc).let { sub ->
+        item(menu, Resources.string.editors_doc_footnote, Resources.drawable.ic_editor_footnote) { type { addNote(endnote = false) } }
+        item(menu, Resources.string.editors_doc_endnote, Resources.drawable.ic_editor_footnote) { type { addNote(endnote = true) } }
+        menu.addSubMenu(Resources.string.editors_doc_toc).setIcon(Resources.drawable.ic_editor_table_contents).let { sub ->
             item(sub, Resources.string.editors_doc_toc_insert) { edit { addTableOfContents() } }
             item(sub, Resources.string.editors_doc_toc_update) { edit { updateTableOfContents() } }
         }
@@ -118,9 +122,9 @@ internal class DocumentUi(
 
     /** Page setup, word count and reviewing: in the file menu. */
     fun addDocumentItems(menu: Menu) {
-        item(menu, Resources.string.editors_doc_page_setup) { showPageSetup() }
-        item(menu, Resources.string.editors_doc_statistics) { showStatistics() }
-        menu.addSubMenu(Resources.string.editors_doc_review).let { sub ->
+        item(menu, Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) { showPageSetup() }
+        item(menu, Resources.string.editors_doc_statistics, Resources.drawable.ic_editor_info) { showStatistics() }
+        menu.addSubMenu(Resources.string.editors_doc_review).setIcon(Resources.drawable.ic_editor_review).let { sub ->
             if (!trackChangesForced) {
                 item(sub, Resources.string.editors_doc_track_changes) { edit { setTrackChanges(!structure.trackChanges) } }.apply {
                     isCheckable = true
@@ -138,11 +142,11 @@ internal class DocumentUi(
     }
 
     // An item that does its action itself, whichever menu it is in
-    private fun item(parent: Menu, label: Int, action: () -> Unit): MenuItem =
+    private fun item(parent: Menu, label: Int, icon: Int? = null, action: () -> Unit): MenuItem =
         parent.add(Menu.NONE, Menu.NONE, Menu.NONE, label).setOnMenuItemClickListener {
             action()
             true
-        }
+        }.also { item -> icon?.let { item.setIcon(it) } }
 
     // A command that moves the cursor somewhere to type: a header, footer or note
     private fun type(command: EditorDocument.() -> EditorState) {

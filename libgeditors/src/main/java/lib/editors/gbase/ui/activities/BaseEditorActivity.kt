@@ -1608,9 +1608,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             spellCheck = { spellCheckOn.takeIf { editing && editorsType != EditorsType.CELLS } },
             setSpellCheck = ::setSpellCheck,
             moreItems = { menu ->
-                fun item(label: Int, action: () -> Unit) = menu.add(label).setOnMenuItemClickListener { action(); true }
-                if (searchBar != null) item(Resources.string.editors_search) { searchBar?.show() }
-                if (canSave()) item(Resources.string.editors_save) { saveNow() }.isEnabled = modified
+                fun item(label: Int, icon: Int, action: () -> Unit) =
+                    menu.add(label).setIcon(icon).setOnMenuItemClickListener { action(); true }
+                if (searchBar != null) item(Resources.string.editors_search, Resources.drawable.ic_editor_search) { searchBar?.show() }
+                if (canSave()) item(Resources.string.editors_save, Resources.drawable.ic_editor_save) { saveNow() }.isEnabled = modified
                 documentUi?.addDocumentItems(menu)
             }
         )

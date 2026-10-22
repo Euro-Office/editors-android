@@ -2,6 +2,7 @@ package lib.editors.gbase.ui.activities
 
 import android.content.ClipData
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
@@ -56,26 +57,28 @@ internal class FileUi(
     private val density = activity.resources.displayMetrics.density
 
     fun showMenu(anchor: View) {
-        val actions = listOf<Pair<Int, () -> Unit>>(
-            Resources.string.editors_file_save_as to { saveAs() },
-            Resources.string.editors_file_export_pdf to { saveCopy(baseName(), "pdf") },
-            Resources.string.editors_file_print to { print() },
-            Resources.string.editors_file_share to { share(formats.first()) },
-            Resources.string.editors_file_share_pdf to { share("pdf") }
+        val actions = listOf<Triple<Int, Int, () -> Unit>>(
+            Triple(Resources.string.editors_file_save_as, Resources.drawable.ic_editor_download) { saveAs() },
+            Triple(Resources.string.editors_file_export_pdf, Resources.drawable.ic_editor_download) { saveCopy(baseName(), "pdf") },
+            Triple(Resources.string.editors_file_print, Resources.drawable.ic_editor_print) { print() },
+            Triple(Resources.string.editors_file_share, Resources.drawable.ic_editor_export) { share(formats.first()) },
+            Triple(Resources.string.editors_file_share_pdf, Resources.drawable.ic_editor_export) { share("pdf") }
         )
         PopupMenu(activity, anchor).apply {
             moreItems(menu)
-            actions.forEachIndexed { i, (label, _) -> menu.add(Menu.NONE, i, FILE_ORDER + i, label) }
+            actions.forEachIndexed { i, (label, icon, _) -> menu.add(Menu.NONE, i, FILE_ORDER + i, label).setIcon(icon) }
             spellCheck()?.let { on ->
                 menu.add(Menu.NONE, MENU_SPELL_CHECK, FILE_ORDER + actions.size, Resources.string.editors_spell_check).apply {
+                    setIcon(Resources.drawable.ic_editor_spellcheck)
                     isCheckable = true
                     isChecked = on
                 }
             }
             setOnMenuItemClickListener {
-                if (it.itemId == MENU_SPELL_CHECK) setSpellCheck(!it.isChecked) else actions[it.itemId].second()
+                if (it.itemId == MENU_SPELL_CHECK) setSpellCheck(!it.isChecked) else actions[it.itemId].third()
                 true
             }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setForceShowIcon(true)
         }.show()
     }
 
