@@ -913,7 +913,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             loadShapeColors = { onLoaded -> read({ drawingColors() }, onLoaded) },
             slide = if (editorsType != EditorsType.PRESENTATION) null else FormatPanel.SlideSettings(
                 loadBackground = { onLoaded -> read({ slideBackground() }, onLoaded) },
-                chooseLayout = { slidesUi?.chooseLayout(forNewSlide = false) }
+                chooseLayout = { slidesUi?.chooseLayout(forNewSlide = false) },
+                chooseDesign = ::chooseDesign
             )
         )
     }
@@ -930,6 +931,14 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     }
 
     private val previewPicker by lazy { PreviewPicker(this, lifecycleScope, { document }, panels) }
+
+    // Presentations: the design of all slides, by pictures of them (converted the first time)
+    private fun chooseDesign() = read({ prepareThemes() }) { count ->
+        if ((count ?: 0) == 0) return@read
+        previewPicker.show(getString(Resources.string.editors_slide_design), "themes", columnWidthDp = 136, withNames = true) { design ->
+            design.id.toIntOrNull()?.let { edit { setTheme(it) } }
+        }
+    }
 
     // Reads from the document on the engine's thread, then hands the result (null if it failed) on
     private fun <T> read(query: EditorDocument.() -> T?, onResult: (T?) -> Unit) {

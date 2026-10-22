@@ -41,8 +41,12 @@ internal class FormatPanel(
     private val slide: SlideSettings? = null
 ) {
 
-    /** The current slide's background color (null: another kind) and its layout. */
-    class SlideSettings(val loadBackground: (onLoaded: (String?) -> Unit) -> Unit, val chooseLayout: () -> Unit)
+    /** The current slide's background color (null: another kind), its layout and the design. */
+    class SlideSettings(
+        val loadBackground: (onLoaded: (String?) -> Unit) -> Unit,
+        val chooseLayout: () -> Unit,
+        val chooseDesign: () -> Unit
+    )
 
     private val density = context.resources.displayMetrics.density
     private var dialog: PanelHost.Panel? = null
@@ -134,6 +138,7 @@ internal class FormatPanel(
                 caption(Resources.string.editors_slide_background)
                 val background = colorsOf(SHAPE_COLORS.filter { it.isNotEmpty() }) { color -> color?.let { edit { setSlideBackground(it) } } }
                 row {
+                    button(context.getString(Resources.string.editors_slide_design)) { slide.chooseDesign() }
                     button(context.getString(Resources.string.editors_slides_layout)) { slide.chooseLayout() }
                 }
                 // Marked as the background, while no shape is selected

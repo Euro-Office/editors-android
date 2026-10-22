@@ -294,6 +294,7 @@
     <string name="editors_table_style">Table style</string>
     <string name="editors_slide">Slide</string>
     <string name="editors_slide_background">Background</string>
+    <string name="editors_slide_design">Design</string>
     <string name="editors_smartart_insert">SmartArt</string>
     <string name="editors_file">File</string>
     <string name="editors_file_save_as">Save a copy</string>

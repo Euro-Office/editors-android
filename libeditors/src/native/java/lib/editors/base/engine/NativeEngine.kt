@@ -17,6 +17,8 @@ internal object NativeEngine {
     external fun nativeOpen(handle: Long, path: String, tempDir: String, password: String): Int
     external fun nativeSave(handle: Long, path: String, extension: String): Int
     external fun nativeExecute(handle: Long, script: String): ByteArray
+    /** The count of presentation designs, converted once (eo::Document::PrepareThemes). */
+    external fun nativePrepareThemes(handle: Long): Int
     external fun nativeGetPageCount(handle: Long): Int
     external fun nativeGetPageSize(handle: Long, page: Int): DoubleArray
     external fun nativeCreateDrawingDocument(): Long

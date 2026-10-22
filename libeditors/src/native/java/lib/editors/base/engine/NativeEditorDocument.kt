@@ -20,6 +20,8 @@ internal class NativeEditorDocument(private var handle: Long) : EditorDocument {
     override fun save(path: String, extension: String): Int =
         if (handle == 0L) -1 else NativeEngine.nativeSave(handle, path, extension)
 
+    override fun prepareThemes(): Int = if (handle == 0L) 0 else NativeEngine.nativePrepareThemes(handle)
+
     override fun execute(script: String): String {
         check(handle != 0L) { "the document is closed" }
         return String(NativeEngine.nativeExecute(handle, script), Charsets.UTF_8)

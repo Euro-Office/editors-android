@@ -22,6 +22,12 @@ interface EditorDocument : PagedDocument {
     /** Runs JavaScript in sdkjs and returns its result if it is a string. */
     fun execute(script: String): String
 
+    /**
+     * Presentations: the designs ([previews] "themes", [setTheme]), converted from sdkjs' once,
+     * which takes a moment the first time. Returns their count.
+     */
+    fun prepareThemes(): Int = 0
+
     fun state(): EditorState = EditorState.parse(execute("eoEngine.getState()"))
 
     /**
@@ -543,6 +549,9 @@ interface EditorDocument : PagedDocument {
     fun addSlide(layoutIndex: Int): EditorState = command("eoEngine.addSlideWithLayout($layoutIndex)")
 
     fun setLayout(layoutIndex: Int): EditorState = command("eoEngine.setLayout($layoutIndex)")
+
+    /** The design of all slides ([previews] "themes" after [prepareThemes]). */
+    fun setTheme(index: Int): EditorState = command("eoEngine.setTheme($index)")
 
     /** The current slide's background color, "RRGGBB". */
     fun setSlideBackground(hex: String): EditorState = command("eoEngine.setSlideBackground(${JSONObject.quote(hex)})")

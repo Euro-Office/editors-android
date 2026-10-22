@@ -89,6 +89,12 @@ extern "C"
 	}
 
 	JNIEXPORT jint JNICALL
+	Java_lib_editors_base_engine_NativeEngine_nativePrepareThemes(JNIEnv*, jobject, jlong handle)
+	{
+		return FromHandle(handle)->PrepareThemes();
+	}
+
+	JNIEXPORT jint JNICALL
 	Java_lib_editors_base_engine_NativeEngine_nativeGetPageCount(JNIEnv*, jobject, jlong handle)
 	{
 		return FromHandle(handle)->GetPageCount();
