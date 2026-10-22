@@ -1123,12 +1123,19 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val placed = withContext(EditorEngine.dispatcher) {
                 val name = "signature-${System.currentTimeMillis()}.png"
-                runCatching { picture.copyTo(File(document.imagesDirectory(), name)) }.getOrNull() ?: return@withContext null
+                val copy = runCatching { picture.copyTo(File(document.imagesDirectory(), name)) }.getOrNull() ?: return@withContext null
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeFile(picture.path, bounds)
-                Triple(name, bounds, document.pageSize(page))
+                Triple(copy, bounds, document.pageSize(page))
             } ?: return@launch
-            val (name, bounds, size) = placed
+            val (copy, bounds, size) = placed
+            // Co-editing: the others get it from the Document Server
+            val name = coConnection?.let { connection ->
+                uploadPicture(connection, document, copy) ?: run {
+                    toast(getString(Resources.string.editors_coediting_upload_failed))
+                    return@launch
+                }
+            } ?: copy.name
             val width = minOf(50.0, size.widthMm * 0.8)
             val height = width / aspect
             edit { placeImage(name, bounds.outWidth, bounds.outHeight, page, (size.widthMm - width) / 2, (size.heightMm - height) / 2, width, height) }
