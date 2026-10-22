@@ -162,6 +162,7 @@ internal class SpreadsheetUi(
         toolbar = state.toolbar
         entering = false
         sheetView.setState(newSheet, state.dirtyPages.isNotEmpty(), state.drawings)
+        sheetView.foreignSelections = state.coEditing?.selections.orEmpty()
 
         cellName.text = newSheet.name
         // The bar shows the active cell, unless it is being edited

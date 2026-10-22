@@ -240,13 +240,15 @@ data class FormRole(val name: String, val color: String, val fieldCount: Int)
 
 /**
  * Co-editing: the connection (sdkjs blocks editing while it [reconnecting]; after it is
- * [disconnected] the document is only viewed), who is in the session and the others' cursors.
+ * [disconnected] the document is only viewed), who is in the session and the others' cursors
+ * (spreadsheets: [selections]).
  */
 data class CoEditingState(
     val reconnecting: Boolean,
     val disconnected: Boolean,
     val participants: List<Participant>,
-    val cursors: List<ForeignCursor>
+    val cursors: List<ForeignCursor>,
+    val selections: List<ForeignSelection> = emptyList()
 ) {
     /** The others editing the document (without oneself and viewers). */
     val coEditors: List<Participant> get() = participants.filter { !it.me && !it.view }
@@ -260,6 +262,12 @@ data class ForeignCursor(
     val user: String, val name: String, val color: String,
     val page: Int, val x1: Double, val y1: Double, val x2: Double, val y2: Double
 )
+
+/** Spreadsheets: the cells someone else selected on the active sheet, [editing] one of them. */
+data class ForeignSelection(val user: String, val name: String, val color: String, val editing: Boolean, val ranges: List<CellRange>)
+
+/** Cells from column [c1], row [r1] to column [c2], row [r2] (indexes). */
+data class CellRange(val c1: Int, val r1: Int, val c2: Int, val r2: Int)
 
 data class ToolbarState(
     val bold: Boolean = false,
@@ -370,6 +378,7 @@ class EditorState(
         internal fun parseCoEditing(json: JSONObject): CoEditingState {
             val participants = json.optJSONArray("participants") ?: org.json.JSONArray()
             val cursors = json.optJSONArray("cursors") ?: org.json.JSONArray()
+            val selections = json.optJSONArray("selections") ?: org.json.JSONArray()
             return CoEditingState(
                 json.optBoolean("reconnecting"),
                 json.optBoolean("disconnected"),
@@ -382,6 +391,17 @@ class EditorState(
                     ForeignCursor(
                         cursor.optString("user"), cursor.optString("name"), cursor.optString("color"), cursor.getInt("page"),
                         cursor.getDouble("x1"), cursor.getDouble("y1"), cursor.getDouble("x2"), cursor.getDouble("y2")
+                    )
+                },
+                (0 until selections.length()).map { index ->
+                    val selection = selections.getJSONObject(index)
+                    val ranges = selection.optJSONArray("ranges") ?: org.json.JSONArray()
+                    ForeignSelection(
+                        selection.optString("user"), selection.optString("name"), selection.optString("color"), selection.optBoolean("editing"),
+                        (0 until ranges.length()).map { i ->
+                            val range = ranges.getJSONArray(i)
+                            CellRange(range.getInt(0), range.getInt(1), range.getInt(2), range.getInt(3))
+                        }
                     )
                 }
             )

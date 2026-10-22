@@ -67,6 +67,17 @@ class EditorStateTest {
         assertEquals(3, session.participants.size)
         assertEquals(listOf("Ben"), session.coEditors.map { it.name })
         assertEquals(ForeignCursor("u2", "Ben", "#3367d6", 0, 15.0, 36.0, 15.0, 44.0), session.cursors.single())
+        assertTrue(session.selections.isEmpty())
+    }
+
+    @Test
+    fun `parses others' selections in spreadsheets`() {
+        val parsed = EditorState.parse(state(""", "coEditing": {"state": 2, "participants": [], "cursors": [],
+            "selections": [{"user": "u2", "name": "Ben", "color": "#3367d6", "editing": true, "ranges": [[1, 2, 3, 4], [5, 5, 5, 5]]}]}"""))
+        assertEquals(
+            ForeignSelection("u2", "Ben", "#3367d6", true, listOf(CellRange(1, 2, 3, 4), CellRange(5, 5, 5, 5))),
+            parsed.coEditing!!.selections.single()
+        )
     }
 
     @Test

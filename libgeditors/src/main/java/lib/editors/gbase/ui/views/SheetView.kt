@@ -25,6 +25,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import lib.editors.base.engine.DrawingFrame
+import lib.editors.base.engine.ForeignSelection
 import lib.editors.base.engine.SheetGeometry
 import lib.editors.base.engine.SheetState
 import lib.editors.base.engine.TouchAction
@@ -136,6 +137,14 @@ class SheetView @JvmOverloads constructor(
     private var resizeArmedColumn = -1
     private var resizeArmedRow = -1
 
+    /** Co-editing: cells others selected on this sheet, framed in their colors. */
+    var foreignSelections: List<ForeignSelection> = emptyList()
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
+
     /** Text of the active cell being edited (in the formula bar), shown in the cell; null when not editing. */
     var editingText: String? = null
         set(value) {
@@ -182,6 +191,11 @@ class SheetView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
     }
     private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val foreignPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 2 * density }
+    private val foreignNamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 11 * resources.displayMetrics.scaledDensity
+    }
     private val selectionFill = Paint().apply { color = ContextCompat.getColor(context, Resources.color.editors_selection) }
     private val selectionBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = ContextCompat.getColor(context, Resources.color.editors_selection_handle)
@@ -912,6 +926,7 @@ class SheetView @JvmOverloads constructor(
         }
         if (frozenWidth() > 0) canvas.drawLine(headerWidth + frozenWidth(), headerHeight, headerWidth + frozenWidth(), height.toFloat(), freezePaint)
         if (frozenHeight() > 0) canvas.drawLine(headerWidth, headerHeight + frozenHeight(), width.toFloat(), headerHeight + frozenHeight(), freezePaint)
+        foreignSelections.forEach { drawForeignSelection(canvas, it) }
         if (drawings.isEmpty()) {
             state?.let { drawSelection(canvas, it) }
         } else if (listener != null) {
@@ -1001,6 +1016,27 @@ class SheetView @JvmOverloads constructor(
         }
         canvas.drawRect(rect, selectionBorder)
         if (listener != null) canvas.drawCircle(rect.right, rect.bottom, handleRadius, handlePaint)
+    }
+
+    // Someone else's cells: framed in their color, with their name above the first range
+    private fun drawForeignSelection(canvas: Canvas, selection: ForeignSelection) {
+        foreignPaint.color = runCatching { Color.parseColor(selection.color) }.getOrDefault(Color.GRAY)
+        val rects = selection.ranges.mapNotNull { range ->
+            if (range.c1 >= geometry.colCount || range.r1 >= geometry.rowCount) return@mapNotNull null
+            val c2 = minOf(range.c2, geometry.colCount - 1)
+            val r2 = minOf(range.r2, geometry.rowCount - 1)
+            RectF(viewX(geometry.cols[range.c1]), viewY(geometry.rows[range.r1]), columnRight(c2), rowBottom(r2))
+        }
+        foreignPaint.style = Paint.Style.STROKE
+        rects.forEach { canvas.drawRect(it, foreignPaint) }
+        val first = rects.firstOrNull() ?: return
+        if (selection.name.isEmpty()) return
+        val padding = 3 * density
+        val textHeight = foreignNamePaint.fontMetrics.let { it.descent - it.ascent }
+        val tag = RectF(first.left, first.top - textHeight - 2 * padding, first.left + foreignNamePaint.measureText(selection.name) + 2 * padding, first.top)
+        foreignPaint.style = Paint.Style.FILL
+        canvas.drawRect(tag, foreignPaint)
+        canvas.drawText(selection.name, tag.left + padding, tag.bottom - padding - foreignNamePaint.fontMetrics.descent, foreignNamePaint)
     }
 
     private fun drawHeadings(canvas: Canvas) {
