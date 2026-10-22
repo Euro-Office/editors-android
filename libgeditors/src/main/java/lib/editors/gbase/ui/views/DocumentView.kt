@@ -24,6 +24,7 @@ import android.view.MotionEvent
 import android.view.PointerIcon
 import android.view.ScaleGestureDetector
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -1017,8 +1018,22 @@ class DocumentView @JvmOverloads constructor(
         return DocumentInputConnection()
     }
 
-    /** Takes the focus and shows the keyboard, for typing at the cursor. */
+    /**
+     * Takes the focus and shows the keyboard, for typing at the cursor. While another window has
+     * the focus (a menu closing), once the editor's window has it again: the keyboard would show
+     * for that window, without typing reaching the document.
+     */
     fun showKeyboard() {
+        if (!hasWindowFocus()) {
+            viewTreeObserver.addOnWindowFocusChangeListener(object : ViewTreeObserver.OnWindowFocusChangeListener {
+                override fun onWindowFocusChanged(hasFocus: Boolean) {
+                    if (!hasFocus) return
+                    viewTreeObserver.removeOnWindowFocusChangeListener(this)
+                    showKeyboard()
+                }
+            })
+            return
+        }
         requestFocus()
         context.getSystemService(InputMethodManager::class.java)?.showSoftInput(this, 0)
     }
