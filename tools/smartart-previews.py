@@ -9,11 +9,11 @@ tools/web-apps-icons.py puts into the picker's catalog.
     RUN_ENGINE="<eo-render command line with EO_REPL=1, {doc} for the document>" \\
         tools/smartart-previews.py <sdkjs checkout> <empty presentation>
 
-e.g. from the MobileEditors checkout, with the engine built for the host (build/README.md):
+e.g. from the MobileEditors checkout, with the engine's host image (build/README.md, target engine-host):
 
-    RUN_ENGINE="docker run -i --rm -v $PWD:/src -w /src -e LD_LIBRARY_PATH=/src/build/work/host/package \\
-        -e EO_REPL=1 eo-core-base:desktop build/work/host/engine/eo-render build/work/host/package {doc} \\
-        build/work/smartart 1" editors-android/tools/smartart-previews.py sdkjs document-templates/new/en-US/new.pptx
+    RUN_ENGINE="docker run -i --rm -v $PWD:/src -w /src -e EO_REPL=1 ghcr.io/euro-office/editors-engine-host \\
+        eo-render /package/bin {doc} build/work/smartart 1" editors-android/tools/smartart-previews.py sdkjs \\
+        document-templates/new/en-US/new.pptx
 
 Needs Pillow. The layouts are Ascensio System SIA's definitions, drawn by sdkjs (AGPL).
 """
