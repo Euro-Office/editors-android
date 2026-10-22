@@ -50,6 +50,9 @@ interface EditorDocument : PagedDocument {
     /** Inserts a shape by its preset name ("rect", "ellipse", "rightArrow", "line", ...), selected. */
     fun insertShape(preset: String): EditorState = command("eoEngine.insertShape(${JSONObject.quote(preset)})")
 
+    /** A text box with the cursor in it; in presentations centered on ([xMm], [yMm]) of slide [page]. */
+    fun insertTextBox(page: Int, xMm: Double, yMm: Double): EditorState = command("eoEngine.insertTextBox($page, $xMm, $yMm)")
+
     /** Fill of the selected shapes as "RRGGBB"; null for none. */
     fun setShapeFill(color: String?): EditorState = command("eoEngine.setShapeFill(${JSONObject.quote(color.orEmpty())})")
 

@@ -918,7 +918,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             // Text boxes take the typing at once; spreadsheets have none (text goes into cells)
             insertTextBox = if (isSpreadsheet) null else {
                 {
-                    edit { insertShape("textRect") }
+                    val (page, x, y) = documentView.visibleCenter() ?: Triple(0, 0.0, 0.0)
+                    edit { insertTextBox(page, x, y) }
                     documentView.showKeyboard()
                 }
             }
