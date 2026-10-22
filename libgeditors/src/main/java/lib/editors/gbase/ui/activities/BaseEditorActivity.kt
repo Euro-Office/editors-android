@@ -233,6 +233,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 return@launch
             }
             if (opened == null) {
+                // PDFs come here to be edited (EditorsContract), but the engine only opens PDF
+                // forms: others are edited as PDFs (pages, markup, signatures)
+                if (file.extension.equals("pdf", ignoreCase = true)) {
+                    openDrawingFile(uri, file, password)
+                    return@launch
+                }
                 finish()
                 return@launch
             }
