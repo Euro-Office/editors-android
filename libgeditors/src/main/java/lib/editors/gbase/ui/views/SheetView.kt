@@ -157,6 +157,8 @@ class SheetView @JvmOverloads constructor(
     private val drawingHandles = DrawingHandles(context)
     private var drawingGrab: DrawingHandles.Grab? = null
     private var drawingDragging = false
+    // A tap or drag selected drawings: their menu shows with the next state
+    private var drawingMenuAfterUpdate = false
     private var grabX = 0f
     private var grabY = 0f
     private var lastMoveTime = 0L
@@ -262,6 +264,7 @@ class SheetView @JvmOverloads constructor(
                 val (xMm, yMm) = sheetPoint(e.x, e.y)
                 listener.onTouchDrawing(TouchAction.DOWN, xMm, yMm, false)
                 listener.onTouchDrawing(TouchAction.UP, xMm, yMm, false)
+                drawingMenuAfterUpdate = true
                 return true
             }
             val (col, row) = cellAt(e.x, e.y) ?: return true
@@ -315,6 +318,7 @@ class SheetView @JvmOverloads constructor(
     /** The sheet's state after a command; [changed] if cells may look different. */
     fun setState(sheet: SheetState, changed: Boolean, selectedDrawings: List<DrawingFrame> = emptyList()) {
         val previous = state
+        val previousDrawings = drawings
         state = sheet
         drawings = selectedDrawings
         sheet.geometry?.let { setGeometry(it) }
@@ -327,6 +331,13 @@ class SheetView @JvmOverloads constructor(
         if (changed) version++
         if (previous != null && (previous.col != sheet.col || previous.row != sheet.row) && !dragging) showCell(sheet.col, sheet.row)
         if (sheet.isSingleCell && actionMode != null && previous?.let { it.c1 != sheet.c1 || it.r1 != sheet.r1 } == true) hideActionMenu()
+        if (drawingMenuAfterUpdate) {
+            drawingMenuAfterUpdate = false
+            if (drawings.isNotEmpty() && listener != null) showActionMenu()
+        } else if (drawings.isNotEmpty() && previousDrawings.isEmpty()) {
+            // Selected otherwise (a chart given its cells): the cells' menu is no longer for them
+            hideActionMenu()
+        }
         actionMode?.invalidateContentRect()
         requestTiles()
         invalidate()
@@ -824,6 +835,7 @@ class SheetView @JvmOverloads constructor(
                 if (grab == null || !drawingDragging) return false
                 drawingDragging = false
                 listener.onTouchDrawing(TouchAction.UP, grab.xMm + (event.x - grabX) / scale(), grab.yMm + (event.y - grabY) / scale(), false)
+                drawingMenuAfterUpdate = true
                 return true
             }
         }
@@ -845,7 +857,7 @@ class SheetView @JvmOverloads constructor(
     }
 
     // ---------------------------------------------------------------------------------
-    // Menu: cut, copy, paste
+    // Menu: cut, copy, paste; for selected drawings also delete
 
     private fun showActionMenu() {
         val mode = actionMode
@@ -867,13 +879,15 @@ class SheetView @JvmOverloads constructor(
             menu.add(Menu.NONE, android.R.id.copy, 1, android.R.string.copy)
             menu.add(Menu.NONE, android.R.id.paste, 2, android.R.string.paste)
             menu.add(Menu.NONE, MENU_FILL, 3, Resources.string.editors_cells_fill)
+            menu.add(Menu.NONE, MENU_DELETE, 4, Resources.string.editors_delete)
             return true
         }
 
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
             menu.findItem(android.R.id.paste).isVisible =
                 context.getSystemService(ClipboardManager::class.java)?.hasPrimaryClip() == true
-            menu.findItem(MENU_FILL).isVisible = state?.isSingleCell == false
+            menu.findItem(MENU_FILL).isVisible = state?.isSingleCell == false && drawings.isEmpty()
+            menu.findItem(MENU_DELETE).isVisible = drawings.isNotEmpty()
             return true
         }
 
@@ -884,6 +898,8 @@ class SheetView @JvmOverloads constructor(
                 android.R.id.copy -> listener.onCopy()
                 android.R.id.paste -> listener.onPaste()
                 MENU_FILL -> listener.onFillSelection()
+                // Clearing with drawings selected deletes them
+                MENU_DELETE -> listener.onClearCells()
                 else -> return false
             }
             mode.finish()
@@ -896,6 +912,14 @@ class SheetView @JvmOverloads constructor(
 
         override fun onGetContentRect(mode: ActionMode, view: View, outRect: Rect) {
             val sheet = state ?: return
+            // Above the selected drawings
+            if (drawings.isNotEmpty()) {
+                val corners = drawings.flatMap { frame -> (0 until 4).map { toScreen.point(0, frame.points[2 * it], frame.points[2 * it + 1]) } }
+                val rect = android.graphics.RectF(corners.minOf { it.x }, corners.minOf { it.y }, corners.maxOf { it.x }, corners.maxOf { it.y })
+                rect.intersect(0f, 0f, width.toFloat(), height.toFloat())
+                rect.roundOut(outRect)
+                return
+            }
             selectionRect(sheet)?.let { rect ->
                 rect.intersect(0f, 0f, width.toFloat(), height.toFloat())
                 rect.roundOut(outRect)
@@ -1159,6 +1183,7 @@ class SheetView @JvmOverloads constructor(
         const val DOUBLE_CLICK_MS = 400L
         const val WHEEL_ZOOM_STEP = 0.1f
         const val MENU_FILL = 1
+        const val MENU_DELETE = 2
 
     }
 }
