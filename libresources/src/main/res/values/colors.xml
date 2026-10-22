@@ -1,16 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Nextcloud's accent, as in the app (toolkit's colorPrimary) -->
+    <color name="editors_accent">#0082C9</color>
+    <color name="editors_on_accent">#FFFFFF</color>
     <color name="editors_icon">#DE000000</color>
+    <color name="editors_icon_disabled">#4D000000</color>
     <color name="editors_coediting_warning">#B3261E</color>
     <color name="editors_coediting_reconnecting">#7A5900</color>
-    <color name="editors_tool_selected">#333367D6</color>
+    <color name="editors_tool_selected">#290082C9</color>
     <color name="editors_tool_pressed">#1F000000</color>
+    <!-- Bars around the document: the top bar and the toolbar -->
+    <color name="editors_bar">#FFFFFF</color>
+    <color name="editors_bar_divider">#1F000000</color>
     <!-- Around the pages; the pages themselves stay white -->
     <color name="editors_document_background">#E8E8E8</color>
-    <color name="editors_selection">#503367D6</color>
-    <color name="editors_selection_handle">#3367D6</color>
+    <color name="editors_selection">#400082C9</color>
+    <color name="editors_selection_handle">#0082C9</color>
     <!-- Spreadsheet headings -->
     <color name="editors_sheet_header">#F1F3F4</color>
-    <color name="editors_sheet_header_selected">#D3E3FD</color>
+    <color name="editors_sheet_header_selected">#CCE6F4</color>
     <color name="editors_sheet_header_line">#DADCE0</color>
 </resources>

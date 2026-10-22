@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Top bar of all editors: closing, the file's name, history, finding, saving, people and the
+     file's actions; buttons that don't apply are hidden -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/editorTopBar"
+    android:layout_width="match_parent"
+    android:layout_height="56dp"
+    android:background="@color/editors_bar"
+    android:elevation="2dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingHorizontal="4dp"
+    android:visibility="gone">
+
+    <ImageButton android:id="@+id/toolClose" style="@style/EditorToolButton"
+        android:contentDescription="@string/editors_close" android:src="@drawable/ic_editor_back" />
+
+    <TextView
+        android:id="@+id/editorTitle"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:paddingHorizontal="8dp"
+        android:singleLine="true"
+        android:textAppearance="?android:attr/textAppearanceMedium"
+        android:textColor="@color/editors_icon" />
+
+    <LinearLayout
+        android:id="@+id/editorTopButtons"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageButton android:id="@+id/toolUndo" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_undo" android:src="@drawable/ic_editor_undo" />
+        <ImageButton android:id="@+id/toolRedo" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_redo" android:src="@drawable/ic_editor_redo" />
+        <ImageButton android:id="@+id/toolSearch" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_search" android:src="@drawable/ic_editor_search" />
+        <ImageButton android:id="@+id/toolCoEditors" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_coediting_people" android:src="@drawable/ic_editor_people"
+            android:visibility="gone" />
+        <ImageButton android:id="@+id/toolSave" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_save" android:src="@drawable/ic_editor_save" />
+        <!-- Editing starts here: in the accent -->
+        <ImageButton android:id="@+id/toolEdit" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_edit" android:src="@drawable/ic_editor_edit"
+            app:tint="@color/editors_accent" android:visibility="gone" />
+        <ImageButton android:id="@+id/toolFile" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_file" android:src="@drawable/ic_editor_more"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+</LinearLayout>

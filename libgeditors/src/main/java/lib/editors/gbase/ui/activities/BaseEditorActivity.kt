@@ -176,6 +176,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             documentView = findViewById(R.id.documentView)
         }
 
+        findViewById<View>(R.id.toolClose).setOnClickListener { onBack() }
         linkBar = createLinkBar()
         Accessibility.pane(linkBar, getString(Resources.string.editors_link))
         // Read as switches: on while selected
@@ -203,6 +204,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 finish()
                 return@launch
             }
+            findViewById<TextView>(R.id.editorTitle).text = file.name
             if (editorsType == EditorsType.PDF && !file.extension.equals("pdf", ignoreCase = true)) {
                 openDrawingFile(uri, file, password = "")
                 return@launch
@@ -1245,16 +1247,17 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     // The toolbar; viewing only, it has just the search
     private fun showToolbar(editable: Boolean) {
-        val toolbar = findViewById<View>(R.id.editorToolbar)
-        toolbar.isVisible = true
-        val buttons = findViewById<View>(R.id.toolSearch).parent as ViewGroup
+        findViewById<View>(R.id.editorTopBar).isVisible = true
+        findViewById<View>(R.id.editorToolbar).isVisible = true
         if (!editable) {
             // The editing buttons come back when editing starts
-            for (i in 0 until buttons.childCount) {
-                val button = buttons.getChildAt(i)
-                if (button.isVisible && button.id !in VIEWING_TOOLS) {
-                    hiddenTools += button
-                    button.isVisible = false
+            for (buttons in listOf<ViewGroup>(findViewById(R.id.editorTopButtons), findViewById(R.id.editorToolButtons))) {
+                for (i in 0 until buttons.childCount) {
+                    val button = buttons.getChildAt(i)
+                    if (button.isVisible && button.id !in VIEWING_TOOLS) {
+                        hiddenTools += button
+                        button.isVisible = false
+                    }
                 }
             }
         } else {
@@ -1266,7 +1269,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun addSearchBar(target: SearchBar.Target) {
         val bar = SearchBar(this, target)
-        findViewById<ViewGroup>(R.id.editorRoot).addView(bar.view, 0)
+        // Under the top bar
+        val root = findViewById<ViewGroup>(R.id.editorRoot)
+        root.addView(bar.view, root.indexOfChild(findViewById(R.id.editorTopBar)) + 1)
         searchBar = bar
     }
 
@@ -1304,6 +1309,21 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             finish()
             return
         }
+        if (pdfEdited || modified) {
+            AlertDialog.Builder(this)
+                .setTitle(Resources.string.editors_save_changes_title)
+                .setMessage(getString(Resources.string.editors_save_changes_message, findViewById<TextView>(R.id.editorTitle).text))
+                .setPositiveButton(Resources.string.editors_save) { _, _ -> saveAndLeave() }
+                .setNegativeButton(Resources.string.editors_discard) { _, _ -> finish() }
+                .setNeutralButton(Resources.string.editors_cancel, null)
+                .show()
+            return
+        }
+        finish()
+    }
+
+    // Leaving with the changes saved: if saving fails, leaving without them or staying
+    private fun saveAndLeave() {
         // A changed PDF goes back into the file the app gave
         if (pdfEdited) {
             val file = pdfFile
@@ -1318,10 +1338,6 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 if (!written) toast(getString(Resources.string.editors_save_failed, WRITE_ERROR))
                 finish()
             }
-            return
-        }
-        if (!modified) {
-            finish()
             return
         }
         save { error ->

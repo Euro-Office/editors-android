@@ -4,7 +4,10 @@
     android:id="@+id/editorRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/editors_bar"
     android:orientation="vertical">
+
+    <include layout="@layout/editor_top_bar" />
 
     <LinearLayout
         android:id="@+id/formulaBar"
