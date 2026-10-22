@@ -30,6 +30,8 @@
     <string name="editors_text_box">Text box</string>
     <string name="editors_shape">Shape</string>
     <string name="editors_shape_fill">Fill</string>
+    <!-- The selected shapes' text: font, paragraph, ... -->
+    <string name="editors_shape_text">Text</string>
     <string name="editors_shape_outline">Outline</string>
     <string name="editors_shape_front">Bring to front</string>
     <string name="editors_shape_back">Send to back</string>

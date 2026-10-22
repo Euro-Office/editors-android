@@ -35,7 +35,8 @@ import lib.editors.resources.R as Resources
 
 /**
  * The selected pictures, shapes and charts, in a panel (see [PanelHost]): their fill and outline,
- * the current ones marked; a chart's type, titles, elements and data; arranging and grouping.
+ * the current ones marked; a chart's type, titles, elements and data; their text's settings;
+ * arranging and grouping.
  */
 internal class ShapePanel(
     private val context: Context,
@@ -44,7 +45,9 @@ internal class ShapePanel(
     private val edit: (EditorDocument.() -> EditorState) -> Unit,
     private val chartUi: ChartUi,
     private val chartSettings: ChartSettingsPanel,
-    private val panels: PanelHost
+    private val panels: PanelHost,
+    /** The text's settings (of the selected shapes' text). */
+    private val formatText: () -> Unit = {}
 ) {
 
     private val density = context.resources.displayMetrics.density
@@ -99,6 +102,14 @@ internal class ShapePanel(
             action(context.getString(Resources.string.editors_chart_data), chart.range.removePrefix("=").ifEmpty { null }) {
                 dismiss()
                 if (chart.dataInCells) chartUi.editRange(chart) else chartUi.editData()
+            }
+        }
+
+        // The shapes' text: font, paragraph, ... (charts have their titles)
+        if (chart == null) {
+            action(context.getString(Resources.string.editors_shape_text)) {
+                dismiss()
+                formatText()
             }
         }
 

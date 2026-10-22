@@ -876,8 +876,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         listOf(R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight).forEach { findViewById<View>(it).isEnabled = !drawingSelected }
         findViewById<View>(R.id.toolUndo).isEnabled = toolbar.canUndo
         findViewById<View>(R.id.toolRedo).isEnabled = toolbar.canRedo
-        // Formatting of pictures and shapes while some are selected
-        findViewById<View>(R.id.toolShape).isVisible = isEditable() && !isPdfEditor && !fillsForms() && state.drawings.any { !it.tracking }
+        formatsDrawings = isEditable() && !isPdfEditor && !fillsForms() && drawingSelected
         // A link or an entry of the contents was followed
         state.navigate?.let { documentView.goToPage(it.page, it.yMm.toFloat()) }
         formatPanel.update(state.format, drawingSelected, state.cursor != null || state.selection.isNotEmpty())
@@ -971,7 +970,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             chartUi,
             ShapePanel(
                 this, lifecycleScope, { document }, { command -> edit(command = command) }, chartUi,
-                ChartSettingsPanel(this, { command -> edit(command = command) }, panels, previewPicker), panels
+                ChartSettingsPanel(this, { command -> edit(command = command) }, panels, previewPicker), panels,
+                formatText = ::formatText
             ),
             iconPicker,
             // Tables with a style: documents and presentations (spreadsheets' tables are cells)
@@ -1093,9 +1093,27 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             findViewById<View>(R.id.toolTable).setOnClickListener { ui.showTableMenu(it) }
         }
         findViewById<View>(R.id.toolFormat).isVisible = true
-        findViewById<View>(R.id.toolFormat).setOnClickListener { if (isSpreadsheet) cellFormatPanel.show() else formatPanel.show() }
-        findViewById<View>(R.id.toolShape).setOnClickListener { drawingUi.showShapePanel() }
+        findViewById<View>(R.id.toolFormat).setOnClickListener { if (formatsDrawings) drawingUi.showShapePanel() else formatText() }
+        // Selected pictures, shapes and charts: "Format" in their menu too
+        val formatAction = listOf(getString(Resources.string.editors_format) to { drawingUi.showShapePanel() })
+        if (isSpreadsheet) findViewById<SheetView>(R.id.sheetView).drawingActions = formatAction else documentView.drawingActions = formatAction
     }
+
+    private fun formatText() = if (isSpreadsheet) cellFormatPanel.show() else formatPanel.show()
+
+    // The format button formats what is selected: pictures, shapes and charts while some are,
+    // otherwise text or cells. Its picture tells which, and it pulses when it changes to them.
+    private var formatsDrawings = false
+        set(value) {
+            if (field == value) return
+            field = value
+            val button = findViewById<ImageButton>(R.id.toolFormat)
+            button.setImageResource(if (value) Resources.drawable.ic_editor_shape else Resources.drawable.ic_editor_format)
+            if (value && button.isShown) {
+                button.animate().scaleX(FORMAT_PULSE).scaleY(FORMAT_PULSE).setDuration(FORMAT_PULSE_MS)
+                    .withEndAction { button.animate().scaleX(1f).scaleY(1f).setDuration(FORMAT_PULSE_MS) }
+            }
+        }
 
     // "Comment" in the menu of selected text or cells
     private fun commentAction(): Pair<String, () -> Unit>? {
@@ -1132,7 +1150,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         // The document editor's tools don't apply
         listOf(
             R.id.toolBold, R.id.toolItalic, R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight,
-            R.id.toolInsert, R.id.toolShape, R.id.toolFormat, R.id.toolTable, R.id.toolSlideshow
+            R.id.toolInsert, R.id.toolFormat, R.id.toolTable, R.id.toolSlideshow
         ).forEach { findViewById<View>(it).isVisible = false }
         documentView.readOnly = false
         // Typing only goes into text boxes and form fields
@@ -1683,6 +1701,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         /** Editors that co-edit through a Document Server. */
         val CO_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION, EditorsType.CELLS, EditorsType.PDF)
         const val CO_TICK_MS = 100L
+        const val FORMAT_PULSE = 1.25f
+        const val FORMAT_PULSE_MS = 150L
         const val MEDIA_PREFIX = "media/"
         const val CO_TICK_BUDGET_MS = 20
         const val MAX_ERROR_CHARS = 2000
@@ -1692,7 +1712,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         const val KEY_SPELL_CHECK = "spell_check"
         // Toolbar buttons also when viewing
         private val FILLING_HIDDEN_TOOLS = listOf(
-            R.id.toolInsert, R.id.toolShape, R.id.toolFormat, R.id.toolTable, R.id.toolBold, R.id.toolItalic,
+            R.id.toolInsert, R.id.toolFormat, R.id.toolTable, R.id.toolBold, R.id.toolItalic,
             R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight
         )
         private val VIEWING_TOOLS = setOf(

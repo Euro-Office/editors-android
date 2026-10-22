@@ -34,9 +34,6 @@
             android:visibility="gone" />
         <ImageButton android:id="@+id/toolInsert" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_insert" android:src="@drawable/ic_editor_insert" />
-        <ImageButton android:id="@+id/toolShape" style="@style/EditorToolButton"
-            android:contentDescription="@string/editors_shape" android:src="@drawable/ic_editor_shape"
-            android:visibility="gone" />
         <ImageButton android:id="@+id/toolFormat" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_format" android:src="@drawable/ic_editor_format"
             android:visibility="gone" />
