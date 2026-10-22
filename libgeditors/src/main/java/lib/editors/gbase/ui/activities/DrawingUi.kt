@@ -55,6 +55,8 @@ internal class DrawingUi(
             moreInsertItems(menu)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setForceShowIcon(true)
             setOnMenuItemClickListener { item ->
+                // Opening a submenu of moreInsertItems (their ids aren't these)
+                if (item.hasSubMenu()) return@setOnMenuItemClickListener false
                 when (item.itemId) {
                     5 -> insertTextBox?.invoke()
                     6 -> chooseTable()

@@ -75,6 +75,8 @@ internal class FileUi(
                 }
             }
             setOnMenuItemClickListener {
+                // Opening a submenu of moreItems (their ids aren't these)
+                if (it.hasSubMenu()) return@setOnMenuItemClickListener false
                 if (it.itemId == MENU_SPELL_CHECK) setSpellCheck(!it.isChecked) else actions[it.itemId].third()
                 true
             }
