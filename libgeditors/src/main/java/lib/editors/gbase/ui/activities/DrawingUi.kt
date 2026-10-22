@@ -27,7 +27,8 @@ internal class DrawingUi(
     private val edit: (EditorDocument.() -> EditorState) -> Unit,
     private val pickPicture: () -> Unit,
     private val takePhoto: () -> Unit,
-    private val chartUi: ChartUi
+    private val chartUi: ChartUi,
+    private val insertTextBox: (() -> Unit)? = null
 ) {
 
     /** The selected chart, for its own entries in the shape menu. */
@@ -42,8 +43,10 @@ internal class DrawingUi(
             menu.add(0, 2, 2, Resources.string.editors_insert_shape)
             menu.add(0, 3, 3, Resources.string.editors_chart_insert)
             menu.add(0, 4, 4, Resources.string.editors_smartart_insert)
+            if (insertTextBox != null) menu.add(0, 5, 2, Resources.string.editors_text_box)
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {
+                    5 -> insertTextBox?.invoke()
                     0 -> pickPicture()
                     1 -> takePhoto()
                     2 -> chooseShape()

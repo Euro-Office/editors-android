@@ -904,7 +904,14 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         DrawingUi(
             this, { command -> edit(command = command) },
             { pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, ::takePhoto,
-            ChartUi(this, lifecycleScope, { document }) { command -> edit(command = command) }
+            ChartUi(this, lifecycleScope, { document }) { command -> edit(command = command) },
+            // Text boxes take the typing at once; spreadsheets have none (text goes into cells)
+            insertTextBox = if (isSpreadsheet) null else {
+                {
+                    edit { insertShape("textRect") }
+                    documentView.showKeyboard()
+                }
+            }
         )
     }
 
@@ -1042,6 +1049,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolPen).setOnClickListener { showPenMenu(it) }
         findViewById<View>(R.id.toolSign).isVisible = true
         findViewById<View>(R.id.toolSign).setOnClickListener { SignaturePad(this) { picture, aspect -> placeSignature(picture, aspect) }.show() }
+        findViewById<View>(R.id.toolTextBox).isVisible = true
+        findViewById<View>(R.id.toolTextBox).setOnClickListener { addTextBox() }
         findViewById<View>(R.id.toolUndo).setOnClickListener { edit { undo() } }
         findViewById<View>(R.id.toolRedo).setOnClickListener { edit { redo() } }
         findViewById<View>(R.id.toolSave).setOnClickListener {
@@ -1078,6 +1087,21 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             edit { startInk(color, widthMm) }
         } else {
             edit { stopInk() }
+        }
+    }
+
+    // A text box in the middle of the view (on its page), typed into at once
+    private fun addTextBox() {
+        val document = document ?: return
+        if (penOn) setPen(null, 0.0)
+        val (page, x, y) = documentView.visibleCenter() ?: return
+        lifecycleScope.launch {
+            val size = withContext(EditorEngine.dispatcher) { document.pageSize(page) }
+            // All of it on the page (sdkjs makes it 200 x 85 points)
+            val halfWidth = minOf(TEXT_BOX_WIDTH_MM, size.widthMm) / 2
+            val halfHeight = minOf(TEXT_BOX_HEIGHT_MM, size.heightMm) / 2
+            edit { addFreeText(page, x.coerceIn(halfWidth, size.widthMm - halfWidth), y.coerceIn(halfHeight, size.heightMm - halfHeight)) }
+            documentView.showKeyboard()
         }
     }
 
@@ -1528,6 +1552,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private companion object {
         const val TAG = "EditorViewer"
+        private const val TEXT_BOX_WIDTH_MM = 200 * 25.4 / 72
+        private const val TEXT_BOX_HEIGHT_MM = 85 * 25.4 / 72
+
         val ENGINE_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION, EditorsType.CELLS)
         const val LAYOUT_SLICE_MS = 30
         /** Editors that co-edit through a Document Server. */

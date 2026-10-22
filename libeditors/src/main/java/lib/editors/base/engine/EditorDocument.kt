@@ -365,6 +365,9 @@ interface EditorDocument : PagedDocument {
 
     fun stopInk(): EditorState = command("eoEngine.stopInk()")
 
+    /** A text box (free text annotation) centered on ([xMm], [yMm]) of [page], with the cursor in it. */
+    fun addFreeText(page: Int, xMm: Double, yMm: Double): EditorState = command("eoEngine.addFreeText($page, $xMm, $yMm)")
+
     /** Removes the selected annotations, pictures and shapes. */
     fun deleteSelection(): EditorState = command("eoEngine.deleteSelection()")
 

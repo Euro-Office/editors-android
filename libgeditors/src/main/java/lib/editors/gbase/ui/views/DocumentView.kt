@@ -487,6 +487,9 @@ class DocumentView @JvmOverloads constructor(
         return pageTops.indexOfLast { it <= contentY }.coerceAtLeast(0)
     }
 
+    /** The middle of the view: its page and the point there in millimeters. */
+    fun visibleCenter(): Triple<Int, Double, Double>? = toPage(width / 2f, height / 2f)?.let { Triple(it.page, it.xMm, it.yMm) }
+
     /** Scrolls to the top of [page], or to [yMm] from it. */
     fun goToPage(page: Int, yMm: Float = 0f) {
         if (page !in pageSizes.indices) return

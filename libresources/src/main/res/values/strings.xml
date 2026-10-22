@@ -27,6 +27,7 @@
     <string name="editors_insert_picture">Picture</string>
     <string name="editors_insert_photo">Photo</string>
     <string name="editors_insert_shape">Shape</string>
+    <string name="editors_text_box">Text box</string>
     <string name="editors_shape">Shape</string>
     <string name="editors_shape_fill">Fill</string>
     <string name="editors_shape_outline">Outline</string>
