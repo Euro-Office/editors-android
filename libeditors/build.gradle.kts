@@ -18,6 +18,8 @@ val coreFontsDir = providers.gradleProperty("CORE_FONTS_DIR")
     .getOrElse(androidEditorsDir.resolve("core-fonts").path)
 val dictionariesDir = providers.gradleProperty("DICTIONARIES_DIR")
     .getOrElse(androidEditorsDir.resolve("build/out/dictionaries").path)
+val documentTemplatesDir = providers.gradleProperty("DOCUMENT_TEMPLATES_DIR")
+    .getOrElse(androidEditorsDir.resolve("document-templates").path)
 val engineAssetsDir = layout.buildDirectory.dir("generated/engineAssets")
 
 android {
@@ -88,9 +90,17 @@ val copyEngineAssets by tasks.registering(Copy::class) {
             "common/Native/*.js",
             "common/SmartArts/**",
             "common/libfont/engine/fonts_native.js",
+            // sdkjs' PDF editor reads PDFs through core's reader with it (pdf.js)
+            "pdf/src/engine/drawingfile_native.js",
             "vendor/xregexp-all-min.js"
         )
         into("sdkjs")
+    }
+    // The blank document the PDF editor's context starts from (Document::OpenPdf)
+    from(documentTemplatesDir) {
+        include("new/en-US/new.docx")
+        eachFile { path = "empty/new.docx" }
+        includeEmptyDirs = false
     }
     from(coreFontsDir) {
         include(
