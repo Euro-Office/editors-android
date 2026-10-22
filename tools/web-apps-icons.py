@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates the pictures and names of the insert pickers (chart types, shapes, SmartArt) from web-apps.
+"""Generates the pictures and names of the insert pickers (chart types, shapes, SmartArt) and menu icons from web-apps.
 
 web-apps draws the chart types and shapes it offers from two SVG sprites; this turns their
 symbols into Android vector drawables, takes the English names from web-apps' texts and writes
@@ -41,6 +41,31 @@ CHART_TYPES = {
     "scatterSmoothMarker": 33, "comboBarLine": 39, "comboBarLineSecondary": 40, "comboAreaBar": 41, "radar": 42,
     "radarMarker": 43, "radarFilled": 44,
 }
+# Icons of menu items and buttons (ic_editor_<name>): web-apps' mobile icons, under apps/
+MENU_ICONS = {
+    "page_break": "common/mobile/resources/icons/android/icon-pagebreak.svg",
+    "line_break": "common/mobile/resources/icons/android/icon-stringbreak.svg",
+    "section_break": "common/mobile/resources/icons/android/icon-sectionbreak.svg",
+    "page_number": "common/mobile/resources/icons/android/icon-pagenumber.svg",
+    "footnote": "documenteditor/mobile/resources/icons/android/icon-footnote.svg",
+    "table_contents": "documenteditor/mobile/resources/icons/android/icon-table-contents.svg",
+    "review": "common/mobile/resources/icons/android/icon-review.svg",
+    "search": "common/mobile/resources/icons/common/icon-search.svg",
+    "page_setup": "documenteditor/mobile/resources/icons/common/icon-doc-setup.svg",
+    "info": "common/mobile/resources/icons/common/icon-info.svg",
+    "spellcheck": "common/mobile/resources/icons/common/icon-spellcheck.svg",
+    "print": "common/mobile/resources/icons/common/icon-print.svg",
+    "download": "common/mobile/resources/icons/common/icon-download.svg",
+    "export": "common/mobile/resources/icons/common/icon-export.svg",
+    "table_row_above": "common/mobile/resources/icons/common/icon-table-add-row-above.svg",
+    "table_row_below": "common/mobile/resources/icons/common/icon-table-add-row-below.svg",
+    "table_column_left": "common/mobile/resources/icons/common/icon-table-add-column-left.svg",
+    "table_column_right": "common/mobile/resources/icons/common/icon-table-add-column-right.svg",
+    "table_delete_row": "common/mobile/resources/icons/common/icon-table-remove-row.svg",
+    "table_delete_column": "common/mobile/resources/icons/common/icon-table-remove-column.svg",
+    "table_style": "spreadsheeteditor/mobile/resources/icons/common/icon-table-settings.svg",
+}
+
 # Shapes drawn point by point, which one tap can't insert
 SKIPPED_SHAPES = {"spline", "polyline1", "polyline2"}
 
@@ -89,13 +114,15 @@ def paths(element, opacity=1.0):
     return result
 
 
-def vector(symbol, size):
+def vector(symbol, size, mirrored=False):
     view = (symbol.attrib.get("viewBox") or "0 0 40 40").split()
     lines = ['<?xml version="1.0" encoding="utf-8"?>', "<!-- %s -->" % LICENSE,
              '<vector xmlns:android="http://schemas.android.com/apk/res/android"',
              '    android:width="%ddp"' % size, '    android:height="%ddp"' % size,
-             '    android:viewportWidth="%s"' % view[2], '    android:viewportHeight="%s"' % view[3],
-             '    android:tint="@color/editors_icon">']
+             '    android:viewportWidth="%s"' % view[2], '    android:viewportHeight="%s"' % view[3]]
+    if mirrored:
+        lines.append('    android:autoMirrored="true"')
+    lines.append('    android:tint="@color/editors_icon">')
     for data, alpha, even_odd, filled, stroke in paths(symbol):
         lines.append("    <path")
         if filled:
@@ -125,7 +152,18 @@ def xml_text(text):
     return (text.replace("&", "&amp;").replace("<", "&lt;").replace("'", "\\'").replace('"', '\\"'))
 
 
+def menu_icons(web_apps):
+    """The menu icons (MENU_ICONS); mirrored right to left where web-apps has an -rtl variant."""
+    for name, path in MENU_ICONS.items():
+        source = os.path.join(web_apps, "apps", path)
+        mirrored = os.path.exists(source.replace(".svg", "-rtl.svg"))
+        with open(os.path.join(DRAWABLES, "ic_editor_%s.xml" % name), "w", encoding="utf-8") as out:
+            out.write(vector(ET.parse(source).getroot(), 24, mirrored))
+    print("%d menu icons" % len(MENU_ICONS))
+
+
 def main(web_apps, sdkjs):
+    menu_icons(web_apps)
     toolbar = os.path.join(web_apps, "apps/common/main/resources/img/toolbar")
     strings = []  # (name, English text)
 
