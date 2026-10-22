@@ -1110,21 +1110,37 @@ class DocumentView @JvmOverloads constructor(
         return false
     }
 
+    // The keyboard is composing a word (its suggestions)
+    private var composing = false
+
+    /**
+     * The keyboard forgets the word it composes: the engine ended it (a key, a new text box), and
+     * the keyboard would send it again, extended, where the cursor is now.
+     */
+    fun restartKeyboardInput() {
+        if (!composing) return
+        composing = false
+        post { context.getSystemService(InputMethodManager::class.java)?.restartInput(this) }
+    }
+
     /** Talks to the soft keyboard; text goes to the document, not to an Android text buffer. */
     private inner class DocumentInputConnection : BaseInputConnection(this@DocumentView, false) {
 
         override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
             hideActionMenu()
+            composing = false
             editListener?.onCommitText(text.toString())
             return true
         }
 
         override fun setComposingText(text: CharSequence, newCursorPosition: Int): Boolean {
+            composing = text.isNotEmpty()
             editListener?.onComposingText(text.toString())
             return true
         }
 
         override fun finishComposingText(): Boolean {
+            composing = false
             editListener?.onFinishComposingText()
             return true
         }
@@ -1138,11 +1154,16 @@ class DocumentView @JvmOverloads constructor(
 
         override fun sendKeyEvent(event: KeyEvent): Boolean {
             val listener = editListener ?: return true
-            if (event.action == KeyEvent.ACTION_DOWN) sendKey(listener, event)
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                // Keys (Enter) end the word being composed
+                if (event.unicodeChar == 0 || event.keyCode == KeyEvent.KEYCODE_ENTER) restartKeyboardInput()
+                sendKey(listener, event)
+            }
             return true
         }
 
         override fun performEditorAction(actionCode: Int): Boolean {
+            restartKeyboardInput()
             editListener?.onKey(KEY_ENTER, false, false)
             return true
         }

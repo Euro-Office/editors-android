@@ -965,6 +965,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             insertTextBox = if (isSpreadsheet) null else {
                 {
                     val (page, x, y) = documentView.visibleCenter() ?: Triple(0, 0.0, 0.0)
+                    documentView.restartKeyboardInput()
                     edit { insertTextBox(page, x, y) }
                     documentView.showKeyboard()
                 }
@@ -1166,6 +1167,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         val document = document ?: return
         if (penOn) setPen(null, 0.0)
         val (page, x, y) = documentView.visibleCenter() ?: return
+        documentView.restartKeyboardInput()
         lifecycleScope.launch {
             val size = withContext(EditorEngine.dispatcher) { document.pageSize(page) }
             // All of it on the page (sdkjs makes it 200 x 85 points)
