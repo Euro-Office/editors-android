@@ -24,7 +24,7 @@ interface Speller {
 
 /**
  * Hunspell dictionaries from Euro-Office's dictionaries repository. English comes with the app;
- * other languages are downloaded when needed, from the commit the AndroidEditors checkout pinned
+ * other languages are downloaded when needed, from the commit the MobileEditors checkout pinned
  * when the app was built (index.json), so they are always the ones it was built with.
  *
  * A dictionary is named after its folder in the repository ("de_DE"); sdkjs asks by LCID.

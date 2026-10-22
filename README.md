@@ -2,7 +2,7 @@
 
 Native document, spreadsheet, presentation and PDF editors for the Euro-Office Android app.
 
-Build and architecture: see [AGENTS.md](AGENTS.md) and [engine/README.md](engine/README.md). The app is built from [AndroidEditors](https://github.com/Euro-Office/AndroidEditors).
+Build and architecture: see [AGENTS.md](AGENTS.md) and [editors-engine](https://github.com/Euro-Office/editors-engine), the engine it shares with the iOS app. The app is built from [MobileEditors](https://github.com/Euro-Office/MobileEditors).
 
 ## Translations
 

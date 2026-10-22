@@ -1,4 +1,0 @@
-#pragma once
-
-// Generated from pdf.js by CMake
-static const char* const kPdfJs = R"EOJS(@PDF_JS@)EOJS";

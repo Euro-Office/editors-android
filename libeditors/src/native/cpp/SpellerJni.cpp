@@ -1,6 +1,6 @@
 // JNI binding of the spell checker for libeditors (lib.editors.base.engine.NativeEngine)
 
-#include "../Speller.h"
+#include "Speller.h"
 
 #include <jni.h>
 

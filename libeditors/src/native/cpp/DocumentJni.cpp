@@ -1,7 +1,7 @@
 // JNI binding of the engine for libeditors (lib.editors.base.engine)
 
-#include "../Document.h"
-#include "../DrawingDocument.h"
+#include "Document.h"
+#include "DrawingDocument.h"
 
 #include <android/bitmap.h>
 #include <jni.h>

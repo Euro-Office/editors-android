@@ -8,18 +8,19 @@ plugins {
 // with -PwithNativeCore=true; otherwise stubs report the engine as unavailable
 val hasNativeCore = findProject(":libx2t") != null
 
-// AndroidEditors checkout: core sources, the core-android libraries and the sdkjs bundles
-val androidEditorsDir = rootDir.resolve("../..")
+// MobileEditors checkout: the engine (editors-engine), core sources, the core-android libraries
+// and the sdkjs bundles
+val mobileEditorsDir = rootDir.resolve("../..")
 val coreLibsDir = providers.gradleProperty("PATH_LIB_BUILD_TOOLS")
-    .getOrElse(androidEditorsDir.resolve("build/out/core-android").path)
+    .getOrElse(mobileEditorsDir.resolve("build/out/core-android").path)
 val sdkjsDir = providers.gradleProperty("SDKJS_DIR")
-    .getOrElse(androidEditorsDir.resolve("build/out/sdkjs").path)
+    .getOrElse(mobileEditorsDir.resolve("build/out/sdkjs").path)
 val coreFontsDir = providers.gradleProperty("CORE_FONTS_DIR")
-    .getOrElse(androidEditorsDir.resolve("core-fonts").path)
+    .getOrElse(mobileEditorsDir.resolve("core-fonts").path)
 val dictionariesDir = providers.gradleProperty("DICTIONARIES_DIR")
-    .getOrElse(androidEditorsDir.resolve("build/out/dictionaries").path)
+    .getOrElse(mobileEditorsDir.resolve("build/out/dictionaries").path)
 val documentTemplatesDir = providers.gradleProperty("DOCUMENT_TEMPLATES_DIR")
-    .getOrElse(androidEditorsDir.resolve("document-templates").path)
+    .getOrElse(mobileEditorsDir.resolve("document-templates").path)
 val engineAssetsDir = layout.buildDirectory.dir("generated/engineAssets")
 
 android {
@@ -34,7 +35,8 @@ android {
                 cmake {
                     arguments(
                         "-DANDROID_STL=c++_shared",
-                        "-DCORE_SOURCE_DIR=${androidEditorsDir.resolve("core").path}",
+                        "-DEDITORS_ENGINE_DIR=${mobileEditorsDir.resolve("editors-engine").path}",
+                        "-DCORE_SOURCE_DIR=${mobileEditorsDir.resolve("core").path}",
                         "-DCORE_LIBS_DIR=$coreLibsDir"
                     )
                 }
@@ -50,7 +52,7 @@ android {
         ndkVersion = rootProject.extra.get("NDK_VERSION").toString()
         externalNativeBuild {
             cmake {
-                path("../engine/CMakeLists.txt")
+                path("src/native/cpp/CMakeLists.txt")
             }
         }
     }
@@ -121,10 +123,10 @@ val copyEngineAssets by tasks.registering(Copy::class) {
     into(engineAssetsDir.map { it.dir("editors/runtime") })
     doFirst {
         if (!file("$sdkjsDir/word/sdk-all.js").exists()) {
-            throw GradleException("sdkjs bundles not found in $sdkjsDir (see AndroidEditors/build/README.md)")
+            throw GradleException("sdkjs bundles not found in $sdkjsDir (see MobileEditors/build/README.md)")
         }
         if (!file("$dictionariesDir/index.json").exists()) {
-            throw GradleException("dictionaries not found in $dictionariesDir (see AndroidEditors/build/README.md)")
+            throw GradleException("dictionaries not found in $dictionariesDir (see MobileEditors/build/README.md)")
         }
     }
 }
@@ -132,7 +134,7 @@ val copyEngineAssets by tasks.registering(Copy::class) {
 // The licences of what the editors contain (assets/editors-licenses.html, linked from the app's
 // licences page): the third-party lists of core and sdkjs, Hunspell, the fonts and dictionaries
 val editorsLicenses by tasks.registering {
-    val sources = listOf(androidEditorsDir.resolve("core/3DPARTY.md"), file("$sdkjsDir/3DPARTY.md"))
+    val sources = listOf(mobileEditorsDir.resolve("core/3DPARTY.md"), file("$sdkjsDir/3DPARTY.md"))
     inputs.files(sources)
     val output = engineAssetsDir.map { it.file("editors-licenses.html") }
     outputs.file(output)
