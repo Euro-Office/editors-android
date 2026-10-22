@@ -444,7 +444,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         showToolbar(editable = true)
         if (isSpreadsheet) spreadsheetUi?.enableEditing() else documentView.readOnly = false
         slidesUi?.editable = true
-        if (editorsType == EditorsType.DOCS) {
+        if (editorsType == EditorsType.DOCS && !fillsForms()) {
             val ui = DocumentUi(this, lifecycleScope, documentView, { document }) { command -> edit(command = command) }
             val root = findViewById<ViewGroup>(R.id.editorRoot)
             root.addView(ui.bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
@@ -456,7 +456,11 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             }
         }
         bindToolbar()
-        if (fillsForms()) edit { setFillMode(true) }
+        if (fillsForms()) {
+            edit { setFillMode(true) }
+            // Only the form's fields take input: inserting and formatting don't apply
+            FILLING_HIDDEN_TOOLS.forEach { findViewById<View>(it).isVisible = false }
+        }
         if (editorsType == EditorsType.DOCS || editorsType == EditorsType.PRESENTATION) startSpelling()
     }
 
@@ -856,7 +860,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolUndo).isEnabled = toolbar.canUndo
         findViewById<View>(R.id.toolRedo).isEnabled = toolbar.canRedo
         // Formatting of pictures and shapes while some are selected
-        findViewById<View>(R.id.toolShape).isVisible = isEditable() && !isPdfEditor && state.drawings.any { !it.tracking }
+        findViewById<View>(R.id.toolShape).isVisible = isEditable() && !isPdfEditor && !fillsForms() && state.drawings.any { !it.tracking }
         // A link or an entry of the contents was followed
         state.navigate?.let { documentView.goToPage(it.page, it.yMm.toFloat()) }
         formatPanel.update(state.format, drawingSelected)
@@ -1588,6 +1592,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         const val SPELLING_PREFERENCES = "lib.editors.spelling"
         const val KEY_SPELL_CHECK = "spell_check"
         // Toolbar buttons also when viewing
+        private val FILLING_HIDDEN_TOOLS = listOf(
+            R.id.toolInsert, R.id.toolShape, R.id.toolFormat, R.id.toolDocument, R.id.toolTable, R.id.toolBold, R.id.toolItalic,
+            R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight
+        )
         private val VIEWING_TOOLS = setOf(
             R.id.toolSearch, R.id.toolFile, R.id.toolComments, R.id.toolSlideshow, R.id.toolEdit, R.id.toolPages, R.id.toolOutline,
             R.id.toolSign, R.id.toolCoEditors
