@@ -171,6 +171,12 @@ ${list(components)}
 <ul>
 ${list(fonts)}
 </ul>
+<h3>Icons</h3>
+<p>The pictures of chart types and shapes are from <a href="https://github.com/Euro-Office/web-apps">web-apps</a>
+by Ascensio System SIA, under the <a href="https://creativecommons.org/licenses/by-sa/4.0/">Creative Commons
+Attribution-ShareAlike 4.0 International</a> license, converted to Android drawables. Other icons are
+<a href="https://fonts.google.com/icons">Material Design icons</a> by Google, under the
+<a href="https://www.apache.org/licenses/LICENSE-2.0">Apache License 2.0</a>.</p>
 <h3>Dictionaries</h3>
 <p>Spell checking uses the Hunspell dictionaries of <a href="https://github.com/Euro-Office/dictionaries">Euro-Office/dictionaries</a>,
 each under the licence given in its folder there.</p>

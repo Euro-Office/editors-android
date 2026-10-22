@@ -10,6 +10,7 @@ The editors' texts are translated on [Weblate](https://hosted.weblate.org/projec
 - the editors' own texts
 - the texts sdkjs puts into documents (`editors_sdk_*`)
 - the names of the built-in styles (`editors_style_*`)
+- the names of chart types and shapes in the insert pickers (generated, see below)
 
 Settings of the Weblate component:
 
@@ -22,3 +23,13 @@ Settings of the Weblate component:
 | Language code style | Android style (`pt-rBR`) |
 
 Change only the English file by hand; Weblate owns the others.
+
+## Pictures of chart types and shapes
+
+The insert pickers show web-apps' pictures of chart types and shapes. `tools/web-apps-icons.py` generates them, together with their English names and the pickers' list (`InsertCatalog.kt`), from a web-apps and an sdkjs checkout:
+
+```sh
+tools/web-apps-icons.py <web-apps> <sdkjs>
+```
+
+The pictures are Ascensio System SIA's, under the [Creative Commons Attribution-ShareAlike 4.0 International](https://creativecommons.org/licenses/by-sa/4.0/) license; the editors' licence page says so.

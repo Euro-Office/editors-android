@@ -33,17 +33,15 @@ internal class ChartUi(
     private val context: Context,
     private val scope: CoroutineScope,
     private val document: () -> EditorDocument?,
+    private val picker: IconPicker,
     private val edit: (EditorDocument.() -> EditorState) -> Unit
 ) {
 
     private val density = context.resources.displayMetrics.density
 
-    fun chooseType(title: Int, onType: (Int) -> Unit) {
-        AlertDialog.Builder(context)
-            .setTitle(title)
-            .setItems(TYPES.map { context.getString(it.first) }.toTypedArray()) { _, index -> onType(TYPES[index].second) }
-            .show()
-    }
+    /** Chart types with their pictures, [selected] (the chart's) highlighted. */
+    fun chooseType(title: Int, selected: Int? = null, onType: (Int) -> Unit) =
+        picker.show(title, InsertCatalog.CHARTS, selected, accent = true, onPick = onType)
 
     fun chooseSmartArt() {
         AlertDialog.Builder(context)
@@ -178,19 +176,6 @@ internal class ChartUi(
     private fun dp(value: Int) = (value * density).toInt()
 
     private companion object {
-        // Asc.c_oAscChartTypeSettings
-        val TYPES = listOf(
-            Resources.string.editors_chart_column to 0,
-            Resources.string.editors_chart_column_stacked to 1,
-            Resources.string.editors_chart_bar to 16,
-            Resources.string.editors_chart_line to 7,
-            Resources.string.editors_chart_line_markers to 10,
-            Resources.string.editors_chart_pie to 14,
-            Resources.string.editors_chart_doughnut to 25,
-            Resources.string.editors_chart_area to 22,
-            Resources.string.editors_chart_scatter to 30,
-            Resources.string.editors_chart_radar to 42
-        )
         // Asc.c_oAscSmartArtTypes and their definition files, packaged with the engine (build/scripts/sdkjs.sh)
         val SMART_ARTS = listOf(
             Triple(Resources.string.editors_smartart_list, 77, "Basic_Block_List"),

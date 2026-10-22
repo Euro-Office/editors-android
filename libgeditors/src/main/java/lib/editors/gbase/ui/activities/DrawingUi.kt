@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
+import android.os.Build
 import android.view.View
 import android.widget.PopupMenu
 import androidx.appcompat.app.AlertDialog
@@ -28,6 +29,7 @@ internal class DrawingUi(
     private val pickPicture: () -> Unit,
     private val takePhoto: () -> Unit,
     private val chartUi: ChartUi,
+    private val picker: IconPicker,
     private val insertTextBox: (() -> Unit)? = null
 ) {
 
@@ -38,12 +40,13 @@ internal class DrawingUi(
 
     fun showInsertMenu(anchor: View) {
         PopupMenu(context, anchor).apply {
-            menu.add(0, 0, 0, Resources.string.editors_insert_picture)
-            menu.add(0, 1, 1, Resources.string.editors_insert_photo)
-            menu.add(0, 2, 2, Resources.string.editors_insert_shape)
-            menu.add(0, 3, 3, Resources.string.editors_chart_insert)
-            menu.add(0, 4, 4, Resources.string.editors_smartart_insert)
-            if (insertTextBox != null) menu.add(0, 5, 2, Resources.string.editors_text_box)
+            menu.add(0, 0, 0, Resources.string.editors_insert_picture).setIcon(Resources.drawable.ic_editor_image)
+            menu.add(0, 1, 1, Resources.string.editors_insert_photo).setIcon(Resources.drawable.ic_editor_camera)
+            menu.add(0, 2, 2, Resources.string.editors_insert_shape).setIcon(Resources.drawable.ic_editor_shapes)
+            menu.add(0, 3, 3, Resources.string.editors_chart_insert).setIcon(Resources.drawable.ic_editor_chart)
+            menu.add(0, 4, 4, Resources.string.editors_smartart_insert).setIcon(Resources.drawable.ic_editor_smartart)
+            if (insertTextBox != null) menu.add(0, 5, 2, Resources.string.editors_text_box).setIcon(Resources.drawable.ic_editor_text_box)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setForceShowIcon(true)
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {
                     5 -> insertTextBox?.invoke()
@@ -74,7 +77,7 @@ internal class DrawingUi(
             }
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {
-                    10 -> chartUi.chooseType(Resources.string.editors_chart_type) { type -> edit { setChartType(type) } }
+                    10 -> chartUi.chooseType(Resources.string.editors_chart_type, selectedChart?.type) { type -> edit { setChartType(type) } }
                     11 -> selectedChart?.let { chartUi.showElements(it) }
                     12 -> chartUi.editData()
                     0 -> chooseColor(Resources.string.editors_shape_fill) { color -> edit { setShapeFill(color) } }
@@ -89,13 +92,8 @@ internal class DrawingUi(
         }.show()
     }
 
-    private fun chooseShape() {
-        val labels = SHAPES.map { context.getString(it.label) }.toTypedArray()
-        AlertDialog.Builder(context)
-            .setTitle(Resources.string.editors_insert_shape)
-            .setItems(labels) { _, index -> edit { insertShape(SHAPES[index].value) } }
-            .show()
-    }
+    private fun chooseShape() =
+        picker.show(Resources.string.editors_insert_shape, InsertCatalog.SHAPES) { preset -> edit { insertShape(preset) } }
 
     private fun chooseColor(title: Int, onColor: (String?) -> Unit) {
         val labels = COLORS.map { context.getString(it.label) }.toTypedArray()
@@ -106,21 +104,6 @@ internal class DrawingUi(
     }
 
     companion object {
-        private val SHAPES = listOf(
-            Choice(Resources.string.editors_shape_rect, "rect"),
-            Choice(Resources.string.editors_shape_round_rect, "roundRect"),
-            Choice(Resources.string.editors_shape_ellipse, "ellipse"),
-            Choice(Resources.string.editors_shape_triangle, "triangle"),
-            Choice(Resources.string.editors_shape_diamond, "diamond"),
-            Choice(Resources.string.editors_shape_star, "star5"),
-            Choice(Resources.string.editors_shape_right_arrow, "rightArrow"),
-            Choice(Resources.string.editors_shape_line, "line"),
-            Choice(Resources.string.editors_shape_arrow, "straightConnector1"),
-            Choice(Resources.string.editors_shape_callout, "wedgeRectCallout"),
-            Choice(Resources.string.editors_shape_process, "flowChartProcess"),
-            Choice(Resources.string.editors_shape_decision, "flowChartDecision")
-        )
-
         private val COLORS = listOf(
             Choice(Resources.string.editors_color_none, ""),
             Choice(Resources.string.editors_color_black, "000000"),

@@ -30,6 +30,10 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
 
     private val isSide get() = sidePane != null && context.resources.getBoolean(R.bool.editor_side_panels)
 
+    /** The width panels have, in pixels. */
+    val width: Int
+        get() = if (isSide) context.resources.getDimensionPixelSize(R.dimen.editor_side_pane_width) else context.resources.displayMetrics.widthPixels
+
     /** Shows [content] (scrolled) under [title]; [onDismiss] runs when it closes, however that happens. */
     fun show(title: String, content: View, onDismiss: () -> Unit): Panel {
         current?.dismiss()

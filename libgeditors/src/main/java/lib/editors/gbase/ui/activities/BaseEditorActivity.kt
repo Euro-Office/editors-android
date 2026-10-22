@@ -878,6 +878,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     // Formatting and comments: bottom sheets on phones, beside the document on large screens
     private val panels by lazy { PanelHost(this, findViewById(R.id.editorSidePane)) }
+    private val iconPicker by lazy { IconPicker(this, panels) }
 
     private val formatPanel by lazy {
         FormatPanel(
@@ -906,7 +907,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         DrawingUi(
             this, { command -> edit(command = command) },
             { pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, ::takePhoto,
-            ChartUi(this, lifecycleScope, { document }) { command -> edit(command = command) },
+            ChartUi(this, lifecycleScope, { document }, iconPicker) { command -> edit(command = command) },
+            iconPicker,
             // Text boxes take the typing at once; spreadsheets have none (text goes into cells)
             insertTextBox = if (isSpreadsheet) null else {
                 {
