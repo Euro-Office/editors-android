@@ -433,6 +433,38 @@ interface EditorDocument : PagedDocument {
         return state()
     }
 
+    /** The selected chart's style, 1 to [ChartState.styles]. */
+    fun setChartStyle(style: Int): EditorState = command("eoEngine.setChartStyle($style)")
+
+    /** Settings of the selected chart's layout to change: names and values as in [ChartLayout]. */
+    fun setChartLayout(values: Map<String, Int>): EditorState = command("eoEngine.setChartLayout(${JSONObject(values)})")
+
+    /**
+     * Settings of the selected chart's value or category axis ([value]) to change: names and
+     * values as in [ChartAxis], null for automatic minimum and maximum.
+     */
+    fun setChartAxis(value: Boolean, values: Map<String, Any?>): EditorState {
+        val json = JSONObject()
+        values.forEach { (name, v) -> json.put(name, v ?: JSONObject.NULL) }
+        return command("eoEngine.setChartAxis(${JSONObject.quote(if (value) "value" else "category")}, $json)")
+    }
+
+    /**
+     * Pictures of choices: [kind] chartStyles (the selected chart's type in its styles),
+     * tableStyles, layouts (presentations). [renderPreview] draws those listed last.
+     */
+    fun previews(kind: String): List<Preview> {
+        val json = org.json.JSONArray(execute("eoEngine.previews(${JSONObject.quote(kind)})"))
+        return (0 until json.length()).map {
+            val item = json.getJSONObject(it)
+            Preview(item.optString("id"), item.optString("name"), item.optDouble("width"), item.optDouble("height"))
+        }
+    }
+
+    /** Draws the [index]th of the [previews] listed last into [bitmap], at its size. */
+    fun renderPreview(index: Int, bitmap: android.graphics.Bitmap): Boolean =
+        renderTile(-1 - index, bitmap.width, bitmap.height, 0, 0, bitmap)
+
     /** The fill and outline of the selected picture, shape or chart, or null. */
     fun drawingColors(): DrawingColors? {
         val json = execute("eoEngine.drawingColors()")
@@ -512,6 +544,13 @@ interface EditorDocument : PagedDocument {
 
     fun setLayout(layoutIndex: Int): EditorState = command("eoEngine.setLayout($layoutIndex)")
 
+    /** The current slide's background color, "RRGGBB". */
+    fun setSlideBackground(hex: String): EditorState = command("eoEngine.setSlideBackground(${JSONObject.quote(hex)})")
+
+    /** The current slide's background color "RRGGBB", or null for other backgrounds (pictures, from its layout). */
+    fun slideBackground(): String? =
+        runCatching { org.json.JSONTokener(execute("eoEngine.getSlideBackground()")).nextValue() as? String }.getOrNull()
+
     /** Replaces the speaker notes of the current slide (lines separated by \n). */
     fun setNotes(text: String): EditorState = command("eoEngine.setNotes(${JSONObject.quote(text)})")
 
@@ -522,7 +561,12 @@ interface EditorDocument : PagedDocument {
     // ---------------------------------------------------------------------------------
     // Document structure (documents)
 
-    fun insertTable(cols: Int, rows: Int): EditorState = command("eoEngine.insertTable($cols, $rows)")
+    /** A table of [styleId] (see [previews] "tableStyles"), or the document's default style. */
+    fun insertTable(cols: Int, rows: Int, styleId: String? = null): EditorState =
+        command("eoEngine.insertTable($cols, $rows, ${styleId?.let { JSONObject.quote(it) } ?: "null"})")
+
+    /** The style of the table at the cursor (see [previews] "tableStyles"). */
+    fun setTableStyle(styleId: String): EditorState = command("eoEngine.setTableStyle(${JSONObject.quote(styleId)})")
 
     /** On the table at the cursor: rowAbove, rowBelow, columnLeft, columnRight, deleteRow, deleteColumn, deleteTable, merge, split, select. */
     fun tableAction(action: String): EditorState = command("eoEngine.tableAction(${JSONObject.quote(action)})")

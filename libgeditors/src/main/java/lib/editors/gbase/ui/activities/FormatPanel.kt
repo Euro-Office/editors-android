@@ -13,6 +13,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
+import lib.editors.base.engine.DrawingColors
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.TextFormat
@@ -21,8 +22,9 @@ import lib.editors.resources.R as Resources
 
 /**
  * The formatting panel: font, size, styles, colors and paragraph settings of the text at the
- * cursor or the selection, in a panel (see [PanelHost]). It shows the current formatting (see [update])
- * and sends changes through [edit].
+ * cursor or the selection, in a panel (see [PanelHost]); the fill and outline of selected
+ * pictures and shapes; in presentations without a selected one, the slide's background and
+ * layout. It shows the current formatting (see [update]) and sends changes through [edit].
  */
 internal class FormatPanel(
     private val context: Context,
@@ -32,8 +34,15 @@ internal class FormatPanel(
     /** Paragraph settings: documents and presentations; styles only for documents. */
     private val withParagraphs: Boolean,
     private val withStyles: Boolean,
-    private val panels: PanelHost
+    private val panels: PanelHost,
+    /** The fill and outline of the selected drawing (on its thread). */
+    private val loadShapeColors: (onLoaded: (DrawingColors?) -> Unit) -> Unit,
+    /** Presentations: the slide's settings. */
+    private val slide: SlideSettings? = null
 ) {
+
+    /** The current slide's background color (null: another kind) and its layout. */
+    class SlideSettings(val loadBackground: (onLoaded: (String?) -> Unit) -> Unit, val chooseLayout: () -> Unit)
 
     private val density = context.resources.displayMetrics.density
     private var dialog: PanelHost.Panel? = null
@@ -48,6 +57,13 @@ internal class FormatPanel(
     // don't apply to it (sdkjs would apply them to the paragraph it is anchored in)
     private var drawingSelected = false
     private val textOnly = mutableListOf<View>()
+    // Text at the cursor or selected (not only a slide)
+    private var hasText = true
+    private val textSections = mutableListOf<View>()
+    private var shapeSection: View? = null
+    private var slideSection: View? = null
+    private var markFill: (String?) -> Unit = {}
+    private var markOutline: (String?) -> Unit = {}
 
     fun show() {
         load { loadedFonts, loadedStyles ->
@@ -56,18 +72,41 @@ internal class FormatPanel(
         }
         updaters.clear()
         textOnly.clear()
+        textSections.clear()
         val content = content()
         dialog = panels.show(context.getString(Resources.string.editors_format), content) { dialog = null }
-        update(format, drawingSelected)
+        update(format, drawingSelected, hasText)
+        loadColors()
     }
 
-    /** The formatting after a command, [drawing] if a drawing is selected; updates the panel if it is open. */
-    fun update(newFormat: TextFormat, drawing: Boolean = false) {
+    /**
+     * The formatting after a command, [drawing] if a drawing is selected, [text] if there is
+     * text at the cursor or selected; updates the panel if it is open.
+     */
+    fun update(newFormat: TextFormat, drawing: Boolean = false, text: Boolean = true) {
+        val drawingChanged = drawing != drawingSelected
         format = newFormat
         drawingSelected = drawing
+        hasText = text
         if (dialog != null) {
             updaters.forEach { it(newFormat) }
             textOnly.forEach { it.isVisible = !drawing }
+            textSections.forEach { it.isVisible = drawing || text }
+            shapeSection?.isVisible = drawing
+            slideSection?.isVisible = !drawing
+            if (drawingChanged) loadColors()
+        }
+    }
+
+    // The current fill and outline, or background
+    private fun loadColors() {
+        if (drawingSelected) {
+            loadShapeColors { colors ->
+                markFill(colors?.fill)
+                markOutline(colors?.outline)
+            }
+        } else {
+            slide?.loadBackground { markFill(it) }
         }
     }
 
@@ -75,6 +114,41 @@ internal class FormatPanel(
         orientation = LinearLayout.VERTICAL
         setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
 
+        // A selected picture or shape
+        shapeSection = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            heading(Resources.string.editors_shape)
+            caption(Resources.string.editors_shape_fill)
+            val fill = colorsOf(SHAPE_COLORS) { color -> edit { setShapeFill(color) } }
+            caption(Resources.string.editors_shape_outline)
+            val outline = colorsOf(SHAPE_COLORS) { color -> edit { setShapeOutline(color) } }
+            markFill = fill
+            markOutline = outline
+        }.also { addView(it) }
+
+        // The slide, in presentations when no picture or shape is selected
+        if (slide != null) {
+            slideSection = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                heading(Resources.string.editors_slide)
+                caption(Resources.string.editors_slide_background)
+                val background = colorsOf(SHAPE_COLORS.filter { it.isNotEmpty() }) { color -> color?.let { edit { setSlideBackground(it) } } }
+                row {
+                    button(context.getString(Resources.string.editors_slides_layout)) { slide.chooseLayout() }
+                }
+                // Marked as the background, while no shape is selected
+                val markShape = markFill
+                markFill = { color -> if (drawingSelected) markShape(color) else background(color) }
+            }.also { addView(it) }
+        }
+
+        val text = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        addView(text)
+        textSections += text
+        text.textSettings()
+    }
+
+    private fun LinearLayout.textSettings() {
         heading(Resources.string.editors_format_text)
         row {
             val fontButton = button("") { chooseFont() }.apply {
@@ -107,7 +181,7 @@ internal class FormatPanel(
         addView(highlights)
         textOnly += highlights
 
-        if (!withParagraphs) return@apply
+        if (!withParagraphs) return
         val paragraphs = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         addView(paragraphs)
         textOnly += paragraphs
@@ -239,6 +313,30 @@ internal class FormatPanel(
         addView(HorizontalScrollView(context).apply { addView(row) })
     }
 
+    // A row of color swatches for colors from elsewhere ("" is none); returns what marks the current one
+    private fun LinearLayout.colorsOf(colors: List<String>, onColor: (String?) -> Unit): (String?) -> Unit {
+        val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+        val swatches = colors.map { color ->
+            View(context).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+                contentDescription = Accessibility.colorName(context, color)
+                background = android.graphics.drawable.InsetDrawable(swatchDrawable(color, false), dp(6))
+            }.also { row.addView(it) }
+        }
+        fun mark(current: String?) = swatches.forEachIndexed { i, swatch ->
+            swatch.isSelected = current != null && current.equals(colors[i], ignoreCase = true)
+            swatch.background = android.graphics.drawable.InsetDrawable(swatchDrawable(colors[i], swatch.isSelected), dp(6))
+        }
+        swatches.forEachIndexed { i, swatch ->
+            swatch.setOnClickListener {
+                mark(colors[i])
+                onColor(colors[i].ifEmpty { null })
+            }
+        }
+        addView(HorizontalScrollView(context).apply { addView(row) })
+        return ::mark
+    }
+
     private fun swatchDrawable(color: String, selected: Boolean) = GradientDrawable().apply {
         shape = GradientDrawable.OVAL
         if (color.isEmpty()) {
@@ -259,5 +357,7 @@ internal class FormatPanel(
         val HIGHLIGHTS = listOf("", "FFFF00", "00FF00", "00FFFF", "FF00FF", "0000FF", "FF0000", "C0C0C0")
         val LINE_SPACINGS = listOf(1.0, 1.15, 1.5, 2.0)
         val SPACE_AFTER_POINTS = listOf(0, 6, 12)
+        // "" is none
+        val SHAPE_COLORS = listOf("", "FFFFFF", "000000", "808080", "C00000", "FF0000", "FFC000", "FFFF00", "00B050", "0070C0", "002060", "7030A0")
     }
 }

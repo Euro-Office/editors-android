@@ -91,6 +91,7 @@ val copyEngineAssets by tasks.registering(Copy::class) {
             "cell/sdk-all.js",
             "common/Native/*.js",
             "common/SmartArts/**",
+            "common/Charts/ChartStyles.js",
             "common/libfont/engine/fonts_native.js",
             // sdkjs' PDF editor reads PDFs through core's reader with it (pdf.js)
             "pdf/src/engine/drawingfile_native.js",

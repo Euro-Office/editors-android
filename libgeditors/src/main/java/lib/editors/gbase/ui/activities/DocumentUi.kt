@@ -7,7 +7,6 @@ import android.view.Menu
 import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.NumberPicker
 import android.widget.PopupMenu
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -38,7 +37,9 @@ internal class DocumentUi(
     private val scope: CoroutineScope,
     private val documentView: DocumentView,
     private val document: () -> EditorDocument?,
-    private val edit: (EditorDocument.() -> EditorState) -> Unit
+    private val edit: (EditorDocument.() -> EditorState) -> Unit,
+    /** Pictures of the table styles; the one picked goes to the table at the cursor. */
+    private val chooseTableStyle: () -> Unit = {}
 ) {
 
     private val density = context.resources.displayMetrics.density
@@ -107,7 +108,6 @@ internal class DocumentUi(
             parent.findItem(id).isChecked = checked
             actions[id++] = action
         }
-        item(menu.menu, Resources.string.editors_doc_table) { askTableSize() }
         menu.menu.addSubMenu(Resources.string.editors_doc_break).let { sub ->
             item(sub, Resources.string.editors_doc_break_page) { edit { insertBreak("page") } }
             item(sub, Resources.string.editors_doc_break_line) { edit { insertBreak("line") } }
@@ -161,7 +161,12 @@ internal class DocumentUi(
         )
         PopupMenu(context, anchor).apply {
             actions.forEachIndexed { index, (label, _) -> menu.add(Menu.NONE, index, index, label) }
+            menu.add(Menu.NONE, actions.size, actions.size, Resources.string.editors_table_style)
             setOnMenuItemClickListener { item ->
+                if (item.itemId == actions.size) {
+                    chooseTableStyle()
+                    return@setOnMenuItemClickListener true
+                }
                 val action = actions[item.itemId].second
                 edit { tableAction(action) }
                 true
@@ -177,28 +182,6 @@ internal class DocumentUi(
 
     // ---------------------------------------------------------------------------------
     // Dialogs
-
-    private fun askTableSize() {
-        fun picker(value: Int) = NumberPicker(context).apply {
-            minValue = 1
-            maxValue = 20
-            this.value = value
-        }
-        val cols = picker(3)
-        val rows = picker(3)
-        val content = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            addView(labeled(Resources.string.editors_doc_columns, cols))
-            addView(labeled(Resources.string.editors_doc_rows, rows))
-        }
-        AlertDialog.Builder(context)
-            .setTitle(Resources.string.editors_doc_table)
-            .setView(content)
-            .setPositiveButton(android.R.string.ok) { _, _ -> edit { insertTable(cols.value, rows.value) } }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
-    }
 
     private fun showPageSetup() = read({ pageSetup() }) { setup ->
         val content = LinearLayout(context).apply {
@@ -329,14 +312,6 @@ internal class DocumentUi(
             isSelected = selected
             setOnClickListener { onClick() }
         })
-    }
-
-    private fun labeled(label: Int, view: View) = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER_HORIZONTAL
-        setPaddingRelative(dp(16), dp(8), dp(16), 0)
-        addView(TextView(context).apply { setText(label) })
-        addView(view)
     }
 
     // A titled row of choices; returns the chosen index (-1 if none) when called

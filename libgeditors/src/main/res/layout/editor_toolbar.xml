@@ -55,9 +55,6 @@
         <ImageButton android:id="@+id/toolTable" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_doc_table_menu" android:src="@drawable/ic_editor_table"
             android:visibility="gone" />
-        <ImageButton android:id="@+id/toolAddSlide" style="@style/EditorToolButton"
-            android:contentDescription="@string/editors_add_slide" android:src="@drawable/ic_editor_slide_add"
-            android:visibility="gone" />
         <ImageButton android:id="@+id/toolDeleteSlide" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_delete_slide" android:src="@drawable/ic_editor_slide_delete"
             android:visibility="gone" />

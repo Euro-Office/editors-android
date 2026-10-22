@@ -7,12 +7,9 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TableLayout
 import android.widget.TableRow
@@ -96,40 +93,6 @@ internal class ChartUi(
     }
 
     /** Legend, value labels and gridlines; the title is set in [showTitles]. */
-    fun showElements(chart: ChartState) {
-        val content = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(24), dp(8), dp(24), 0)
-        }
-        val labels = CheckBox(context).apply { setText(Resources.string.editors_chart_labels); isChecked = chart.labels }
-        val gridlines = CheckBox(context).apply { setText(Resources.string.editors_chart_gridlines); isChecked = chart.gridlines }
-        content.addView(labels)
-        content.addView(gridlines)
-        content.addView(TextView(context).apply {
-            setText(Resources.string.editors_chart_legend)
-            setPaddingRelative(0, dp(12), 0, dp(4))
-        })
-        val legend = RadioGroup(context).apply { orientation = RadioGroup.HORIZONTAL }
-        LEGENDS.forEach { (label, value) ->
-            legend.addView(RadioButton(context).apply {
-                id = View.generateViewId()
-                setText(label)
-                isChecked = value == chart.legend
-                tag = value
-            })
-        }
-        content.addView(HorizontalScrollView(context).apply { addView(legend) })
-        AlertDialog.Builder(context)
-            .setTitle(Resources.string.editors_chart_elements)
-            .setView(ScrollView(context).apply { addView(content) })
-            .setPositiveButton(android.R.string.ok) { _, _ ->
-                val position = legend.findViewById<RadioButton>(legend.checkedRadioButtonId)?.tag as? Int ?: chart.legend
-                edit { setChartElements(chart.title, position, labels.isChecked, gridlines.isChecked) }
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
-    }
-
     // ---------------------------------------------------------------------------------
     // Spreadsheets: the cells the chart shows
 
@@ -289,15 +252,4 @@ internal class ChartUi(
         if (value == Math.floor(value) && kotlin.math.abs(value) < 1e15) value.toLong().toString() else value.toString()
 
     private fun dp(value: Int) = (value * density).toInt()
-
-    private companion object {
-        // Asc.c_oAscChartLegendShowSettings
-        val LEGENDS = listOf(
-            Resources.string.editors_chart_legend_none to 0,
-            Resources.string.editors_chart_legend_bottom to 4,
-            Resources.string.editors_chart_legend_right to 3,
-            Resources.string.editors_chart_legend_top to 2,
-            Resources.string.editors_chart_legend_left to 1
-        )
-    }
 }

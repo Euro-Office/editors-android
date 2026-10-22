@@ -43,6 +43,7 @@ internal class ShapePanel(
     private val document: () -> EditorDocument?,
     private val edit: (EditorDocument.() -> EditorState) -> Unit,
     private val chartUi: ChartUi,
+    private val chartSettings: ChartSettingsPanel,
     private val panels: PanelHost
 ) {
 
@@ -70,14 +71,31 @@ internal class ShapePanel(
                 dismiss()
                 chartUi.chooseType(Resources.string.editors_chart_type, chart.type) { edit { setChartType(it) } }
             }
+            if (chart.styles > 0) {
+                action(context.getString(Resources.string.editors_chart_style), chart.style?.toString()) {
+                    dismiss()
+                    chartSettings.chooseStyle(chart)
+                }
+            }
             action(context.getString(Resources.string.editors_chart_titles), chart.titleText.ifEmpty { null }) {
                 dismiss()
                 chartUi.showTitles(chart)
             }
-            action(context.getString(Resources.string.editors_chart_elements)) {
-                dismiss()
-                chartUi.showElements(chart)
+            if (chart.layout != null) {
+                action(context.getString(Resources.string.editors_chart_layout)) {
+                    dismiss()
+                    chartSettings.showLayout(chart)
+                }
             }
+            // The vertical axis first
+            listOf(true, false).sortedBy { chartSettings.axisName(chart, it) != Resources.string.editors_chart_axis_vertical_settings }
+                .filter { if (it) chart.valueAxis != null else chart.categoryAxis != null }
+                .forEach { value ->
+                    action(context.getString(chartSettings.axisName(chart, value))) {
+                        dismiss()
+                        chartSettings.showAxis(chart, value)
+                    }
+                }
             action(context.getString(Resources.string.editors_chart_data), chart.range.removePrefix("=").ifEmpty { null }) {
                 dismiss()
                 if (chart.dataInCells) chartUi.editRange(chart) else chartUi.editData()

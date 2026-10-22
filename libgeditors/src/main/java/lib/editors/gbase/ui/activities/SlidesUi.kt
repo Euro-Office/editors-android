@@ -32,8 +32,8 @@ import lib.editors.resources.R as Resources
 
 /**
  * Presentations: a strip of slide thumbnails above the toolbar, or beside the slides on large
- * screens ([vertical]); a tap shows the slide, a long press its menu: duplicate, move, hide,
- * layout, transition, notes, delete. And the slideshow.
+ * screens ([vertical]), with a button for a new slide at its end; a tap shows the slide, a long
+ * press its menu: duplicate, move, hide, layout, transition, notes, delete. And the slideshow.
  */
 internal class SlidesUi(
     private val context: Context,
@@ -43,11 +43,19 @@ internal class SlidesUi(
     /** The slide at the given size in pixels. */
     private val render: suspend (page: Int, width: Int, height: Int) -> Bitmap?,
     private val slideAspect: () -> Float,
-    /** Whether slides can be changed (the menu); viewing shows only the slides. */
-    var editable: Boolean,
+    /** Whether slides can be changed (the menu, new slides); viewing shows only the slides. */
+    editable: Boolean,
     /** Thumbnails below each other (beside the slides) instead of next to each other. */
-    private val vertical: Boolean = false
+    private val vertical: Boolean = false,
+    /** Pictures of the layouts to choose from. */
+    private val previews: PreviewPicker? = null
 ) {
+
+    var editable: Boolean = editable
+        set(value) {
+            field = value
+            addButton.visibility = if (value) View.VISIBLE else View.GONE
+        }
 
     private val density = context.resources.displayMetrics.density
     private val thumbnailWidth = dp(if (vertical) 144 else 96)
@@ -58,6 +66,19 @@ internal class SlidesUi(
         setPaddingRelative(dp(4), dp(4), dp(4), dp(4))
     }
 
+    // A new slide after the current one, of the layout chosen
+    private val addButton = ImageView(context).apply {
+        setImageResource(Resources.drawable.ic_editor_slide_add)
+        imageTintList = android.content.res.ColorStateList.valueOf(context.getColor(Resources.color.editors_icon))
+        scaleType = ImageView.ScaleType.CENTER
+        setBackgroundResource(lib.editors.gbase.R.drawable.editor_tool_background)
+        contentDescription = context.getString(Resources.string.editors_slides_new)
+        androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
+        layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply { setMargins(dp(4), dp(4), dp(8), dp(4)) }
+        visibility = if (editable) View.VISIBLE else View.GONE
+        setOnClickListener { chooseLayout(forNewSlide = true) }
+    }
+
     /** The strip; above the toolbar, or beside the slides when [vertical]. */
     val strip: ViewGroup = (if (vertical) ScrollView(context) else HorizontalScrollView(context)).apply {
         val background = android.util.TypedValue()
@@ -66,7 +87,12 @@ internal class SlidesUi(
         elevation = 2 * density
         isHorizontalScrollBarEnabled = false
         isVerticalScrollBarEnabled = false
-        addView(thumbnails)
+        addView(LinearLayout(context).apply {
+            orientation = if (vertical) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            addView(thumbnails)
+            addView(addButton)
+        })
         Accessibility.pane(this, context.getString(Resources.string.editors_slides))
     }
 
@@ -166,7 +192,15 @@ internal class SlidesUi(
         }.show()
     }
 
-    private fun chooseLayout(forNewSlide: Boolean) {
+    fun chooseLayout(forNewSlide: Boolean) {
+        val title = context.getString(if (forNewSlide) Resources.string.editors_slides_new else Resources.string.editors_slides_layout)
+        if (previews != null) {
+            previews.show(title, "layouts", columnWidthDp = 136, withNames = true) { layout ->
+                val index = layout.id.toIntOrNull() ?: return@show
+                edit { if (forNewSlide) addSlide(index) else setLayout(index) }
+            }
+            return
+        }
         val document = document() ?: return
         scope.launch {
             val layouts = withContext(EditorEngine.dispatcher) { runCatching { document.layouts() }.getOrNull() } ?: return@launch

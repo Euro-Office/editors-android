@@ -179,8 +179,38 @@ data class SlideLayout(val index: Int, val name: String)
 data class ChartState(
     val type: Int, val title: Boolean, val legend: Int, val labels: Boolean, val gridlines: Boolean, val dataInCells: Boolean,
     val titleText: String = "", val axes: Boolean = false, val horizontalTitle: String = "", val verticalTitle: String = "",
-    val range: String = ""
+    val range: String = "",
+    /** Its style, 1 to [styles] (the type's count), null if none of them. */
+    val style: Int? = null, val styles: Int = 0,
+    val layout: ChartLayout? = null,
+    /** The value and the category axis; null without (pies). */
+    val valueAxis: ChartAxis? = null, val categoryAxis: ChartAxis? = null
 )
+
+/**
+ * A chart's layout, with sdkjs' values: [title] Asc.c_oAscChartTitleShowSettings, [legend]
+ * c_oAscChartLegendShowSettings, [horizontalTitle] c_oAscChartHorAxisLabelShowSettings,
+ * [verticalTitle] c_oAscChartVertAxisLabelShowSettings, gridlines c_oAscGridLinesSettings,
+ * [dataLabels] c_oAscChartDataLabelsPos; null without the axis.
+ */
+data class ChartLayout(
+    val title: Int, val legend: Int, val horizontalTitle: Int?, val verticalTitle: Int?,
+    val horizontalGridlines: Int?, val verticalGridlines: Int?, val dataLabels: Int
+)
+
+/**
+ * A chart axis, with sdkjs' values: [min] and [max] null for automatic, [units]
+ * Asc.c_oAscValAxUnits, [crosses] c_oAscCrossesRule (at [crossesValue]), ticks c_oAscTickMark,
+ * [labels] c_oAscTickLabelsPos. Value axes have [min], [max] and [units], category axes
+ * [position] (c_oAscLabelsPosition).
+ */
+data class ChartAxis(
+    val min: Double?, val max: Double?, val units: Int?, val crosses: Int, val crossesValue: Double?,
+    val majorTicks: Int, val minorTicks: Int, val labels: Int, val reverse: Boolean, val position: Int?
+)
+
+/** A picture of a choice ([EditorDocument.previews]): [id] applies it; its size in mm. */
+data class Preview(val id: String, val name: String, val widthMm: Double, val heightMm: Double)
 
 /** The fill and outline of a selected drawing as "RRGGBB": "" for none, null for other fills (pictures, gradients). */
 data class DrawingColors(val fill: String?, val outline: String?)
@@ -398,11 +428,29 @@ class EditorState(
                         it.optInt("type"), it.optBoolean("title"), it.optInt("legend"), it.optBoolean("labels"),
                         it.optBoolean("gridlines"), it.optBoolean("dataInCells"),
                         it.optString("titleText"), it.optBoolean("axes"), it.optString("horizontalTitle"),
-                        it.optString("verticalTitle"), it.optString("range")
+                        it.optString("verticalTitle"), it.optString("range"),
+                        it.optIntOrNull("style"), it.optInt("styles"),
+                        it.optJSONObject("layout")?.let { l ->
+                            ChartLayout(
+                                l.optInt("title"), l.optInt("legend"), l.optIntOrNull("horizontalTitle"), l.optIntOrNull("verticalTitle"),
+                                l.optIntOrNull("horizontalGridlines"), l.optIntOrNull("verticalGridlines"), l.optInt("dataLabels")
+                            )
+                        },
+                        it.optJSONObject("valueAxis")?.let(::parseAxis), it.optJSONObject("categoryAxis")?.let(::parseAxis)
                     )
                 }
             )
         }
+
+        private fun JSONObject.optIntOrNull(name: String): Int? = if (isNull(name)) null else optInt(name)
+
+        private fun JSONObject.optDoubleOrNull(name: String): Double? = if (isNull(name)) null else optDouble(name)
+
+        private fun parseAxis(json: JSONObject) = ChartAxis(
+            json.optDoubleOrNull("min"), json.optDoubleOrNull("max"), json.optIntOrNull("units"), json.optInt("crosses"),
+            json.optDoubleOrNull("crossesValue"), json.optInt("majorTicks"), json.optInt("minorTicks"), json.optInt("labels"),
+            json.optBoolean("reverse"), json.optIntOrNull("position")
+        )
 
         internal fun parseCoEditing(json: JSONObject): CoEditingState {
             val participants = json.optJSONArray("participants") ?: org.json.JSONArray()

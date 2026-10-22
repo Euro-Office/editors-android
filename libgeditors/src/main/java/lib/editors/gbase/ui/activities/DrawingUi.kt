@@ -7,11 +7,15 @@ import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
+import android.view.Gravity
 import android.view.View
+import android.widget.LinearLayout
 import android.widget.PopupMenu
+import android.widget.TextView
 import lib.editors.base.engine.ChartState
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
+import lib.editors.gbase.R
 import lib.editors.resources.R as Resources
 import java.io.File
 import java.util.UUID
@@ -29,6 +33,7 @@ internal class DrawingUi(
     private val chartUi: ChartUi,
     private val shapePanel: ShapePanel,
     private val picker: IconPicker,
+    private val tablePicker: PreviewPicker? = null,
     private val insertTextBox: (() -> Unit)? = null
 ) {
 
@@ -43,10 +48,12 @@ internal class DrawingUi(
             menu.add(0, 3, 3, Resources.string.editors_chart_insert).setIcon(Resources.drawable.ic_editor_chart)
             menu.add(0, 4, 4, Resources.string.editors_smartart_insert).setIcon(Resources.drawable.ic_editor_smartart)
             if (insertTextBox != null) menu.add(0, 5, 2, Resources.string.editors_text_box).setIcon(Resources.drawable.ic_editor_text_box)
+            if (tablePicker != null) menu.add(0, 6, 3, Resources.string.editors_table_insert).setIcon(Resources.drawable.ic_editor_table)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setForceShowIcon(true)
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {
                     5 -> insertTextBox?.invoke()
+                    6 -> chooseTable()
                     0 -> pickPicture()
                     1 -> takePhoto()
                     2 -> chooseShape()
@@ -60,11 +67,60 @@ internal class DrawingUi(
 
     fun showShapePanel() = shapePanel.show(chart)
 
+    // The table's size above pictures of the styles; a style inserts it
+    private fun chooseTable() {
+        val picker = tablePicker ?: return
+        var cols = 3
+        var rows = 3
+        val density = context.resources.displayMetrics.density
+        fun dp(value: Int) = (value * density).toInt()
+        val header = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPaddingRelative(dp(8), 0, dp(8), dp(8))
+            fun stepper(label: Int, get: () -> Int, set: (Int) -> Unit) {
+                addView(TextView(context).apply {
+                    setText(label)
+                    setPaddingRelative(0, 0, dp(4), 0)
+                })
+                val value = TextView(context).apply {
+                    text = get().toString()
+                    gravity = Gravity.CENTER
+                    minWidth = dp(32)
+                }
+                fun button(text: String, step: Int, description: String) = TextView(context).apply {
+                    this.text = text
+                    textSize = 18f
+                    gravity = Gravity.CENTER
+                    minWidth = dp(44)
+                    minHeight = dp(44)
+                    contentDescription = description
+                    setBackgroundResource(R.drawable.editor_tool_background)
+                    setOnClickListener {
+                        set((get() + step).coerceIn(1, MAX_TABLE_SIZE))
+                        value.text = get().toString()
+                    }
+                }
+                val name = context.getString(label)
+                addView(button("−", -1, "$name −"))
+                addView(value)
+                addView(button("+", 1, "$name +"))
+                addView(View(context), LinearLayout.LayoutParams(dp(16), 1))
+            }
+            stepper(Resources.string.editors_doc_columns, { cols }, { cols = it })
+            stepper(Resources.string.editors_doc_rows, { rows }, { rows = it })
+        }
+        picker.show(context.getString(Resources.string.editors_table_insert), "tableStyles", header = header) { style ->
+            edit { insertTable(cols, rows, style.id) }
+        }
+    }
+
     private fun chooseShape() =
         picker.show(Resources.string.editors_insert_shape, InsertCatalog.SHAPES) { preset -> edit { insertShape(preset) } }
 
     companion object {
         private const val MAX_PICTURE_SIZE = 2048
+        private const val MAX_TABLE_SIZE = 20
 
         /**
          * Copies a picture into [directory] (the document's images), at most 2048 pixels on its

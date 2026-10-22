@@ -306,7 +306,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     render = { page, width, height -> renderTile(page, width, height, 0, 0, width, height) },
                     slideAspect = { firstSlide?.let { (it.widthMm / it.heightMm).toFloat() } ?: (16f / 9f) },
                     editable = false,
-                    vertical = sideStrips
+                    vertical = sideStrips,
+                    previews = previewPicker
                 )
                 addStrip(ui.strip)
                 slidesUi = ui
@@ -448,7 +449,14 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         if (isSpreadsheet) spreadsheetUi?.enableEditing() else documentView.readOnly = false
         slidesUi?.editable = true
         if (editorsType == EditorsType.DOCS && !fillsForms()) {
-            val ui = DocumentUi(this, lifecycleScope, documentView, { document }) { command -> edit(command = command) }
+            val ui = DocumentUi(
+                this, lifecycleScope, documentView, { document }, { command -> edit(command = command) },
+                chooseTableStyle = {
+                    previewPicker.show(getString(Resources.string.editors_table_style), "tableStyles", keepOpen = true) { style ->
+                        edit { setTableStyle(style.id) }
+                    }
+                }
+            )
             val root = findViewById<ViewGroup>(R.id.editorRoot)
             root.addView(ui.bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
             documentUi = ui
@@ -866,7 +874,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolShape).isVisible = isEditable() && !isPdfEditor && !fillsForms() && state.drawings.any { !it.tracking }
         // A link or an entry of the contents was followed
         state.navigate?.let { documentView.goToPage(it.page, it.yMm.toFloat()) }
-        formatPanel.update(state.format, drawingSelected)
+        formatPanel.update(state.format, drawingSelected, state.cursor != null || state.selection.isNotEmpty())
         state.sheet?.let { cellFormatPanel.update(it.cellFormat, drawingSelected) }
         searchBar?.update(state.search)
         slidesUi?.update(state)
@@ -901,7 +909,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             },
             withParagraphs = editorsType != EditorsType.CELLS,
             withStyles = editorsType == EditorsType.DOCS,
-            panels = panels
+            panels = panels,
+            loadShapeColors = { onLoaded -> read({ drawingColors() }, onLoaded) },
+            slide = if (editorsType != EditorsType.PRESENTATION) null else FormatPanel.SlideSettings(
+                loadBackground = { onLoaded -> read({ slideBackground() }, onLoaded) },
+                chooseLayout = { slidesUi?.chooseLayout(forNewSlide = false) }
+            )
         )
     }
 
@@ -914,6 +927,16 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private val chartUi by lazy {
         ChartUi(this, lifecycleScope, { document }, iconPicker, showBar = ::showChartBar) { command -> edit(command = command) }
+    }
+
+    private val previewPicker by lazy { PreviewPicker(this, lifecycleScope, { document }, panels) }
+
+    // Reads from the document on the engine's thread, then hands the result (null if it failed) on
+    private fun <T> read(query: EditorDocument.() -> T?, onResult: (T?) -> Unit) {
+        val document = document ?: return
+        lifecycleScope.launch {
+            onResult(withContext(EditorEngine.dispatcher) { runCatching { document.query() }.getOrNull() })
+        }
     }
 
     // A bar of the charts' (choosing a chart's cells) under the top bar
@@ -931,8 +954,13 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             this, { command -> edit(command = command) },
             { pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, ::takePhoto,
             chartUi,
-            ShapePanel(this, lifecycleScope, { document }, { command -> edit(command = command) }, chartUi, panels),
+            ShapePanel(
+                this, lifecycleScope, { document }, { command -> edit(command = command) }, chartUi,
+                ChartSettingsPanel(this, { command -> edit(command = command) }, panels, previewPicker), panels
+            ),
             iconPicker,
+            // Tables with a style: documents and presentations (spreadsheets' tables are cells)
+            tablePicker = previewPicker.takeUnless { isSpreadsheet },
             // Text boxes take the typing at once; spreadsheets have none (text goes into cells)
             insertTextBox = if (isSpreadsheet) null else {
                 {
@@ -1037,9 +1065,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         bind(R.id.toolUndo) { undo() }
         bind(R.id.toolRedo) { redo() }
         if (editorsType == EditorsType.PRESENTATION) {
-            findViewById<View>(R.id.toolAddSlide).isVisible = true
+            // New slides: the button at the end of the slides
             findViewById<View>(R.id.toolDeleteSlide).isVisible = true
-            bind(R.id.toolAddSlide) { addSlide() }
             bind(R.id.toolDeleteSlide) { deleteSlide() }
         }
         findViewById<View>(R.id.toolInsert).setOnClickListener { drawingUi.showInsertMenu(it) }
