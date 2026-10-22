@@ -139,6 +139,9 @@ class DocumentView @JvmOverloads constructor(
     /** More actions in the menu of selected pictures and shapes, such as formatting them. */
     var drawingActions: List<Pair<String, () -> Unit>> = emptyList()
 
+    /** More actions in the menu while the cursor is in a table, such as adding a row. */
+    var tableActions: List<Pair<String, () -> Unit>> = emptyList()
+
     /**
      * Actions for the misspelled word at the cursor (suggestions, ignore, ...), first in the menu.
      * Set before [setEditorState]: a tap on such a word opens the menu.
@@ -919,6 +922,7 @@ class DocumentView @JvmOverloads constructor(
             selectionActions.forEachIndexed { index, (label, _) -> menu.add(Menu.NONE, MENU_EXTRA + index, first + 5 + index, label) }
             // Formatting first: what one selects a picture for
             drawingActions.forEachIndexed { index, (label, _) -> menu.add(Menu.NONE, MENU_DRAWING + index, index, label) }
+            tableActions.forEachIndexed { index, (label, _) -> menu.add(Menu.NONE, MENU_TABLE + index, first + 10 + index, label) }
             return true
         }
 
@@ -939,6 +943,8 @@ class DocumentView @JvmOverloads constructor(
             menu.findItem(MENU_DELETE).isVisible = hasDrawings && !readOnly
             for (index in selectionActions.indices) menu.findItem(MENU_EXTRA + index)?.isVisible = hasSelection && !hasDrawings
             for (index in drawingActions.indices) menu.findItem(MENU_DRAWING + index)?.isVisible = hasDrawings && !readOnly
+            val inTable = editorState?.structure?.inTable == true
+            for (index in tableActions.indices) menu.findItem(MENU_TABLE + index)?.isVisible = inTable && !hasDrawings && !readOnly
             return true
         }
 
@@ -955,6 +961,7 @@ class DocumentView @JvmOverloads constructor(
                 MENU_DELETE -> listener.onKey(KEY_DELETE, false, false)
                 in MENU_EXTRA until MENU_EXTRA + selectionActions.size -> selectionActions[item.itemId - MENU_EXTRA].second()
                 in MENU_DRAWING until MENU_DRAWING + drawingActions.size -> drawingActions[item.itemId - MENU_DRAWING].second()
+                in MENU_TABLE until MENU_TABLE + tableActions.size -> tableActions[item.itemId - MENU_TABLE].second()
                 in MENU_SPELLING until MENU_SPELLING + spellingActions.size -> spellingActions[item.itemId - MENU_SPELLING].second()
                 else -> return false
             }
@@ -1463,6 +1470,8 @@ class DocumentView @JvmOverloads constructor(
         const val MENU_SPELLING = 200
         // The first of drawingActions
         const val MENU_DRAWING = 300
+        // The first of tableActions
+        const val MENU_TABLE = 400
         const val MAX_SPELLING_ACTIONS = 8
         val CLIPBOARD_KEYS = setOf(KeyEvent.KEYCODE_X, KeyEvent.KEYCODE_C, KeyEvent.KEYCODE_V, KeyEvent.KEYCODE_A)
 

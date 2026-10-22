@@ -8,9 +8,11 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.widget.TooltipCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import lib.editors.base.engine.DrawingColors
@@ -24,7 +26,7 @@ import lib.editors.resources.R as Resources
  * The formatting panel: font, size, styles, colors and paragraph settings of the text at the
  * cursor or the selection, in a panel (see [PanelHost]); the fill and outline of selected
  * pictures and shapes; in presentations without a selected one, the slide's background and
- * layout. It shows the current formatting (see [update]) and sends changes through [edit].
+ * layout; with the cursor in a table, the table's rows, columns, cells and style. It shows the current formatting (see [update]) and sends changes through [edit].
  */
 internal class FormatPanel(
     private val context: Context,
@@ -38,7 +40,9 @@ internal class FormatPanel(
     /** The fill and outline of the selected drawing (on its thread). */
     private val loadShapeColors: (onLoaded: (DrawingColors?) -> Unit) -> Unit,
     /** Presentations: the slide's settings. */
-    private val slide: SlideSettings? = null
+    private val slide: SlideSettings? = null,
+    /** Documents and presentations: the table's style (pictures of the styles); null without tables. */
+    private val chooseTableStyle: (() -> Unit)? = null
 ) {
 
     /** The current slide's background color (null: another kind), its layout and the design. */
@@ -66,6 +70,8 @@ internal class FormatPanel(
     private val textSections = mutableListOf<View>()
     private var shapeSection: View? = null
     private var slideSection: View? = null
+    private var tableSection: View? = null
+    private var inTable = false
     private var markFill: (String?) -> Unit = {}
     private var markOutline: (String?) -> Unit = {}
 
@@ -79,20 +85,23 @@ internal class FormatPanel(
         textSections.clear()
         val content = content()
         dialog = panels.show(context.getString(Resources.string.editors_format), content) { dialog = null }
-        update(format, drawingSelected, hasText)
+        update(format, drawingSelected, hasText, inTable)
         loadColors()
     }
 
     /**
      * The formatting after a command, [drawing] if a drawing is selected, [text] if there is
-     * text at the cursor or selected; updates the panel if it is open.
+     * text at the cursor or selected, [table] if the cursor is in a table; updates the panel if
+     * it is open.
      */
-    fun update(newFormat: TextFormat, drawing: Boolean = false, text: Boolean = true) {
+    fun update(newFormat: TextFormat, drawing: Boolean = false, text: Boolean = true, table: Boolean = false) {
         val drawingChanged = drawing != drawingSelected
         format = newFormat
         drawingSelected = drawing
         hasText = text
+        inTable = table
         if (dialog != null) {
+            tableSection?.isVisible = table
             updaters.forEach { it(newFormat) }
             textOnly.forEach { it.isVisible = !drawing }
             textSections.forEach { it.isVisible = drawing || text }
@@ -147,10 +156,43 @@ internal class FormatPanel(
             }.also { addView(it) }
         }
 
+        // The table at the cursor: what one opens the panel for there, so first
+        if (chooseTableStyle != null) tableSection = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            tableSettings(chooseTableStyle)
+        }.also { addView(it) }
+
         val text = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         addView(text)
         textSections += text
         text.textSettings()
+    }
+
+    private fun LinearLayout.tableSettings(chooseStyle: () -> Unit) {
+        heading(Resources.string.editors_doc_table_menu)
+        fun action(name: String) = edit { tableAction(name) }
+        addView(HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                iconButton(Resources.drawable.ic_editor_table_row_above, Resources.string.editors_doc_row_above) { action("rowAbove") }
+                iconButton(Resources.drawable.ic_editor_table_row_below, Resources.string.editors_doc_row_below) { action("rowBelow") }
+                iconButton(Resources.drawable.ic_editor_table_column_left, Resources.string.editors_doc_column_left) { action("columnLeft") }
+                iconButton(Resources.drawable.ic_editor_table_column_right, Resources.string.editors_doc_column_right) { action("columnRight") }
+                iconButton(Resources.drawable.ic_editor_table_delete_row, Resources.string.editors_doc_delete_row) { action("deleteRow") }
+                iconButton(Resources.drawable.ic_editor_table_delete_column, Resources.string.editors_doc_delete_column) { action("deleteColumn") }
+            })
+        })
+        addView(HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                button(context.getString(Resources.string.editors_table_style)) { chooseStyle() }
+                button(context.getString(Resources.string.editors_doc_merge_cells)) { action("merge") }
+                button(context.getString(Resources.string.editors_doc_split_cell)) { action("split") }
+                button(context.getString(Resources.string.editors_doc_delete_table)) { action("deleteTable") }
+            })
+        })
     }
 
     private fun LinearLayout.textSettings() {
@@ -289,6 +331,18 @@ internal class FormatPanel(
         setBackgroundResource(R.drawable.editor_tool_background)
         setOnClickListener { onClick() }
     }.also { addView(it) }
+
+    // A button with a picture; its name is said and shown on a long press
+    private fun LinearLayout.iconButton(icon: Int, name: Int, onClick: () -> Unit) {
+        addView(ImageView(context).apply {
+            setImageResource(icon)
+            contentDescription = context.getString(name)
+            TooltipCompat.setTooltipText(this, contentDescription)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setBackgroundResource(R.drawable.editor_tool_background)
+            setOnClickListener { onClick() }
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
+    }
 
     private fun LinearLayout.toggle(text: Int, isOn: (TextFormat) -> Boolean, onClick: () -> Unit): TextView =
         toggle(context.getString(text), isOn, onClick)

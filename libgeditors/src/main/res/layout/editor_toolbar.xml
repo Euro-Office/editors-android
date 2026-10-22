@@ -37,9 +37,6 @@
         <ImageButton android:id="@+id/toolFormat" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_format" android:src="@drawable/ic_editor_format"
             android:visibility="gone" />
-        <ImageButton android:id="@+id/toolTable" style="@style/EditorToolButton"
-            android:contentDescription="@string/editors_doc_table_menu" android:src="@drawable/ic_editor_table"
-            android:visibility="gone" />
         <ImageButton android:id="@+id/toolBold" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_bold" android:src="@drawable/ic_editor_bold" />
         <ImageButton android:id="@+id/toolItalic" style="@style/EditorToolButton"

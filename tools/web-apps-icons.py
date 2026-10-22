@@ -63,7 +63,6 @@ MENU_ICONS = {
     "table_column_right": "common/mobile/resources/icons/common/icon-table-add-column-right.svg",
     "table_delete_row": "common/mobile/resources/icons/common/icon-table-remove-row.svg",
     "table_delete_column": "common/mobile/resources/icons/common/icon-table-remove-column.svg",
-    "table_style": "spreadsheeteditor/mobile/resources/icons/common/icon-table-settings.svg",
 }
 
 # Shapes drawn point by point, which one tap can't insert

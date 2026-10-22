@@ -457,12 +457,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         slidesUi?.editable = true
         if (editorsType == EditorsType.DOCS && !fillsForms()) {
             val ui = DocumentUi(
-                this, lifecycleScope, documentView, { document }, { command -> edit(command = command) },
-                chooseTableStyle = {
-                    previewPicker.show(getString(Resources.string.editors_table_style), "tableStyles", keepOpen = true) { style ->
-                        edit { setTableStyle(style.id) }
-                    }
-                }
+                this, lifecycleScope, documentView, { document }, { command -> edit(command = command) }
             )
             val root = findViewById<ViewGroup>(R.id.editorRoot)
             root.addView(ui.bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
@@ -876,20 +871,19 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         listOf(R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight).forEach { findViewById<View>(it).isEnabled = !drawingSelected }
         findViewById<View>(R.id.toolUndo).isEnabled = toolbar.canUndo
         findViewById<View>(R.id.toolRedo).isEnabled = toolbar.canRedo
-        formatsDrawings = isEditable() && !isPdfEditor && !fillsForms() && drawingSelected
+        // In a table (also one on a slide, which is a drawing): the table's and its text's settings
+        val inTable = state.structure?.inTable == true
+        formatsDrawings = isEditable() && !isPdfEditor && !fillsForms() && drawingSelected && !inTable
         // A link or an entry of the contents was followed
         state.navigate?.let { documentView.goToPage(it.page, it.yMm.toFloat()) }
-        formatPanel.update(state.format, drawingSelected, state.cursor != null || state.selection.isNotEmpty())
+        formatPanel.update(state.format, drawingSelected && !inTable, state.cursor != null || state.selection.isNotEmpty(), inTable)
         state.sheet?.let { cellFormatPanel.update(it.cellFormat, drawingSelected) }
         searchBar?.update(state.search)
         slidesUi?.update(state)
         drawingUi.chart = state.chart
         commentsUi?.onState()
         formsUi?.update(state)
-        documentUi?.let { ui ->
-            ui.update(state)
-            findViewById<View>(R.id.toolTable).isVisible = ui.isInTable
-        }
+        documentUi?.update(state)
         val link = state.link?.takeIf { state.selection.isEmpty() }
         showLink(link?.let { it.url.ifEmpty { it.anchor } }, link?.let { { edit { followLink() } } })
         state.openUrl?.let { openUrl(it) }
@@ -920,7 +914,14 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 loadBackground = { onLoaded -> read({ slideBackground() }, onLoaded) },
                 chooseLayout = { slidesUi?.chooseLayout(forNewSlide = false) },
                 chooseDesign = ::chooseDesign
-            )
+            ),
+            chooseTableStyle = if (isSpreadsheet) null else {
+                {
+                    previewPicker.show(getString(Resources.string.editors_table_style), "tableStyles", keepOpen = true) { style ->
+                        edit { setTableStyle(style.id) }
+                    }
+                }
+            }
         )
     }
 
@@ -1090,8 +1091,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 navigation.isVisible = true
                 navigation.setOnClickListener { ui.showNavigation() }
             }
-            findViewById<View>(R.id.toolTable).setOnClickListener { ui.showTableMenu(it) }
         }
+        // The table at the cursor: adding and deleting rows from the text's menu too
+        if (!isSpreadsheet) documentView.tableActions = listOf(
+            getString(Resources.string.editors_doc_row_below) to { edit { tableAction("rowBelow") } },
+            getString(Resources.string.editors_doc_delete_row) to { edit { tableAction("deleteRow") } }
+        )
         findViewById<View>(R.id.toolFormat).isVisible = true
         findViewById<View>(R.id.toolFormat).setOnClickListener { if (formatsDrawings) drawingUi.showShapePanel() else formatText() }
         // Selected pictures, shapes and charts: "Format" in their menu too
@@ -1150,7 +1155,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         // The document editor's tools don't apply
         listOf(
             R.id.toolBold, R.id.toolItalic, R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight,
-            R.id.toolInsert, R.id.toolFormat, R.id.toolTable, R.id.toolSlideshow
+            R.id.toolInsert, R.id.toolFormat, R.id.toolSlideshow
         ).forEach { findViewById<View>(it).isVisible = false }
         documentView.readOnly = false
         // Typing only goes into text boxes and form fields
@@ -1712,7 +1717,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         const val KEY_SPELL_CHECK = "spell_check"
         // Toolbar buttons also when viewing
         private val FILLING_HIDDEN_TOOLS = listOf(
-            R.id.toolInsert, R.id.toolFormat, R.id.toolTable, R.id.toolBold, R.id.toolItalic,
+            R.id.toolInsert, R.id.toolFormat, R.id.toolBold, R.id.toolItalic,
             R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight
         )
         private val VIEWING_TOOLS = setOf(

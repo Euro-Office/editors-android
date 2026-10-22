@@ -8,7 +8,6 @@ import android.view.MenuItem
 import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.PopupMenu
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
@@ -29,7 +28,7 @@ import java.util.Date
 import lib.editors.resources.R as Resources
 
 /**
- * Documents: tables, breaks, headers and footers, page numbers, notes, the table of contents
+ * Documents: breaks, headers and footers, page numbers, notes, the table of contents
  * (in the "Insert" menu), page setup, word count and track changes (in the file menu) and
  * navigation. A bar above the toolbar shows where the cursor is (header or footer, note) and
  * the tracked change at it.
@@ -39,9 +38,7 @@ internal class DocumentUi(
     private val scope: CoroutineScope,
     private val documentView: DocumentView,
     private val document: () -> EditorDocument?,
-    private val edit: (EditorDocument.() -> EditorState) -> Unit,
-    /** Pictures of the table styles; the one picked goes to the table at the cursor. */
-    private val chooseTableStyle: () -> Unit = {}
+    private val edit: (EditorDocument.() -> EditorState) -> Unit
 ) {
 
     private val density = context.resources.displayMetrics.density
@@ -91,8 +88,6 @@ internal class DocumentUi(
         }
         bar.isVisible = bar.childCount > 0
     }
-
-    val isInTable get() = structure.inTable
 
     // ---------------------------------------------------------------------------------
     // Menus
@@ -148,33 +143,6 @@ internal class DocumentUi(
             action()
             true
         }
-
-    fun showTableMenu(anchor: View) {
-        val actions = listOf(
-            Resources.string.editors_doc_row_above to "rowAbove",
-            Resources.string.editors_doc_row_below to "rowBelow",
-            Resources.string.editors_doc_column_left to "columnLeft",
-            Resources.string.editors_doc_column_right to "columnRight",
-            Resources.string.editors_doc_merge_cells to "merge",
-            Resources.string.editors_doc_split_cell to "split",
-            Resources.string.editors_doc_delete_row to "deleteRow",
-            Resources.string.editors_doc_delete_column to "deleteColumn",
-            Resources.string.editors_doc_delete_table to "deleteTable"
-        )
-        PopupMenu(context, anchor).apply {
-            actions.forEachIndexed { index, (label, _) -> menu.add(Menu.NONE, index, index, label) }
-            menu.add(Menu.NONE, actions.size, actions.size, Resources.string.editors_table_style)
-            setOnMenuItemClickListener { item ->
-                if (item.itemId == actions.size) {
-                    chooseTableStyle()
-                    return@setOnMenuItemClickListener true
-                }
-                val action = actions[item.itemId].second
-                edit { tableAction(action) }
-                true
-            }
-        }.show()
-    }
 
     // A command that moves the cursor somewhere to type: a header, footer or note
     private fun type(command: EditorDocument.() -> EditorState) {
