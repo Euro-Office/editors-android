@@ -162,6 +162,12 @@ class DocumentView @JvmOverloads constructor(
 
     /** Called when another page comes into the middle of the view (scrolling, zooming). */
     var onVisiblePageChanged: ((Int) -> Unit)? = null
+
+    /**
+     * Presentations: pictures and shapes dropped on another slide go there. Gets that slide and
+     * how far its top is below the top of the slide they were on, in that slide's millimeters.
+     */
+    var onDrawingsDroppedOnPage: ((page: Int, offsetMm: Double) -> Unit)? = null
     private var lastVisiblePage = -1
 
     // Layout at zoom 1, in view pixels
@@ -803,6 +809,13 @@ class DocumentView @JvmOverloads constructor(
                 drawingDragging = false
                 val (x, y) = dragTarget(grab, event)
                 listener.onTouch(TouchAction.UP, grab.page, x, y, 1)
+                // Moved (not resized or rotated) onto another page
+                val target = toPage(event.x, event.y)?.page
+                val onDropped = onDrawingsDroppedOnPage
+                if (onDropped != null && !grab.immediate && target != null && target != grab.page &&
+                    event.actionMasked == MotionEvent.ACTION_UP) {
+                    onDropped(target, (pageTops[target] - pageTops[grab.page]) * pageSizes[grab.page].widthMm / pageWidth)
+                }
                 menuAfterUpdate = true
                 return true
             }

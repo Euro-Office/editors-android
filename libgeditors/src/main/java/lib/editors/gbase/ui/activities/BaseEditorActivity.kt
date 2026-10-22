@@ -310,6 +310,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 )
                 addStrip(ui.strip)
                 slidesUi = ui
+                documentView.onDrawingsDroppedOnPage = { slide, offsetMm -> edit { moveToSlide(slide, offsetMm) } }
                 findViewById<View>(R.id.toolSlideshow).isVisible = true
                 findViewById<View>(R.id.toolSlideshow).setOnClickListener { ui.startSlideshow() }
             }

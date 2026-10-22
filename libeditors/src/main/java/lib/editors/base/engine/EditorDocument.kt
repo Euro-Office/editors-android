@@ -448,6 +448,12 @@ interface EditorDocument : PagedDocument {
 
     fun duplicateSlide(): EditorState = command("eoEngine.duplicateSlide()")
 
+    /**
+     * The selected pictures and shapes, dragged off the current slide, go to [slide], whose top
+     * is [offsetMm] below the current slide's top as the slides are laid out.
+     */
+    fun moveToSlide(slide: Int, offsetMm: Double): EditorState = command("eoEngine.moveToSlide($slide, $offsetMm)")
+
     /** Moves the current slide to [position]. */
     fun moveSlide(position: Int): EditorState = command("eoEngine.moveSlide($position)")
 
