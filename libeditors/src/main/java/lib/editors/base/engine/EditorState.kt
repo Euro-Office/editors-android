@@ -269,6 +269,18 @@ data class ForeignSelection(val user: String, val name: String, val color: Strin
 /** Cells from column [c1], row [r1] to column [c2], row [r2] (indexes). */
 data class CellRange(val c1: Int, val r1: Int, val c2: Int, val r2: Int)
 
+/** Marking up text of a PDF. */
+enum class PdfMarkupKind(val value: String) { HIGHLIGHT("highlight"), UNDERLINE("underline"), STRIKEOUT("strikeout") }
+
+/**
+ * The PDF editor's state: freehand drawing is on ([ink]); the selected annotation ([annotation]
+ * its sdkjs type, null for none); text of the page is selected ([textSelected], to mark it up).
+ */
+data class PdfState(val ink: Boolean, val annotation: Int?, val textSelected: Boolean)
+
+/** A place in the document to show: a link or an entry of the contents was followed. */
+data class Place(val page: Int, val yMm: Double)
+
 data class ToolbarState(
     val bold: Boolean = false,
     val italic: Boolean = false,
@@ -314,7 +326,11 @@ class EditorState(
     /** Documents and presentations. */
     val spelling: SpellingState? = null,
     /** While co-editing. */
-    val coEditing: CoEditingState? = null
+    val coEditing: CoEditingState? = null,
+    /** PDFs in sdkjs' PDF editor. */
+    val pdf: PdfState? = null,
+    /** A place to show, after following a link or an entry of the contents (reported once). */
+    val navigate: Place? = null
 ) {
     companion object {
         /** Throws [org.json.JSONException] if [json] isn't a state (the engine failed). */
@@ -366,6 +382,10 @@ class EditorState(
                     )
                 },
                 coEditing = root.optJSONObject("coEditing")?.let { parseCoEditing(it) },
+                pdf = root.optJSONObject("pdf")?.let {
+                    PdfState(it.optBoolean("ink"), it.optJSONObject("annotation")?.optInt("type"), it.optBoolean("textSelected"))
+                },
+                navigate = root.optJSONObject("navigate")?.let { Place(it.optInt("page"), it.optDouble("y")) },
                 chart = root.optJSONObject("chart")?.let {
                     ChartState(
                         it.optInt("type"), it.optBoolean("title"), it.optInt("legend"), it.optBoolean("labels"),

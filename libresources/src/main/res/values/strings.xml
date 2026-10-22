@@ -292,6 +292,10 @@
     <string name="editors_pdf_highlight">Highlight</string>
     <string name="editors_pdf_underline">Underline</string>
     <string name="editors_pdf_strikeout">Strikethrough</string>
+    <string name="editors_pdf_pen">Draw</string>
+    <string name="editors_pdf_marker">Marker</string>
+    <string name="editors_pdf_pen_stop">Stop drawing</string>
+    <string name="editors_pdf_pen_on">Drawing with one finger, scrolling with two</string>
     <string name="editors_sign">Sign</string>
     <string name="editors_sign_draw">Draw your signature</string>
     <string name="editors_sign_place">Place</string>

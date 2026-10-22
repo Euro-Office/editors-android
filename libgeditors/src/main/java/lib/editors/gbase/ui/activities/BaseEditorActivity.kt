@@ -2,6 +2,7 @@ package lib.editors.gbase.ui.activities
 
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
@@ -18,6 +19,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.PopupMenu
 import android.widget.TextView
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -57,6 +59,7 @@ import lib.editors.base.engine.FormField
 import lib.editors.base.engine.PageSize
 import lib.editors.base.engine.PdfImage
 import lib.editors.base.engine.PdfMarkup
+import lib.editors.base.engine.PdfMarkupKind
 import lib.editors.base.engine.PagedDocument
 import lib.editors.base.engine.TextBlock
 import lib.editors.base.engine.TouchAction
@@ -111,6 +114,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private var pdfPassword = ""
     private var pdfEdited = false
     private var pdfText: PdfText? = null
+    // The engine opened a PDF in sdkjs' PDF editor (DocsActivity and PdfActivity): PDF tools instead of the document editor's
+    private var isPdfEditor = false
     private val hiddenTools = mutableListOf<View>()
     private var documentUi: DocumentUi? = null
     private var commentsUi: CommentsUi? = null
@@ -144,10 +149,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         setResult(EditorsContract.RESULT_FAILED_OPEN)
 
         val uri = intent.data
-        if (uri != null && editorsType in ENGINE_EDITORS && EditorEngine.isAvailable) {
+        // PDFs in sdkjs' PDF editor (core's reader if the engine can't open one); XPS and DjVu in core's readers
+        if (uri != null && (editorsType in ENGINE_EDITORS || editorsType == EditorsType.PDF) && EditorEngine.isAvailable) {
             showViewer(uri)
-        } else if (uri != null && editorsType == EditorsType.PDF && EditorEngine.isAvailable) {
-            showDrawingViewer(uri)
         } else {
             showPlaceholder(uri)
         }
@@ -198,6 +202,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 finish()
                 return@launch
             }
+            if (editorsType == EditorsType.PDF && !file.extension.equals("pdf", ignoreCase = true)) {
+                openDrawingFile(uri, file, password = "")
+                return@launch
+            }
             openDocument(uri, file, password = "")
         }
     }
@@ -224,6 +232,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     DocumentResult.Failed -> return@withContext null
                 }
                 document.setTranslations(EditorTranslations.sdkjs(this@BaseEditorActivity))
+                isPdfEditor = document.isPdf
                 val pages = (0 until document.pageCount).map { document.pageSize(it) }
                 Log.i(TAG, "open + layout: ${SystemClock.elapsedRealtime() - start} ms, ${pages.size} pages")
                 Triple(document, pages, document.state())
@@ -308,7 +317,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 override fun close() = edit { endFind() }
             })
             applyState(opened.third)
-            if (editorsType == EditorsType.DOCS && isEditable) {
+            if (isPdfEditor) showPdfTools(opened.first, opened.second)
+            if (editorsType == EditorsType.DOCS && isEditable && !isPdfEditor) {
                 val forms = FormsUi(this@BaseEditorActivity, { command -> edit(command = command) },
                     pickPicture = { field ->
                         pictureField = field
@@ -323,9 +333,13 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             // opened is replaced by the session's version, and editing starts right away (the
             // others are editing already). Viewing, one joins as a viewer and sees the others'
             // changes as they come.
-            val editorConfig = intent.getStringExtra(EditorsContract.KEY_DOC_SERVER)?.takeIf { editorsType in CO_EDITORS }
+            // PDFs only in the PDF editor: the session is the web PDF editor's (forms open in the document editor here)
+            val editorConfig = intent.getStringExtra(EditorsContract.KEY_DOC_SERVER)?.takeIf {
+                editorsType in CO_EDITORS && (isPdfEditor || runCatching { org.json.JSONObject(it).optString("documentType") }.getOrNull() != "pdf")
+            }
             // The app may ask to show the document first (EditType.Edit.initialView): editing then starts with a button
-            if (isEditable && (editorConfig != null || !startsInView() || fillsForms() || startsFilling())) {
+            // PDFs: their tools right away (annotations don't change the PDF's content)
+            if (isEditable && (editorConfig != null || !startsInView() || fillsForms() || startsFilling() || isPdfEditor)) {
                 enableEditing()
             } else if (isEditable) {
                 findViewById<View>(R.id.toolEdit).isVisible = true
@@ -416,6 +430,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     /** From viewing to editing the document. */
     private fun enableEditing() {
         if (editing || document == null) return
+        if (isPdfEditor) {
+            enablePdfEditing()
+            return
+        }
         editing = true
         findViewById<View>(R.id.toolEdit).isVisible = false
         showToolbar(editable = true)
@@ -589,20 +607,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     }
 
     // ---------------------------------------------------------------------------------
-    // PDF, XPS and DjVu: drawn by core's readers, without sdkjs
-
-    private fun showDrawingViewer(uri: Uri) {
-        setUpViewer()
-        lifecycleScope.launch {
-            val file = withContext(Dispatchers.IO) { runCatching { copyToCache(uri) }.getOrNull() }
-            if (file == null) {
-                Log.e(TAG, "Can't read $uri")
-                finish()
-                return@launch
-            }
-            openDrawingFile(uri, file, password = "")
-        }
-    }
+    // XPS and DjVu (and PDFs the engine can't open): drawn by core's readers, without sdkjs
 
     private fun openDrawingFile(uri: Uri, file: File, password: String) {
         lifecycleScope.launch {
@@ -795,7 +800,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun isIdle(state: EditorState, previous: EditorState?): Boolean {
         previous ?: return false
-        if (state.dirtyPages.isNotEmpty() || state.layoutChanged || state.layoutPending || state.error != null || state.openUrl != null) {
+        if (state.dirtyPages.isNotEmpty() || state.layoutChanged || state.layoutPending || state.error != null || state.openUrl != null ||
+            state.navigate != null || state.pdf != previous.pdf
+        ) {
             return false
         }
         if (state.cursor != previous.cursor || state.coEditing != previous.coEditing || state.toolbar != previous.toolbar ||
@@ -842,7 +849,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.toolUndo).imageAlpha = if (toolbar.canUndo) 255 else 80
         findViewById<ImageButton>(R.id.toolRedo).imageAlpha = if (toolbar.canRedo) 255 else 80
         // Formatting of pictures and shapes while some are selected
-        findViewById<View>(R.id.toolShape).isVisible = isEditable() && state.drawings.any { !it.tracking }
+        findViewById<View>(R.id.toolShape).isVisible = isEditable() && !isPdfEditor && state.drawings.any { !it.tracking }
+        // A link or an entry of the contents was followed
+        state.navigate?.let { documentView.goToPage(it.page, it.yMm.toFloat()) }
         formatPanel.update(state.format)
         state.sheet?.let { cellFormatPanel.update(it.cellFormat) }
         searchBar?.update(state.search)
@@ -990,6 +999,101 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolShape).setOnClickListener { drawingUi.showShapeMenu(it) }
         findViewById<View>(R.id.toolSave).setOnClickListener {
             save { error -> if (error == 0) toast(getString(Resources.string.editors_saved)) else toast(saveErrorMessage(error)) }
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // PDFs in sdkjs' PDF editor: pages, contents and search; marking text up, drawing, notes
+    // (comments), signatures and others' annotations, saved into the PDF
+
+    private var penOn = false
+
+    private fun showPdfTools(document: EditorDocument, pages: List<PageSize>) {
+        showPageTools(document, pages)
+        // Searching starts on the page shown
+        val onPage = documentView.onVisiblePageChanged
+        documentView.onVisiblePageChanged = { page ->
+            onPage?.invoke(page)
+            lifecycleScope.launch(EditorEngine.dispatcher) { this@BaseEditorActivity.document?.setCurrentPage(page) }
+        }
+    }
+
+    private fun enablePdfEditing() {
+        editing = true
+        findViewById<View>(R.id.toolEdit).isVisible = false
+        showToolbar(editable = true)
+        // The document editor's tools don't apply
+        listOf(
+            R.id.toolBold, R.id.toolItalic, R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight,
+            R.id.toolInsert, R.id.toolShape, R.id.toolFormat, R.id.toolDocument, R.id.toolTable, R.id.toolSlideshow
+        ).forEach { findViewById<View>(it).isVisible = false }
+        documentView.readOnly = false
+        // Typing only goes into text boxes and form fields
+        documentView.keyboardWithCursor = true
+        documentView.selectionActions = listOf(
+            getString(Resources.string.editors_pdf_highlight) to { edit { markup(PdfMarkupKind.HIGHLIGHT, "FFEB3B") } },
+            getString(Resources.string.editors_pdf_underline) to { edit { markup(PdfMarkupKind.UNDERLINE, "3366D9") } },
+            getString(Resources.string.editors_pdf_strikeout) to { edit { markup(PdfMarkupKind.STRIKEOUT, "D92626") } }
+        )
+        findViewById<View>(R.id.toolPen).isVisible = true
+        findViewById<View>(R.id.toolPen).setOnClickListener { showPenMenu(it) }
+        findViewById<View>(R.id.toolSign).isVisible = true
+        findViewById<View>(R.id.toolSign).setOnClickListener { SignaturePad(this) { picture, aspect -> placeSignature(picture, aspect) }.show() }
+        findViewById<View>(R.id.toolUndo).setOnClickListener { edit { undo() } }
+        findViewById<View>(R.id.toolRedo).setOnClickListener { edit { redo() } }
+        findViewById<View>(R.id.toolSave).setOnClickListener {
+            save { error -> if (error == 0) toast(getString(Resources.string.editors_saved)) else toast(saveErrorMessage(error)) }
+        }
+    }
+
+    // Freehand drawing: pens of a few colors and a marker; one finger draws, two scroll
+    private fun showPenMenu(anchor: View) {
+        val pens = listOf(
+            Triple(Resources.string.editors_color_black, "000000", 0.7),
+            Triple(Resources.string.editors_color_red, "E53935", 0.7),
+            Triple(Resources.string.editors_color_blue, "1E63D6", 0.7),
+            Triple(Resources.string.editors_color_green, "2E9E44", 0.7),
+            Triple(Resources.string.editors_pdf_marker, "FFEB3B", 4.0)
+        )
+        val menu = PopupMenu(this, anchor)
+        pens.forEachIndexed { index, pen -> menu.menu.add(0, index, index, pen.first) }
+        if (penOn) menu.menu.add(0, pens.size, pens.size, Resources.string.editors_pdf_pen_stop)
+        menu.setOnMenuItemClickListener { item ->
+            val pen = pens.getOrNull(item.itemId)
+            setPen(pen?.second, pen?.third ?: 0.0)
+            true
+        }
+        menu.show()
+    }
+
+    private fun setPen(color: String?, widthMm: Double) {
+        penOn = color != null
+        documentView.penMode = penOn
+        findViewById<View>(R.id.toolPen).isSelected = penOn
+        if (color != null) {
+            toast(getString(Resources.string.editors_pdf_pen_on))
+            edit { startInk(color, widthMm) }
+        } else {
+            edit { stopInk() }
+        }
+    }
+
+    // A drawn signature, 50 mm wide in the middle of the page shown, selected to be moved
+    private fun placeSignature(picture: File, aspect: Float) {
+        val document = document ?: return
+        val page = documentView.visiblePage()
+        lifecycleScope.launch {
+            val placed = withContext(EditorEngine.dispatcher) {
+                val name = "signature-${System.currentTimeMillis()}.png"
+                runCatching { picture.copyTo(File(document.imagesDirectory(), name)) }.getOrNull() ?: return@withContext null
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(picture.path, bounds)
+                Triple(name, bounds, document.pageSize(page))
+            } ?: return@launch
+            val (name, bounds, size) = placed
+            val width = minOf(50.0, size.widthMm * 0.8)
+            val height = width / aspect
+            edit { placeImage(name, bounds.outWidth, bounds.outHeight, page, (size.widthMm - width) / 2, (size.heightMm - height) / 2, width, height) }
         }
     }
 
@@ -1421,7 +1525,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         val ENGINE_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION, EditorsType.CELLS)
         const val LAYOUT_SLICE_MS = 30
         /** Editors that co-edit through a Document Server. */
-        val CO_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION, EditorsType.CELLS)
+        val CO_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION, EditorsType.CELLS, EditorsType.PDF)
         const val CO_TICK_MS = 100L
         const val MEDIA_PREFIX = "media/"
         const val CO_TICK_BUDGET_MS = 20

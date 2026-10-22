@@ -26,6 +26,9 @@
         <ImageButton android:id="@+id/toolSign" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_sign" android:src="@drawable/ic_editor_sign"
             android:visibility="gone" />
+        <ImageButton android:id="@+id/toolPen" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_pdf_pen" android:src="@drawable/ic_editor_pen"
+            android:visibility="gone" />
         <ImageButton android:id="@+id/toolSearch" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_search" android:src="@drawable/ic_editor_search" />
         <ImageButton android:id="@+id/toolFile" style="@style/EditorToolButton"

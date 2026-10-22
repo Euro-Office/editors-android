@@ -336,6 +336,46 @@ interface EditorDocument : PagedDocument {
     fun gotoComment(id: String): EditorState = command("eoEngine.gotoComment(${JSONObject.quote(id)})")
 
     // ---------------------------------------------------------------------------------
+    // PDFs: sdkjs' PDF editor (pdf.js in editors-android/engine), for PDFs other than forms of
+    // the document editor
+
+    /** The engine opened the file in sdkjs' PDF editor: the commands below apply. */
+    val isPdf: Boolean get() = execute("String(eoEngine.kind === 'pdf')") == "true"
+
+    override fun fileOutline(): List<PageOutlineItem> {
+        if (!isPdf) return emptyList()
+        val json = org.json.JSONArray(execute("eoEngine.getFileOutline()"))
+        return (0 until json.length()).map {
+            val item = json.getJSONObject(it)
+            PageOutlineItem(item.optString("title"), item.optInt("level", 1), item.optInt("page"), item.optDouble("y").toFloat())
+        }
+    }
+
+    /** The page the app shows: searching starts there, text boxes go there. */
+    fun setCurrentPage(page: Int) {
+        execute("eoEngine.setCurrentPage($page)")
+    }
+
+    /** Marks up the selected text, in the color as "RRGGBB". */
+    fun markup(kind: PdfMarkupKind, color: String): EditorState =
+        command("eoEngine.markup(${JSONObject.quote(kind.value)}, ${JSONObject.quote(color)})")
+
+    /** Freehand drawing (touches draw) with a pen of the color as "RRGGBB" and the width, until [stopInk]. */
+    fun startInk(color: String, widthMm: Double): EditorState = command("eoEngine.startInk(${JSONObject.quote(color)}, $widthMm)")
+
+    fun stopInk(): EditorState = command("eoEngine.stopInk()")
+
+    /** Removes the selected annotations, pictures and shapes. */
+    fun deleteSelection(): EditorState = command("eoEngine.deleteSelection()")
+
+    /**
+     * Puts a picture of the images directory ([name], [width] x [height] pixels) on [page], at
+     * ([xMm], [yMm]) with the size [widthMm] x [heightMm]: a drawn signature. It is selected.
+     */
+    fun placeImage(name: String, width: Int, height: Int, page: Int, xMm: Double, yMm: Double, widthMm: Double, heightMm: Double): EditorState =
+        command("eoEngine.placeImage(${JSONObject.quote(name)}, $width, $height, $page, $xMm, $yMm, $widthMm, $heightMm)")
+
+    // ---------------------------------------------------------------------------------
     // Charts (all editors)
 
     /** A chart of the type (Asc.c_oAscChartTypeSettings): with sample data, or in spreadsheets from the selected cells. */

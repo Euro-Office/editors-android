@@ -81,6 +81,15 @@ class EditorStateTest {
     }
 
     @Test
+    fun `parses the PDF editor's state`() {
+        val parsed = EditorState.parse(state(""", "pdf": {"ink": true, "annotation": {"id": "12", "type": 8}, "textSelected": false},
+            "navigate": {"page": 3, "y": 120.5}"""))
+        assertEquals(PdfState(ink = true, annotation = 8, textSelected = false), parsed.pdf)
+        assertEquals(Place(3, 120.5), parsed.navigate)
+        assertNull(EditorState.parse(state("")).pdf)
+    }
+
+    @Test
     fun `no session without co-editing`() {
         assertNull(EditorState.parse(state(""", "coEditing": null""")).coEditing)
     }

@@ -118,6 +118,20 @@ class DocumentView @JvmOverloads constructor(
      */
     var readOnly = false
 
+    /**
+     * The keyboard comes up only while there is a cursor (PDFs: in text boxes and form fields),
+     * not for each tap.
+     */
+    var keyboardWithCursor = false
+
+    /** Drawing with a pen (PDFs): one finger draws (its touches go to [editListener]), two scroll and zoom. */
+    var penMode = false
+        set(value) {
+            field = value
+            penDown = false
+        }
+    private var penDown = false
+
     /** More actions in the menu of a selection (label and action), such as marking text up. */
     var selectionActions: List<Pair<String, () -> Unit>> = emptyList()
 
@@ -276,7 +290,7 @@ class DocumentView @JvmOverloads constructor(
             // A tap on the cursor opens the menu (paste, select all)
             val onCursor = isNearCursor(e.x, e.y)
             click(e.x, e.y, 1)
-            showKeyboard()
+            if (!keyboardWithCursor) showKeyboard()
             if (onCursor) showActionMenu(insertion = true) else menuAfterUpdate = true
             return true
         }
@@ -340,6 +354,10 @@ class DocumentView @JvmOverloads constructor(
         val previousSearch = editorState?.search
         val previousPage = editorState?.currentPage
         editorState = state
+        if (keyboardWithCursor && !readOnly && editListener != null && (state.cursor != null) != (previousCursor != null)) {
+            if (state.cursor != null) showKeyboard()
+            else context.getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(windowToken, 0)
+        }
         for (page in state.dirtyPages) {
             if (page !in pageSizes.indices) continue
             pageVersions[page] = (pageVersions[page] ?: 0) + 1
@@ -529,6 +547,7 @@ class DocumentView @JvmOverloads constructor(
             invalidate()
         }
         if (usingMouse) return handleMouse(event)
+        if (penMode && handlePen(event)) return true
         if (handleDrawingTouch(event)) return true
         if (event.actionMasked == MotionEvent.ACTION_DOWN && startHandleDrag(event)) return true
         if (fixedHandle != null) {
@@ -542,6 +561,39 @@ class DocumentView @JvmOverloads constructor(
         scaleDetector.onTouchEvent(event)
         if (!scaleDetector.isInProgress) gestureDetector.onTouchEvent(event)
         if (event.actionMasked == MotionEvent.ACTION_UP && scroller.isFinished) requestDetails()
+        return true
+    }
+
+    // A stroke of the pen; a second finger ends it and scrolls or zooms instead
+    private fun handlePen(event: MotionEvent): Boolean {
+        val listener = editListener ?: return false
+        if (event.pointerCount > 1) {
+            if (penDown) {
+                penDown = false
+                toPage(event.x, event.y)?.let { listener.onTouch(TouchAction.UP, it.page, it.xMm, it.yMm, 1) }
+            }
+            return false
+        }
+        val point = toPage(event.x, event.y) ?: return true
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                scroller.forceFinished(true)
+                penDown = true
+                listener.onTouch(TouchAction.DOWN, point.page, point.xMm, point.yMm, 1)
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!penDown) return true
+                val now = SystemClock.uptimeMillis()
+                if (now - lastMoveTime < MOVE_INTERVAL_MS) return true
+                lastMoveTime = now
+                listener.onTouch(TouchAction.MOVE, point.page, point.xMm, point.yMm, 1)
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (!penDown) return true
+                penDown = false
+                listener.onTouch(TouchAction.UP, point.page, point.xMm, point.yMm, 1)
+            }
+        }
         return true
     }
 

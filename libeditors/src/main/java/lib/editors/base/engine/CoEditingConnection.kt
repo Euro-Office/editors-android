@@ -128,10 +128,12 @@ class CoEditingConnection(
         pictures.shutdownNow()
     }
 
-    // The document as the server converted it (documentOpen), before the message that opens it
+    // The document as the server converted it (documentOpen; PDFs: the file itself), before the
+    // message that opens it
     private fun download(data: JSONObject): Pair<String, String>? {
         if (data.optString("type") != "documentOpen") return null
-        val url = data.optJSONObject("data")?.optJSONObject("data")?.optString("Editor.bin")?.takeIf { it.isNotEmpty() } ?: return null
+        val urls = data.optJSONObject("data")?.optJSONObject("data") ?: return null
+        val url = listOf("Editor.bin", "origin.pdf").firstNotNullOfOrNull { urls.optString(it).takeIf { url -> url.isNotEmpty() } } ?: return null
         val file = File(downloadDir, "Editor-${++downloads}.bin")
         return runCatching {
             downloadDir.mkdirs()
