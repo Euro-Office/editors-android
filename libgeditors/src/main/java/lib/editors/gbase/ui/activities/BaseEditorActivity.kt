@@ -912,11 +912,26 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         }, panels = panels)
     }
 
+    private val chartUi by lazy {
+        ChartUi(this, lifecycleScope, { document }, iconPicker, showBar = ::showChartBar) { command -> edit(command = command) }
+    }
+
+    // A bar of the charts' (choosing a chart's cells) under the top bar
+    private var chartBar: View? = null
+
+    private fun showChartBar(bar: View?) {
+        val root = findViewById<ViewGroup>(R.id.editorRoot)
+        chartBar?.let { root.removeView(it) }
+        chartBar = bar
+        if (bar != null) root.addView(bar, root.indexOfChild(findViewById(R.id.editorTopBar)) + 1)
+    }
+
     private val drawingUi by lazy {
         DrawingUi(
             this, { command -> edit(command = command) },
             { pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, ::takePhoto,
-            ChartUi(this, lifecycleScope, { document }, iconPicker) { command -> edit(command = command) },
+            chartUi,
+            ShapePanel(this, lifecycleScope, { document }, { command -> edit(command = command) }, chartUi, panels),
             iconPicker,
             // Text boxes take the typing at once; spreadsheets have none (text goes into cells)
             insertTextBox = if (isSpreadsheet) null else {
@@ -1035,7 +1050,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.toolFormat).isVisible = true
         findViewById<View>(R.id.toolFormat).setOnClickListener { if (isSpreadsheet) cellFormatPanel.show() else formatPanel.show() }
-        findViewById<View>(R.id.toolShape).setOnClickListener { drawingUi.showShapeMenu(it) }
+        findViewById<View>(R.id.toolShape).setOnClickListener { drawingUi.showShapePanel() }
         findViewById<View>(R.id.toolSave).setOnClickListener {
             save { error -> if (error == 0) toast(getString(Resources.string.editors_saved)) else toast(saveErrorMessage(error)) }
         }

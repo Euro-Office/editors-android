@@ -9,9 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.view.View
 import android.widget.PopupMenu
-import androidx.appcompat.app.AlertDialog
 import lib.editors.base.engine.ChartState
-import lib.editors.base.engine.DrawingOrder
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
 import lib.editors.resources.R as Resources
@@ -19,9 +17,9 @@ import java.io.File
 import java.util.UUID
 
 /**
- * Inserting pictures and shapes and formatting the selected ones: the toolbar's "Insert" and
- * "Shape" menus. Picking and taking pictures needs the activity; it calls back through
- * [pickPicture] and [takePhoto].
+ * Inserting pictures and shapes and formatting the selected ones: the toolbar's "Insert" menu
+ * and "Shape" panel ([ShapePanel]). Picking and taking pictures needs the activity; it calls back
+ * through [pickPicture] and [takePhoto].
  */
 internal class DrawingUi(
     private val context: Context,
@@ -29,14 +27,13 @@ internal class DrawingUi(
     private val pickPicture: () -> Unit,
     private val takePhoto: () -> Unit,
     private val chartUi: ChartUi,
+    private val shapePanel: ShapePanel,
     private val picker: IconPicker,
     private val insertTextBox: (() -> Unit)? = null
 ) {
 
-    /** The selected chart, for its own entries in the shape menu. */
+    /** The selected chart, for its own settings in the shape panel. */
     var chart: ChartState? = null
-
-    private class Choice(val label: Int, val value: String)
 
     fun showInsertMenu(anchor: View) {
         PopupMenu(context, anchor).apply {
@@ -61,62 +58,12 @@ internal class DrawingUi(
         }.show()
     }
 
-    fun showShapeMenu(anchor: View) {
-        PopupMenu(context, anchor).apply {
-            menu.add(0, 0, 0, Resources.string.editors_shape_fill)
-            menu.add(0, 1, 1, Resources.string.editors_shape_outline)
-            menu.add(0, 2, 2, Resources.string.editors_shape_front)
-            menu.add(0, 3, 3, Resources.string.editors_shape_back)
-            menu.add(0, 4, 4, Resources.string.editors_shape_group)
-            menu.add(0, 5, 5, Resources.string.editors_shape_ungroup)
-            val selectedChart = chart
-            if (selectedChart != null) {
-                menu.add(0, 10, 0, Resources.string.editors_chart_type)
-                menu.add(0, 11, 0, Resources.string.editors_chart_elements)
-                if (!selectedChart.dataInCells) menu.add(0, 12, 0, Resources.string.editors_chart_data)
-            }
-            setOnMenuItemClickListener { item ->
-                when (item.itemId) {
-                    10 -> chartUi.chooseType(Resources.string.editors_chart_type, selectedChart?.type) { type -> edit { setChartType(type) } }
-                    11 -> selectedChart?.let { chartUi.showElements(it) }
-                    12 -> chartUi.editData()
-                    0 -> chooseColor(Resources.string.editors_shape_fill) { color -> edit { setShapeFill(color) } }
-                    1 -> chooseColor(Resources.string.editors_shape_outline) { color -> edit { setShapeOutline(color) } }
-                    2 -> edit { arrange(DrawingOrder.TO_FRONT) }
-                    3 -> edit { arrange(DrawingOrder.TO_BACK) }
-                    4 -> edit { group(true) }
-                    else -> edit { group(false) }
-                }
-                true
-            }
-        }.show()
-    }
+    fun showShapePanel() = shapePanel.show(chart)
 
     private fun chooseShape() =
         picker.show(Resources.string.editors_insert_shape, InsertCatalog.SHAPES) { preset -> edit { insertShape(preset) } }
 
-    private fun chooseColor(title: Int, onColor: (String?) -> Unit) {
-        val labels = COLORS.map { context.getString(it.label) }.toTypedArray()
-        AlertDialog.Builder(context)
-            .setTitle(title)
-            .setItems(labels) { _, index -> onColor(COLORS[index].value.ifEmpty { null }) }
-            .show()
-    }
-
     companion object {
-        private val COLORS = listOf(
-            Choice(Resources.string.editors_color_none, ""),
-            Choice(Resources.string.editors_color_black, "000000"),
-            Choice(Resources.string.editors_color_white, "FFFFFF"),
-            Choice(Resources.string.editors_color_gray, "808080"),
-            Choice(Resources.string.editors_color_red, "E53935"),
-            Choice(Resources.string.editors_color_orange, "FB8C00"),
-            Choice(Resources.string.editors_color_yellow, "FDD835"),
-            Choice(Resources.string.editors_color_green, "43A047"),
-            Choice(Resources.string.editors_color_blue, "1E88E5"),
-            Choice(Resources.string.editors_color_purple, "8E24AA")
-        )
-
         private const val MAX_PICTURE_SIZE = 2048
 
         /**

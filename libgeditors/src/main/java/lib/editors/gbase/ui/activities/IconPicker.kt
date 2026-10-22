@@ -14,23 +14,26 @@ import lib.editors.gbase.R
 import lib.editors.resources.R as Resources
 
 /**
- * Pictures to choose one from, in groups (chart types, shapes; see [InsertCatalog]), in a panel
- * (see [PanelHost]). Their names are read by screen readers and shown on a long press.
+ * Pictures to choose one from, in groups (chart types, shapes, SmartArt; see [InsertCatalog]), in
+ * a panel (see [PanelHost]). Their names are read by screen readers and shown on a long press.
  */
 internal class IconPicker(private val context: Context, private val panels: PanelHost) {
 
     private val density = context.resources.displayMetrics.density
 
-    /** Shows [groups] under [title], [selected] highlighted; [onPick] gets the chosen one's value. */
-    fun <T> show(title: Int, groups: List<InsertCatalog.Group<T>>, selected: T? = null, accent: Boolean = false, onPick: (T) -> Unit) {
+    /**
+     * Shows [groups] under [title], [selected] highlighted; [onPick] gets the chosen one's value.
+     * [pictures]: the icons are pictures in their own colors (SmartArt), shown larger.
+     */
+    fun <T> show(title: Int, groups: List<InsertCatalog.Group<T>>, selected: T? = null, pictures: Boolean = false, onPick: (T) -> Unit) {
         lateinit var panel: PanelHost.Panel
-        val cell = dp(64)
+        val cell = dp(if (pictures) 96 else 64)
         val columns = ((panels.width - dp(16)) / cell).coerceAtLeast(3)
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPaddingRelative(dp(8), 0, dp(8), dp(16))
         }
-        val tint = ColorStateList.valueOf(ContextCompat.getColor(context, if (accent) Resources.color.editors_accent else Resources.color.editors_icon))
+        val tint = if (pictures) null else ColorStateList.valueOf(ContextCompat.getColor(context, Resources.color.editors_icon))
         for (group in groups) {
             content.addView(TextView(context).apply {
                 setText(group.label)
@@ -45,7 +48,8 @@ internal class IconPicker(private val context: Context, private val panels: Pane
                     setImageResource(item.icon)
                     imageTintList = tint
                     scaleType = ImageView.ScaleType.FIT_CENTER
-                    setPadding(dp(12), dp(12), dp(12), dp(12))
+                    val padding = dp(if (pictures) 8 else 12)
+                    setPadding(padding, padding, padding, padding)
                     setBackgroundResource(R.drawable.editor_tool_background)
                     isSelected = item.value == selected
                     val label = context.getString(item.label)

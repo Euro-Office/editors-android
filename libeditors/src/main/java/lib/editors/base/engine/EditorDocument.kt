@@ -400,6 +400,48 @@ interface EditorDocument : PagedDocument {
     fun setChartElements(title: Boolean, legend: Int, labels: Boolean, gridlines: Boolean): EditorState =
         command("eoEngine.setChartElements($title, $legend, $labels, $gridlines)")
 
+    /** The texts of the selected chart's title and its axes' titles; "" removes one. */
+    fun setChartTitles(title: String, horizontal: String, vertical: String): EditorState =
+        command("eoEngine.setChartTitles(${JSONObject.quote(title)}, ${JSONObject.quote(horizontal)}, ${JSONObject.quote(vertical)})")
+
+    /**
+     * Spreadsheets: the cells the selected chart shows ("Sheet1!$A$1:$C$5"). [onError] gets the
+     * error (Asc.c_oAscError.ID: an invalid range, too much data) if it isn't taken, on the
+     * engine's thread.
+     */
+    fun setChartRange(range: String, onError: (Int) -> Unit): EditorState {
+        val error = execute("try { String(eoEngine.setChartRange(${JSONObject.quote(range)})); } catch (e) { eoEngine.reportError(e); '0'; }")
+            .toIntOrNull() ?: 0
+        if (error != 0) onError(error)
+        return state()
+    }
+
+    /** Spreadsheets: the selected chart's series from rows instead of columns, or the other way round. */
+    fun switchChartRowCol(): EditorState = command("eoEngine.switchChartRowCol()")
+
+    /**
+     * Spreadsheets: choosing the selected chart's cells on the sheet. [startChartRange] remembers the
+     * chart while cells are selected; [endChartRange] selects it again and, with [apply], gives it
+     * the selected cells (see [setChartRange]).
+     */
+    fun startChartRange(): EditorState = command("eoEngine.startChartRange()")
+
+    fun endChartRange(apply: Boolean, onError: (Int) -> Unit): EditorState {
+        val error = execute("try { String(eoEngine.endChartRange($apply)); } catch (e) { eoEngine.reportError(e); '0'; }")
+            .toIntOrNull() ?: 0
+        if (error != 0) onError(error)
+        return state()
+    }
+
+    /** The fill and outline of the selected picture, shape or chart, or null. */
+    fun drawingColors(): DrawingColors? {
+        val json = execute("eoEngine.drawingColors()")
+        if (json == "null") return null
+        val root = JSONObject(json)
+        fun color(name: String) = if (root.isNull(name)) null else root.optString(name)
+        return DrawingColors(color("fill"), color("outline"))
+    }
+
     /** The selected chart's data (documents and presentations), or null. */
     fun chartData(): ChartData? {
         val json = execute("eoEngine.getChartData()")

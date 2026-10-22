@@ -172,11 +172,18 @@ data class SlideLayout(val index: Int, val name: String)
 
 /**
  * The selected chart: [type] is Asc.c_oAscChartTypeSettings, [legend] Asc.c_oAscChartLegendShowSettings
- * (0 none, 1 left, 2 top, 3 right, 4 bottom). In spreadsheets the data is in cells ([dataInCells]).
+ * (0 none, 1 left, 2 top, 3 right, 4 bottom). The titles' texts: [titleText], and with [axes]
+ * [horizontalTitle] and [verticalTitle]. In spreadsheets the data is in cells ([dataInCells]), [range]
+ * ("Sheet1!$A$1:$C$5").
  */
 data class ChartState(
-    val type: Int, val title: Boolean, val legend: Int, val labels: Boolean, val gridlines: Boolean, val dataInCells: Boolean
+    val type: Int, val title: Boolean, val legend: Int, val labels: Boolean, val gridlines: Boolean, val dataInCells: Boolean,
+    val titleText: String = "", val axes: Boolean = false, val horizontalTitle: String = "", val verticalTitle: String = "",
+    val range: String = ""
 )
+
+/** The fill and outline of a selected drawing as "RRGGBB": "" for none, null for other fills (pictures, gradients). */
+data class DrawingColors(val fill: String?, val outline: String?)
 
 /** A chart's data: a value per category ([categories]) for each series ([series]); null for none. */
 data class ChartData(val series: List<String>, val categories: List<String>, val values: List<List<Double?>>)
@@ -389,7 +396,9 @@ class EditorState(
                 chart = root.optJSONObject("chart")?.let {
                     ChartState(
                         it.optInt("type"), it.optBoolean("title"), it.optInt("legend"), it.optBoolean("labels"),
-                        it.optBoolean("gridlines"), it.optBoolean("dataInCells")
+                        it.optBoolean("gridlines"), it.optBoolean("dataInCells"),
+                        it.optString("titleText"), it.optBoolean("axes"), it.optString("horizontalTitle"),
+                        it.optString("verticalTitle"), it.optString("range")
                     )
                 }
             )

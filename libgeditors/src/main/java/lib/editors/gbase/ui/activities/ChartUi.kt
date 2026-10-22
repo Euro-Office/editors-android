@@ -1,9 +1,12 @@
 package lib.editors.gbase.ui.activities
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.HorizontalScrollView
@@ -14,6 +17,7 @@ import android.widget.ScrollView
 import android.widget.TableLayout
 import android.widget.TableRow
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -23,45 +27,82 @@ import lib.editors.base.engine.ChartState
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
+import lib.editors.gbase.R
 import lib.editors.resources.R as Resources
 
 /**
- * Charts: choosing a type (to insert or change), the chart's elements (title, legend, value
- * labels, gridlines) and, in documents and presentations, its data in a table.
+ * Charts: choosing a type (to insert or change), the chart's titles and elements (legend, value
+ * labels, gridlines) and its data: in documents and presentations in a table, in spreadsheets
+ * the cells it shows, typed or selected on the sheet.
  */
 internal class ChartUi(
     private val context: Context,
     private val scope: CoroutineScope,
     private val document: () -> EditorDocument?,
     private val picker: IconPicker,
+    /** Shows a bar under the top bar (the one while the chart's cells are selected on the sheet), null hides it. */
+    private val showBar: (View?) -> Unit,
     private val edit: (EditorDocument.() -> EditorState) -> Unit
 ) {
 
     private val density = context.resources.displayMetrics.density
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     /** Chart types with their pictures, [selected] (the chart's) highlighted. */
     fun chooseType(title: Int, selected: Int? = null, onType: (Int) -> Unit) =
-        picker.show(title, InsertCatalog.CHARTS, selected, accent = true, onPick = onType)
+        picker.show(title, InsertCatalog.CHARTS, selected, onPick = onType)
 
-    fun chooseSmartArt() {
+    /** SmartArt layouts with their pictures, in web-apps' groups. */
+    fun chooseSmartArt() =
+        picker.show(Resources.string.editors_smartart_insert, InsertCatalog.SMART_ARTS, pictures = true) { layout ->
+            edit { insertSmartArt(layout.type, layout.file) }
+        }
+
+    /** The texts of the chart's title and, if it has axes, their titles; an empty one is removed. */
+    fun showTitles(chart: ChartState) {
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPaddingRelative(dp(24), dp(8), dp(24), 0)
+        }
+        fun field(label: Int, value: String) = EditText(context).apply {
+            setText(value)
+            hint = context.getString(label)
+            isSingleLine = true
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        }.also { field ->
+            content.addView(TextView(context).apply {
+                setText(label)
+                setPaddingRelative(0, dp(8), 0, 0)
+            })
+            content.addView(field)
+        }
+        val title = field(Resources.string.editors_chart_title, chart.titleText)
+        val horizontal = if (chart.axes) field(Resources.string.editors_chart_axis_horizontal, chart.horizontalTitle) else null
+        val vertical = if (chart.axes) field(Resources.string.editors_chart_axis_vertical, chart.verticalTitle) else null
         AlertDialog.Builder(context)
-            .setTitle(Resources.string.editors_smartart_insert)
-            .setItems(SMART_ARTS.map { context.getString(it.first) }.toTypedArray()) { _, index ->
-                val (_, type, fileName) = SMART_ARTS[index]
-                edit { insertSmartArt(type, fileName) }
+            .setTitle(Resources.string.editors_chart_titles)
+            .setView(ScrollView(context).apply { addView(content) })
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                edit {
+                    setChartTitles(
+                        title.text.toString().trim(),
+                        horizontal?.text?.toString()?.trim() ?: chart.horizontalTitle,
+                        vertical?.text?.toString()?.trim() ?: chart.verticalTitle
+                    )
+                }
             }
+            .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
 
+    /** Legend, value labels and gridlines; the title is set in [showTitles]. */
     fun showElements(chart: ChartState) {
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPaddingRelative(dp(24), dp(8), dp(24), 0)
         }
-        val title = CheckBox(context).apply { setText(Resources.string.editors_chart_title); isChecked = chart.title }
         val labels = CheckBox(context).apply { setText(Resources.string.editors_chart_labels); isChecked = chart.labels }
         val gridlines = CheckBox(context).apply { setText(Resources.string.editors_chart_gridlines); isChecked = chart.gridlines }
-        content.addView(title)
         content.addView(labels)
         content.addView(gridlines)
         content.addView(TextView(context).apply {
@@ -83,10 +124,84 @@ internal class ChartUi(
             .setView(ScrollView(context).apply { addView(content) })
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 val position = legend.findViewById<RadioButton>(legend.checkedRadioButtonId)?.tag as? Int ?: chart.legend
-                edit { setChartElements(title.isChecked, position, labels.isChecked, gridlines.isChecked) }
+                edit { setChartElements(chart.title, position, labels.isChecked, gridlines.isChecked) }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Spreadsheets: the cells the chart shows
+
+    fun editRange(chart: ChartState) {
+        val range = EditText(context).apply {
+            setText(chart.range.removePrefix("="))
+            isSingleLine = true
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        }
+        lateinit var dialog: AlertDialog
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPaddingRelative(dp(24), dp(8), dp(24), 0)
+            addView(TextView(context).apply { setText(Resources.string.editors_chart_range) })
+            addView(range)
+            fun button(label: Int, action: () -> Unit) = addView(TextView(context).apply {
+                setText(label)
+                minHeight = dp(48)
+                gravity = Gravity.CENTER_VERTICAL
+                setTextColor(context.getColor(Resources.color.editors_selection_handle))
+                setOnClickListener {
+                    dialog.dismiss()
+                    action()
+                }
+            })
+            button(Resources.string.editors_chart_range_select) { pickRange() }
+            button(Resources.string.editors_chart_switch) { edit { switchChartRowCol() } }
+        }
+        dialog = AlertDialog.Builder(context)
+            .setTitle(Resources.string.editors_chart_data)
+            .setView(ScrollView(context).apply { addView(content) })
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val typed = range.text.toString().trim()
+                if (typed.isNotEmpty() && typed != chart.range.removePrefix("=")) edit { setChartRange(typed) { rangeError() } }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    // The cells are selected on the sheet while a bar says so; Done gives them to the chart
+    private fun pickRange() {
+        edit { startChartRange() }
+        val bar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPaddingRelative(dp(16), 0, dp(4), 0)
+            minimumHeight = dp(48)
+            addView(TextView(context).apply {
+                setText(Resources.string.editors_chart_range_hint)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            fun button(label: Int, apply: Boolean) = addView(TextView(context).apply {
+                setText(label)
+                gravity = Gravity.CENTER
+                minHeight = dp(48)
+                setPaddingRelative(dp(12), 0, dp(12), 0)
+                setTextColor(context.getColor(Resources.color.editors_selection_handle))
+                setBackgroundResource(R.drawable.editor_tool_background)
+                setOnClickListener {
+                    showBar(null)
+                    edit { endChartRange(apply) { rangeError() } }
+                }
+            })
+            button(android.R.string.cancel, apply = false)
+            button(Resources.string.editors_done, apply = true)
+        }
+        showBar(bar)
+    }
+
+    // On the engine's thread
+    private fun rangeError() {
+        mainHandler.post { Toast.makeText(context, Resources.string.editors_chart_range_invalid, Toast.LENGTH_LONG).show() }
     }
 
     // ---------------------------------------------------------------------------------
@@ -176,17 +291,6 @@ internal class ChartUi(
     private fun dp(value: Int) = (value * density).toInt()
 
     private companion object {
-        // Asc.c_oAscSmartArtTypes and their definition files, packaged with the engine (build/scripts/sdkjs.sh)
-        val SMART_ARTS = listOf(
-            Triple(Resources.string.editors_smartart_list, 77, "Basic_Block_List"),
-            Triple(Resources.string.editors_smartart_process, 79, "Basic_Process"),
-            Triple(Resources.string.editors_smartart_cycle, 81, "Basic_Cycle"),
-            Triple(Resources.string.editors_smartart_hierarchy, 59, "Organization_Chart"),
-            Triple(Resources.string.editors_smartart_venn, 70, "Basic_Venn"),
-            Triple(Resources.string.editors_smartart_pyramid, 74, "Basic_Pyramid"),
-            Triple(Resources.string.editors_smartart_bullets, 9, "Vertical_Bullet_List"),
-            Triple(Resources.string.editors_smartart_timeline, 71, "Basic_Timeline")
-        )
         // Asc.c_oAscChartLegendShowSettings
         val LEGENDS = listOf(
             Resources.string.editors_chart_legend_none to 0,
