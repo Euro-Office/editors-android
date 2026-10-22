@@ -238,6 +238,29 @@ data class Misspelling(val word: String, val variants: List<String>?)
 /** A role of a form with roles (oform): who fills which fields. [color] as "RRGGBB". */
 data class FormRole(val name: String, val color: String, val fieldCount: Int)
 
+/**
+ * Co-editing: the connection (sdkjs blocks editing while it [reconnecting]; after it is
+ * [disconnected] the document is only viewed), who is in the session and the others' cursors.
+ */
+data class CoEditingState(
+    val reconnecting: Boolean,
+    val disconnected: Boolean,
+    val participants: List<Participant>,
+    val cursors: List<ForeignCursor>
+) {
+    /** The others editing the document (without oneself and viewers). */
+    val coEditors: List<Participant> get() = participants.filter { !it.me && !it.view }
+}
+
+/** Someone in a co-editing session; [color] as "#RRGGBB". Each window of a person is a participant. */
+data class Participant(val id: String, val name: String, val color: String, val view: Boolean, val me: Boolean)
+
+/** Someone else's cursor, a line on a page (millimeters). */
+data class ForeignCursor(
+    val user: String, val name: String, val color: String,
+    val page: Int, val x1: Double, val y1: Double, val x2: Double, val y2: Double
+)
+
 data class ToolbarState(
     val bold: Boolean = false,
     val italic: Boolean = false,
@@ -281,7 +304,9 @@ class EditorState(
     /** Documents with form fields. */
     val forms: FormsState? = null,
     /** Documents and presentations. */
-    val spelling: SpellingState? = null
+    val spelling: SpellingState? = null,
+    /** While co-editing. */
+    val coEditing: CoEditingState? = null
 ) {
     companion object {
         /** Throws [org.json.JSONException] if [json] isn't a state (the engine failed). */
@@ -332,10 +357,31 @@ class EditorState(
                         }
                     )
                 },
+                coEditing = root.optJSONObject("coEditing")?.let { parseCoEditing(it) },
                 chart = root.optJSONObject("chart")?.let {
                     ChartState(
                         it.optInt("type"), it.optBoolean("title"), it.optInt("legend"), it.optBoolean("labels"),
                         it.optBoolean("gridlines"), it.optBoolean("dataInCells")
+                    )
+                }
+            )
+        }
+
+        internal fun parseCoEditing(json: JSONObject): CoEditingState {
+            val participants = json.optJSONArray("participants") ?: org.json.JSONArray()
+            val cursors = json.optJSONArray("cursors") ?: org.json.JSONArray()
+            return CoEditingState(
+                json.optBoolean("reconnecting"),
+                json.optBoolean("disconnected"),
+                (0 until participants.length()).map { index ->
+                    val user = participants.getJSONObject(index)
+                    Participant(user.optString("id"), user.optString("name"), user.optString("color"), user.optBoolean("view"), user.optBoolean("me"))
+                },
+                (0 until cursors.length()).map { index ->
+                    val cursor = cursors.getJSONObject(index)
+                    ForeignCursor(
+                        cursor.optString("user"), cursor.optString("name"), cursor.optString("color"), cursor.getInt("page"),
+                        cursor.getDouble("x1"), cursor.getDouble("y1"), cursor.getDouble("x2"), cursor.getDouble("y2")
                     )
                 }
             )

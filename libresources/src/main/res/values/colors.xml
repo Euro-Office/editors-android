@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="editors_icon">#DE000000</color>
+    <color name="editors_coediting_warning">#B3261E</color>
+    <color name="editors_coediting_reconnecting">#7A5900</color>
     <color name="editors_tool_selected">#333367D6</color>
     <color name="editors_tool_pressed">#1F000000</color>
     <!-- Around the pages; the pages themselves stay white -->

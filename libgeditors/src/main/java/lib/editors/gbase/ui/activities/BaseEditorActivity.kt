@@ -313,17 +313,19 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 root.addView(forms.bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
                 formsUi = forms
             }
+            // Co-editing through the integration's Document Server (Nextcloud): the copy just
+            // opened is replaced by the session's version, and editing starts right away (the
+            // others are editing already)
+            val editorConfig = intent.getStringExtra(EditorsContract.KEY_DOC_SERVER)
+                ?.takeIf { isEditable && editorsType in CO_EDITORS }
             // The app may ask to show the document first (EditType.Edit.initialView): editing then starts with a button
-            if (isEditable && (!startsInView() || fillsForms() || startsFilling())) {
+            if (isEditable && (editorConfig != null || !startsInView() || fillsForms() || startsFilling())) {
                 enableEditing()
             } else if (isEditable) {
                 findViewById<View>(R.id.toolEdit).isVisible = true
                 findViewById<View>(R.id.toolEdit).setOnClickListener { enableEditing() }
             }
-            // Co-editing through the integration's Document Server (Nextcloud): the copy just
-            // opened is replaced by the session's version
-            val editorConfig = intent.getStringExtra(EditorsContract.KEY_DOC_SERVER)
-            if (editorConfig != null && isEditable && editorsType == EditorsType.DOCS) startCoEditing(editorConfig)
+            if (editorConfig != null) startCoEditing(editorConfig)
         }
     }
 
@@ -334,23 +336,35 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // the document into the integration: the editor saves and uploads nothing.
 
     private var coConnection: CoEditingConnection? = null
+    private var coEditingUi: CoEditingUi? = null
 
     private fun startCoEditing(json: String) {
         val config = runCatching { org.json.JSONObject(json) }.getOrNull() ?: return
         val key = config.optJSONObject("document")?.optString("key").orEmpty()
         val server = config.optString("documentServerUrl")
-        if (key.isEmpty() || server.isEmpty()) return
+        val document = document
+        if (key.isEmpty() || server.isEmpty() || document == null) return
         val events = Channel<CoEditingConnection.Event>(Channel.UNLIMITED)
-        coConnection = CoEditingConnection(server, key, File(cacheDir, "coediting")) { events.trySend(it) }
         findViewById<View>(R.id.toolSave).isVisible = false
+        val root = findViewById<ViewGroup>(R.id.editorRoot)
+        val bar = layoutInflater.inflate(R.layout.editor_coediting_bar, root, false) as TextView
+        root.addView(bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
+        coEditingUi = CoEditingUi(this, bar, findViewById(R.id.toolCoEditors)) { stopEditing() }
         lifecycleScope.launch {
-            for (event in events) coEdit {
-                event.file?.let { (url, path) -> coSetFile(url, path) }
-                coReceive(event.name, event.args)
+            val imagesDir = File(withContext(EditorEngine.dispatcher) { document.imagesDirectory() })
+            coConnection = CoEditingConnection(server, key, File(cacheDir, "coediting"), imagesDir) { events.trySend(it) }
+            launch {
+                for (event in events) coEdit {
+                    val image = event.image
+                    if (image != null) {
+                        coImageLoaded(image)
+                    } else {
+                        event.file?.let { (url, path) -> coSetFile(url, path) }
+                        coReceive(event.name, event.args)
+                    }
+                }
             }
-        }
-        coEdit { coOpen(json) }
-        lifecycleScope.launch {
+            coEdit { coOpen(json) }
             while (coConnection != null) {
                 delay(CO_TICK_MS)
                 coEdit { coTick(CO_TICK_BUDGET_MS) }
@@ -367,7 +381,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             setTranslations(EditorTranslations.sdkjs(this@BaseEditorActivity))
             val pages = (0 until pageCount).map { pageSize(it) }
             val languages = spellService?.let { EditorSpelling.dictionaries(this@BaseEditorActivity).installedLanguages() }
-            runOnUiThread {
+            // Spreadsheets: the state has the sheet's new geometry
+            if (!isSpreadsheet) runOnUiThread {
                 documentView.updatePages(pages)
                 documentView.reloadPages()
             }
@@ -378,8 +393,18 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     }
 
     private fun stopCoEditing() {
-        coConnection?.disconnect()
+        coConnection?.close()
         coConnection = null
+    }
+
+    /** Back to viewing: co-editing ended (sdkjs only lets one view the document then). */
+    private fun stopEditing() {
+        if (!editing) return
+        editing = false
+        showToolbar(editable = false)
+        if (isSpreadsheet) spreadsheetUi?.disableEditing() else documentView.readOnly = true
+        slidesUi?.editable = false
+        documentUi?.bar?.isVisible = false
     }
 
     /** From viewing to editing the document. */
@@ -740,6 +765,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun applyState(state: EditorState) {
         if (!isSpreadsheet) documentView.spellingActions = spellingActions(state.spelling?.word)
+        coEditingUi?.update(state.coEditing)
         if (isSpreadsheet) spreadsheetUi?.setState(state) else documentView.setEditorState(state)
         // The pages after the first ones are laid out in slices; input in between runs first
         if (state.layoutPending && !layingOut) {
@@ -848,12 +874,33 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             }
             val field = pictureField
             pictureField = null
+            // Co-editing: the picture goes to the Document Server first, for the others and the saved document
+            val name = coConnection?.let { connection ->
+                uploadPicture(connection, document, File(directory, picture.first)) ?: run {
+                    toast(getString(Resources.string.editors_coediting_upload_failed))
+                    return@launch
+                }
+            } ?: picture.first
             if (field != null) {
-                edit { setFormPicture(field, picture.first, picture.second, picture.third) }
+                edit { setFormPicture(field, name, picture.second, picture.third) }
             } else {
-                edit { insertImage(picture.first, picture.second, picture.third) }
+                edit { insertImage(name, picture.second, picture.third) }
             }
         }
+    }
+
+    // The server keeps the picture under a name of its own: the engine's copy takes that name
+    private suspend fun uploadPicture(connection: CoEditingConnection, document: EditorDocument, file: File): String? {
+        val (documentId, token) = withContext(EditorEngine.dispatcher) { document.coUploadInfo() }
+        val type = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "application/octet-stream"
+        val urls = withContext(Dispatchers.IO) { connection.upload(file, type, documentId, token) } ?: return null
+        val key = urls.keys().asSequence().firstOrNull { it.startsWith(MEDIA_PREFIX) } ?: return null
+        val name = key.removePrefix(MEDIA_PREFIX)
+        if (name.contains('/') || name.contains("..")) return null
+        val renamed = withContext(Dispatchers.IO) { name == file.name || file.renameTo(File(file.parentFile, name)) }
+        if (!renamed) return null
+        withContext(EditorEngine.dispatcher) { document.coAddUrls(urls.toString()) }
+        return name
     }
 
     private fun bindToolbar() {
@@ -1056,13 +1103,13 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         // The app may be closed in the background: keep the edits (co-editing: the server keeps them)
-        if (modified && !isChangingConfigurations && coConnection == null) save {}
+        if (modified && !isChangingConfigurations && coEditingUi == null) save {}
     }
 
     /** Leaves the editor, saving the edits first; asks what to do if that doesn't work. */
     private fun leave() {
         // Co-editing: the Document Server saves into the integration when everybody left
-        if (coConnection != null) {
+        if (coEditingUi != null) {
             stopCoEditing()
             setResult(RESULT_OK, Intent().setData(documentUri).putExtra(EditorsContract.EXTRA_IS_MODIFIED, false))
             finish()
@@ -1315,7 +1362,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         const val TAG = "EditorViewer"
         val ENGINE_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION, EditorsType.CELLS)
         const val LAYOUT_SLICE_MS = 30
+        /** Editors that co-edit through a Document Server. */
+        val CO_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION, EditorsType.CELLS)
         const val CO_TICK_MS = 100L
+        const val MEDIA_PREFIX = "media/"
         const val CO_TICK_BUDGET_MS = 20
         const val MAX_ERROR_CHARS = 2000
         const val SPELL_SLICE_MS = 30
@@ -1325,7 +1375,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         // Toolbar buttons also when viewing
         private val VIEWING_TOOLS = setOf(
             R.id.toolSearch, R.id.toolFile, R.id.toolComments, R.id.toolSlideshow, R.id.toolEdit, R.id.toolPages, R.id.toolOutline,
-            R.id.toolSign
+            R.id.toolSign, R.id.toolCoEditors
         )
         const val UNSUPPORTED_FORMAT = -1
         const val WRITE_ERROR = -2

@@ -54,6 +54,26 @@ class EditorStateTest {
         assertEquals("https://example.org", parsed.link!!.url)
     }
 
+    @Test
+    fun `parses the co-editing session`() {
+        val parsed = EditorState.parse(state(""", "coEditing": {"state": 2, "reconnecting": true, "disconnected": false,
+            "participants": [{"id": "u1", "name": "Ann", "color": "#a273e5", "view": false, "me": true},
+                             {"id": "u2", "name": "Ben", "color": "#3367d6", "view": false, "me": false},
+                             {"id": "u3", "name": "Cy", "color": "#55aa00", "view": true, "me": false}],
+            "cursors": [{"user": "u2", "name": "Ben", "color": "#3367d6", "page": 0, "x1": 15, "y1": 36, "x2": 15, "y2": 44}]}"""))
+        val session = parsed.coEditing!!
+        assertTrue(session.reconnecting)
+        assertFalse(session.disconnected)
+        assertEquals(3, session.participants.size)
+        assertEquals(listOf("Ben"), session.coEditors.map { it.name })
+        assertEquals(ForeignCursor("u2", "Ben", "#3367d6", 0, 15.0, 36.0, 15.0, 44.0), session.cursors.single())
+    }
+
+    @Test
+    fun `no session without co-editing`() {
+        assertNull(EditorState.parse(state(""", "coEditing": null""")).coEditing)
+    }
+
     @Test(expected = org.json.JSONException::class)
     fun `fails for something that isn't a state`() {
         EditorState.parse("undefined")

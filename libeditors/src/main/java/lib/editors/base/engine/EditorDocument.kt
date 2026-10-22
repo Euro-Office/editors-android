@@ -536,7 +536,10 @@ interface EditorDocument : PagedDocument {
     /** Joins the session of an editor configuration (JSON: document, editorConfig, token, ...). */
     fun coOpen(config: String): EditorState = command("eoEngine.coOpen(${JSONObject.quote(config)})")
 
-    /** What sdkjs sends: [{type: "connect", options} | {type: "emit", name, data} | {type: "disconnect"}]. */
+    /**
+     * What sdkjs sends: [{type: "connect", options} | {type: "emit", name, data} | {type: "disconnect"} |
+     * {type: "auth", auth: {token, session}} | {type: "reconnection", name, value} | {type: "fetch", url, name}].
+     */
     fun coTakeOutbox(): String = execute("eoEngine.coTakeOutbox()").ifEmpty { "[]" }
 
     /** An event of the socket (connect, message, disconnect, connect_error), its arguments as a JSON array. */
@@ -550,6 +553,19 @@ interface EditorDocument : PagedDocument {
 
     /** sdkjs' timers while co-editing: layout, sending changes, applying the others'. */
     fun coTick(budgetMs: Int): EditorState = command("eoEngine.tick($budgetMs); eoEngine.coTick()")
+
+    /** A picture of the document (a fetch of [coTakeOutbox]) was downloaded into [imagesDirectory]. */
+    fun coImageLoaded(name: String): EditorState = command("eoEngine.coImageLoaded(${JSONObject.quote(name)})")
+
+    /** Where to upload a picture to insert: the document's id on the server and the session's token. */
+    fun coUploadInfo(): Pair<String, String> = JSONObject(execute("eoEngine.coUploadInfo()")).let {
+        it.optString("documentId") to it.optString("token")
+    }
+
+    /** Names and URLs of uploaded pictures, as the server answers an upload ({"media/name.png": url}). */
+    fun coAddUrls(urls: String) {
+        execute("eoEngine.coAddUrls(${JSONObject.quote(urls)})")
+    }
 
     /**
      * Whether the engine started again on the server's version of the document since the last

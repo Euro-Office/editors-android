@@ -31,6 +31,9 @@
         <ImageButton android:id="@+id/toolFile" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_file" android:src="@drawable/ic_editor_file"
             android:visibility="gone" />
+        <ImageButton android:id="@+id/toolCoEditors" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_coediting_people" android:src="@drawable/ic_editor_people"
+            android:visibility="gone" />
         <ImageButton android:id="@+id/toolComments" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_comments" android:src="@drawable/ic_editor_comment"
             android:visibility="gone" />

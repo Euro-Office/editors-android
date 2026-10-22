@@ -70,6 +70,13 @@ internal class SpreadsheetUi(
     // second command can't enter it again into the cell that is active by then
     private var entering = false
 
+    /** Read-only again: co-editing ended. */
+    fun disableEditing() {
+        formulaBar.isVisible = false
+        suggestions?.dismiss()
+        sheetView.listener = null
+    }
+
     /** Shows the formula bar and takes input. Without it, the sheet is read-only. */
     fun enableEditing() {
         formulaBar.isVisible = true
@@ -169,7 +176,9 @@ internal class SpreadsheetUi(
             sheetView.contentDescription = cell
             if (previous != null) sheetView.announceForAccessibility(cell)
         }
-        if (cellChanged || !cellText.hasFocus()) {
+        // Someone else changed the cell (co-editing) while nothing is typed in the bar
+        val changedByOthers = previous != null && newSheet.text != previous.text && cellText.text.toString() == previous.text
+        if (cellChanged || !cellText.hasFocus() || changedByOthers) {
             cellText.setText(newSheet.text)
             cellText.setSelection(cellText.length())
             referenceStart = -1

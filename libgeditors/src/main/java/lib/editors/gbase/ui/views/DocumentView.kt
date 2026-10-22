@@ -38,6 +38,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import lib.editors.base.engine.EditorState
+import lib.editors.base.engine.ForeignCursor
 import lib.editors.base.engine.PageSize
 import lib.editors.base.engine.TextBlock
 import lib.editors.base.engine.TouchAction
@@ -220,6 +221,12 @@ class DocumentView @JvmOverloads constructor(
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = ContextCompat.getColor(context, Resources.color.editors_selection_handle)
         strokeWidth = 2 * density
+    }
+    // Others' cursors while co-editing: a line in their color with their name above it
+    private val foreignCursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 2 * density }
+    private val foreignNamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 11 * resources.displayMetrics.scaledDensity
     }
     private val scroller = OverScroller(context)
 
@@ -1236,6 +1243,7 @@ class DocumentView @JvmOverloads constructor(
                 canvas.drawRect(min(x, centerX), bottom, max(x, centerX), bottom + handleRadius, handlePaint)
             }
         }
+        state.coEditing?.cursors?.forEach { drawForeignCursor(canvas, it) }
         val cursor = state.cursor ?: return
         if (cursorShown && cursor.page in pageSizes.indices && editListener != null) {
             canvas.drawLine(
@@ -1244,6 +1252,21 @@ class DocumentView @JvmOverloads constructor(
                 cursorPaint
             )
         }
+    }
+
+    private fun drawForeignCursor(canvas: Canvas, cursor: ForeignCursor) {
+        if (cursor.page !in pageSizes.indices) return
+        foreignCursorPaint.color = runCatching { Color.parseColor(cursor.color) }.getOrDefault(Color.GRAY)
+        val x1 = screenX(cursor.page, cursor.x1)
+        val y1 = screenY(cursor.page, cursor.y1)
+        canvas.drawLine(x1, y1, screenX(cursor.page, cursor.x2), screenY(cursor.page, cursor.y2), foreignCursorPaint)
+        if (cursor.name.isEmpty()) return
+        val padding = 3 * density
+        val textWidth = foreignNamePaint.measureText(cursor.name)
+        val textHeight = foreignNamePaint.fontMetrics.let { it.descent - it.ascent }
+        val tag = RectF(x1 - foreignCursorPaint.strokeWidth / 2, y1 - textHeight - 2 * padding, x1 + textWidth + 2 * padding, y1)
+        canvas.drawRect(tag, foreignCursorPaint)
+        canvas.drawText(cursor.name, tag.left + padding, tag.bottom - padding - foreignNamePaint.fontMetrics.descent, foreignNamePaint)
     }
 
     private fun restartBlink() {

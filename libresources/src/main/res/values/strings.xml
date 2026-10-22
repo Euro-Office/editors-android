@@ -372,4 +372,16 @@
     <string name="editors_cells_empty">Empty</string>
     <string name="editors_cells_cell_value">%1$s, %2$s</string>
     <string name="editors_close">Close</string>
+    <!-- Co-editing -->
+    <string name="editors_coediting_people">People in this document</string>
+    <string name="editors_coediting_you">%1$s (you)</string>
+    <string name="editors_coediting_viewing">%1$s (viewing)</string>
+    <string name="editors_coediting_alone">Nobody else has the document open.</string>
+    <plurals name="editors_coediting_others">
+        <item quantity="one">%d other person is in this document</item>
+        <item quantity="other">%d other people are in this document</item>
+    </plurals>
+    <string name="editors_coediting_reconnecting">Connection lost. Reconnecting…</string>
+    <string name="editors_coediting_disconnected">Disconnected from the server. You can only view the document now. Open it again to continue editing.</string>
+    <string name="editors_coediting_upload_failed">Can\'t add the picture: the server didn\'t accept it.</string>
 </resources>
