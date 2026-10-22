@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Top bar of all editors: closing, the file's name, history, finding, saving, people and the
-     file's actions; buttons that don't apply are hidden -->
+<!-- Top bar of all editors: closing, the file's name, history, what concerns the whole document
+     (navigation, comments, slideshow, people) and the menu with finding, saving and the file's
+     actions; buttons that don't apply are hidden -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/editorTopBar"
@@ -38,13 +39,18 @@
             android:contentDescription="@string/editors_undo" android:src="@drawable/ic_editor_undo" />
         <ImageButton android:id="@+id/toolRedo" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_redo" android:src="@drawable/ic_editor_redo" />
-        <ImageButton android:id="@+id/toolSearch" style="@style/EditorToolButton"
-            android:contentDescription="@string/editors_search" android:src="@drawable/ic_editor_search" />
+        <ImageButton android:id="@+id/toolNavigation" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_doc_navigation" android:src="@drawable/ic_editor_outline"
+            android:visibility="gone" />
+        <lib.editors.gbase.ui.views.BadgeButton android:id="@+id/toolComments" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_comments" android:src="@drawable/ic_editor_comment"
+            android:visibility="gone" />
+        <ImageButton android:id="@+id/toolSlideshow" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_slides_slideshow" android:src="@drawable/ic_editor_slideshow"
+            android:visibility="gone" />
         <ImageButton android:id="@+id/toolCoEditors" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_coediting_people" android:src="@drawable/ic_editor_people"
             android:visibility="gone" />
-        <ImageButton android:id="@+id/toolSave" style="@style/EditorToolButton"
-            android:contentDescription="@string/editors_save" android:src="@drawable/ic_editor_save" />
         <!-- Editing starts here: in the accent -->
         <ImageButton android:id="@+id/toolEdit" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_edit" android:src="@drawable/ic_editor_edit"

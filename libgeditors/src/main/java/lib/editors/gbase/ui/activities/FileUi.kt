@@ -32,8 +32,9 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * The file menu: save a copy in another format (next to the document, see [deliverCopy]),
- * export as PDF, print and share; spell checking on or off while editing.
+ * The file menu (the top bar's "⋮"): save a copy in another format (next to the document, see
+ * [deliverCopy]), export as PDF, print and share; spell checking on or off while editing. The
+ * editor puts its own items first ([moreItems]).
  */
 internal class FileUi(
     private val activity: AppCompatActivity,
@@ -47,7 +48,9 @@ internal class FileUi(
     private val deliverCopy: (file: File, name: String) -> String,
     /** Whether spell checking is on; null where there is none (viewing, spreadsheets). */
     private val spellCheck: () -> Boolean? = { null },
-    private val setSpellCheck: (Boolean) -> Unit = {}
+    private val setSpellCheck: (Boolean) -> Unit = {},
+    /** Items first in the menu, which do their actions themselves: finding, saving, the document's settings. */
+    private val moreItems: (Menu) -> Unit = {}
 ) {
 
     private val density = activity.resources.displayMetrics.density
@@ -61,9 +64,10 @@ internal class FileUi(
             Resources.string.editors_file_share_pdf to { share("pdf") }
         )
         PopupMenu(activity, anchor).apply {
-            actions.forEachIndexed { i, (label, _) -> menu.add(Menu.NONE, i, i, label) }
+            moreItems(menu)
+            actions.forEachIndexed { i, (label, _) -> menu.add(Menu.NONE, i, FILE_ORDER + i, label) }
             spellCheck()?.let { on ->
-                menu.add(Menu.NONE, MENU_SPELL_CHECK, actions.size, Resources.string.editors_spell_check).apply {
+                menu.add(Menu.NONE, MENU_SPELL_CHECK, FILE_ORDER + actions.size, Resources.string.editors_spell_check).apply {
                     isCheckable = true
                     isChecked = on
                 }
@@ -156,6 +160,8 @@ internal class FileUi(
 
     private companion object {
         const val MENU_SPELL_CHECK = 100
+        // After moreItems
+        const val FILE_ORDER = 100
     }
 
     /** Prints a PDF file as it is. */

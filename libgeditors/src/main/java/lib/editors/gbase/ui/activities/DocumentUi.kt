@@ -4,6 +4,7 @@ import android.content.Context
 import android.text.InputType
 import android.view.Gravity
 import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -28,9 +29,10 @@ import java.util.Date
 import lib.editors.resources.R as Resources
 
 /**
- * Documents: tables, breaks, headers and footers, page numbers, notes, the table of contents,
- * page setup, navigation, word count and track changes. A bar above the toolbar shows where
- * the cursor is (header or footer, note) and the tracked change at it.
+ * Documents: tables, breaks, headers and footers, page numbers, notes, the table of contents
+ * (in the "Insert" menu), page setup, word count and track changes (in the file menu) and
+ * navigation. A bar above the toolbar shows where the cursor is (header or footer, note) and
+ * the tracked change at it.
  */
 internal class DocumentUi(
     private val context: Context,
@@ -95,45 +97,40 @@ internal class DocumentUi(
     // ---------------------------------------------------------------------------------
     // Menus
 
-    fun showDocumentMenu(anchor: View) {
-        val menu = PopupMenu(context, anchor)
-        val actions = HashMap<Int, () -> Unit>()
-        var id = 1
-        fun item(parent: Menu, label: Int, action: () -> Unit) {
-            parent.add(Menu.NONE, id, id, label)
-            actions[id++] = action
-        }
-        fun checkItem(parent: Menu, label: Int, checked: Boolean, action: () -> Unit) {
-            parent.add(Menu.NONE, id, id, label).isCheckable = true
-            parent.findItem(id).isChecked = checked
-            actions[id++] = action
-        }
-        menu.menu.addSubMenu(Resources.string.editors_doc_break).let { sub ->
+    /** Breaks, headers and footers, page numbers, notes and the table of contents: in the "Insert" menu. */
+    fun addInsertItems(menu: Menu) {
+        menu.addSubMenu(Resources.string.editors_doc_break).let { sub ->
             item(sub, Resources.string.editors_doc_break_page) { edit { insertBreak("page") } }
             item(sub, Resources.string.editors_doc_break_line) { edit { insertBreak("line") } }
             item(sub, Resources.string.editors_doc_break_column) { edit { insertBreak("column") } }
             item(sub, Resources.string.editors_doc_break_section_page) { edit { insertBreak("sectionNextPage") } }
             item(sub, Resources.string.editors_doc_break_section_continuous) { edit { insertBreak("sectionContinuous") } }
         }
-        menu.menu.addSubMenu(Resources.string.editors_doc_header_footer).let { sub ->
+        menu.addSubMenu(Resources.string.editors_doc_header_footer).let { sub ->
             item(sub, Resources.string.editors_doc_edit_header) { type { editHeaderFooter(documentView.visiblePage(), footer = false) } }
             item(sub, Resources.string.editors_doc_edit_footer) { type { editHeaderFooter(documentView.visiblePage(), footer = true) } }
             item(sub, Resources.string.editors_doc_page_number_footer) { edit { insertPageNumber(2, 2) } }
             item(sub, Resources.string.editors_doc_page_number_header) { edit { insertPageNumber(1, 0) } }
             item(sub, Resources.string.editors_doc_page_number_here) { edit { insertPageNumber(-1, 0) } }
         }
-        item(menu.menu, Resources.string.editors_doc_footnote) { type { addNote(endnote = false) } }
-        item(menu.menu, Resources.string.editors_doc_endnote) { type { addNote(endnote = true) } }
-        menu.menu.addSubMenu(Resources.string.editors_doc_toc).let { sub ->
+        item(menu, Resources.string.editors_doc_footnote) { type { addNote(endnote = false) } }
+        item(menu, Resources.string.editors_doc_endnote) { type { addNote(endnote = true) } }
+        menu.addSubMenu(Resources.string.editors_doc_toc).let { sub ->
             item(sub, Resources.string.editors_doc_toc_insert) { edit { addTableOfContents() } }
             item(sub, Resources.string.editors_doc_toc_update) { edit { updateTableOfContents() } }
         }
-        item(menu.menu, Resources.string.editors_doc_page_setup) { showPageSetup() }
-        item(menu.menu, Resources.string.editors_doc_navigation) { showNavigation() }
-        item(menu.menu, Resources.string.editors_doc_statistics) { showStatistics() }
-        menu.menu.addSubMenu(Resources.string.editors_doc_review).let { sub ->
+    }
+
+    /** Page setup, word count and reviewing: in the file menu. */
+    fun addDocumentItems(menu: Menu) {
+        item(menu, Resources.string.editors_doc_page_setup) { showPageSetup() }
+        item(menu, Resources.string.editors_doc_statistics) { showStatistics() }
+        menu.addSubMenu(Resources.string.editors_doc_review).let { sub ->
             if (!trackChangesForced) {
-                checkItem(sub, Resources.string.editors_doc_track_changes, structure.trackChanges) { edit { setTrackChanges(!structure.trackChanges) } }
+                item(sub, Resources.string.editors_doc_track_changes) { edit { setTrackChanges(!structure.trackChanges) } }.apply {
+                    isCheckable = true
+                    isChecked = structure.trackChanges
+                }
             }
             item(sub, Resources.string.editors_doc_next_change) { edit { reviewAction("next") } }
             item(sub, Resources.string.editors_doc_previous_change) { edit { reviewAction("previous") } }
@@ -143,9 +140,14 @@ internal class DocumentUi(
             item(sub, Resources.string.editors_doc_show_final) { edit { setReviewMode(1) } }
             item(sub, Resources.string.editors_doc_show_original) { edit { setReviewMode(2) } }
         }
-        menu.setOnMenuItemClickListener { actions[it.itemId]?.invoke(); actions.containsKey(it.itemId) }
-        menu.show()
     }
+
+    // An item that does its action itself, whichever menu it is in
+    private fun item(parent: Menu, label: Int, action: () -> Unit): MenuItem =
+        parent.add(Menu.NONE, Menu.NONE, Menu.NONE, label).setOnMenuItemClickListener {
+            action()
+            true
+        }
 
     fun showTableMenu(anchor: View) {
         val actions = listOf(
@@ -219,7 +221,7 @@ internal class DocumentUi(
             .show()
     }
 
-    private fun showNavigation() = read({ outline() }) { items ->
+    fun showNavigation() = read({ outline() }) { items ->
         val labels = mutableListOf(context.getString(Resources.string.editors_doc_go_to_page))
         labels += items.map { " ".repeat(it.level) + it.text }
         AlertDialog.Builder(context)

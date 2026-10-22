@@ -23,9 +23,6 @@
         <ImageButton android:id="@+id/toolPages" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_pages" android:src="@drawable/ic_editor_pages"
             android:visibility="gone" />
-        <ImageButton android:id="@+id/toolOutline" style="@style/EditorToolButton"
-            android:contentDescription="@string/editors_pages_contents" android:src="@drawable/ic_editor_outline"
-            android:visibility="gone" />
         <ImageButton android:id="@+id/toolSign" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_sign" android:src="@drawable/ic_editor_sign"
             android:visibility="gone" />
@@ -35,12 +32,6 @@
         <ImageButton android:id="@+id/toolTextBox" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_text_box" android:src="@drawable/ic_editor_text_box"
             android:visibility="gone" />
-        <ImageButton android:id="@+id/toolComments" style="@style/EditorToolButton"
-            android:contentDescription="@string/editors_comments" android:src="@drawable/ic_editor_comment"
-            android:visibility="gone" />
-        <ImageButton android:id="@+id/toolSlideshow" style="@style/EditorToolButton"
-            android:contentDescription="@string/editors_slides_slideshow" android:src="@drawable/ic_editor_slideshow"
-            android:visibility="gone" />
         <ImageButton android:id="@+id/toolInsert" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_insert" android:src="@drawable/ic_editor_insert" />
         <ImageButton android:id="@+id/toolShape" style="@style/EditorToolButton"
@@ -49,14 +40,8 @@
         <ImageButton android:id="@+id/toolFormat" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_format" android:src="@drawable/ic_editor_format"
             android:visibility="gone" />
-        <ImageButton android:id="@+id/toolDocument" style="@style/EditorToolButton"
-            android:contentDescription="@string/editors_doc_document" android:src="@drawable/ic_editor_document"
-            android:visibility="gone" />
         <ImageButton android:id="@+id/toolTable" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_doc_table_menu" android:src="@drawable/ic_editor_table"
-            android:visibility="gone" />
-        <ImageButton android:id="@+id/toolDeleteSlide" style="@style/EditorToolButton"
-            android:contentDescription="@string/editors_delete_slide" android:src="@drawable/ic_editor_slide_delete"
             android:visibility="gone" />
         <ImageButton android:id="@+id/toolBold" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_bold" android:src="@drawable/ic_editor_bold" />

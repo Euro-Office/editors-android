@@ -166,6 +166,9 @@ class SheetView @JvmOverloads constructor(
     private val toScreen = DrawingHandles.ToScreen { _, xMm, yMm -> android.graphics.PointF(viewX(xMm), viewY(yMm)) }
     private var actionMode: ActionMode? = null
 
+    /** More actions in the menu of selected cells (label and action), such as commenting them. */
+    var cellActions: List<Pair<String, () -> Unit>> = emptyList()
+
     // Mouse: a button is down on cells, on a heading (columns or rows) or on a drawing; the cell
     // or heading the selection started at; the last click, for double clicks
     private var mouseDown = false
@@ -857,7 +860,7 @@ class SheetView @JvmOverloads constructor(
     }
 
     // ---------------------------------------------------------------------------------
-    // Menu: cut, copy, paste; for selected drawings also delete
+    // Menu: cut, copy, paste, the editor's actions ([cellActions]); for selected drawings also delete
 
     private fun showActionMenu() {
         val mode = actionMode
@@ -880,6 +883,7 @@ class SheetView @JvmOverloads constructor(
             menu.add(Menu.NONE, android.R.id.paste, 2, android.R.string.paste)
             menu.add(Menu.NONE, MENU_FILL, 3, Resources.string.editors_cells_fill)
             menu.add(Menu.NONE, MENU_DELETE, 4, Resources.string.editors_delete)
+            cellActions.forEachIndexed { index, (label, _) -> menu.add(Menu.NONE, MENU_EXTRA + index, 5 + index, label) }
             return true
         }
 
@@ -888,6 +892,7 @@ class SheetView @JvmOverloads constructor(
                 context.getSystemService(ClipboardManager::class.java)?.hasPrimaryClip() == true
             menu.findItem(MENU_FILL).isVisible = state?.isSingleCell == false && drawings.isEmpty()
             menu.findItem(MENU_DELETE).isVisible = drawings.isNotEmpty()
+            for (index in cellActions.indices) menu.findItem(MENU_EXTRA + index)?.isVisible = drawings.isEmpty()
             return true
         }
 
@@ -900,6 +905,7 @@ class SheetView @JvmOverloads constructor(
                 MENU_FILL -> listener.onFillSelection()
                 // Clearing with drawings selected deletes them
                 MENU_DELETE -> listener.onClearCells()
+                in MENU_EXTRA until MENU_EXTRA + cellActions.size -> cellActions[item.itemId - MENU_EXTRA].second()
                 else -> return false
             }
             mode.finish()
@@ -1184,6 +1190,7 @@ class SheetView @JvmOverloads constructor(
         const val WHEEL_ZOOM_STEP = 0.1f
         const val MENU_FILL = 1
         const val MENU_DELETE = 2
+        const val MENU_EXTRA = 100
 
     }
 }

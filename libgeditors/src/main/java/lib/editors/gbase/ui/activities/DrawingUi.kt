@@ -8,6 +8,7 @@ import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
 import android.view.Gravity
+import android.view.Menu
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.PopupMenu
@@ -34,7 +35,9 @@ internal class DrawingUi(
     private val shapePanel: ShapePanel,
     private val picker: IconPicker,
     private val tablePicker: PreviewPicker? = null,
-    private val insertTextBox: (() -> Unit)? = null
+    private val insertTextBox: (() -> Unit)? = null,
+    /** More items at the end of the menu, which do their actions themselves (documents' breaks, notes, ...). */
+    private val moreInsertItems: (Menu) -> Unit = {}
 ) {
 
     /** The selected chart, for its own settings in the shape panel. */
@@ -49,6 +52,7 @@ internal class DrawingUi(
             menu.add(0, 4, 4, Resources.string.editors_smartart_insert).setIcon(Resources.drawable.ic_editor_smartart)
             if (insertTextBox != null) menu.add(0, 5, 2, Resources.string.editors_text_box).setIcon(Resources.drawable.ic_editor_text_box)
             if (tablePicker != null) menu.add(0, 6, 3, Resources.string.editors_table_insert).setIcon(Resources.drawable.ic_editor_table)
+            moreInsertItems(menu)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setForceShowIcon(true)
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {

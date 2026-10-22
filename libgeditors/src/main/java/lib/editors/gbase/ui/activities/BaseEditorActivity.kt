@@ -69,6 +69,7 @@ import lib.editors.base.engine.TouchAction
 import lib.editors.base.engine.WRITABLE_FORMATS
 import lib.editors.gbase.R
 import lib.editors.gbase.ui.clipboard.EditorClipboard
+import lib.editors.gbase.ui.views.BadgeButton
 import lib.editors.gbase.ui.views.DocumentView
 import lib.editors.gbase.ui.views.SheetView
 import lib.toolkit.base.managers.utils.CrashLog
@@ -294,11 +295,18 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 this@BaseEditorActivity, lifecycleScope, { document }, { command -> edit(command = command) },
                 canComment = isEditable || editAccess() == EditorsContract.INTERNAL_EDIT_ACCESS_COMMENT,
                 fileId = intent.getStringExtra(EditorsContract.EXTRA_ITEM_ID),
-                panels = panels
+                panels = panels,
+                onCount = { findViewById<BadgeButton>(R.id.toolComments).count = it }
             )
             commentsUi = comments
+            comments.onState()
             findViewById<View>(R.id.toolComments).isVisible = true
             findViewById<View>(R.id.toolComments).setOnClickListener { comments.show() }
+            // Commenting the selected text or cells from their menu
+            commentAction()?.let { action ->
+                if (isSpreadsheet) findViewById<SheetView>(R.id.sheetView).cellActions = listOf(action)
+                else documentView.selectionActions = listOf(action)
+            }
             if (editorsType == EditorsType.PRESENTATION) {
                 val firstSlide = opened.second.firstOrNull()
                 val ui = SlidesUi(
@@ -374,7 +382,6 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         val document = document
         if (key.isEmpty() || server.isEmpty() || document == null) return
         val events = Channel<CoEditingConnection.Event>(Channel.UNLIMITED)
-        findViewById<View>(R.id.toolSave).isVisible = false
         val root = findViewById<ViewGroup>(R.id.editorRoot)
         val bar = layoutInflater.inflate(R.layout.editor_coediting_bar, root, false) as TextView
         root.addView(bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
@@ -588,7 +595,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         if (!event.isCtrlPressed || event.isAltPressed) return false
         when (event.keyCode) {
             KeyEvent.KEYCODE_F -> searchBar?.show() ?: return false
-            KeyEvent.KEYCODE_S -> if (editing) findViewById<View>(R.id.toolSave).performClick() else return false
+            KeyEvent.KEYCODE_S -> if (canSave()) saveNow() else return false
             KeyEvent.KEYCODE_P -> if (document != null) fileUi.print() else return false
             else -> return false
         }
@@ -856,7 +863,6 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         }
         checkSpelling(state)
         modified = state.modified
-        findViewById<View>(R.id.toolSave).isEnabled = modified
         // A picture, shape or chart is selected (not text in it): text formatting goes to its
         // text, paragraph and cell settings don't apply
         val drawingSelected = state.drawings.any { !it.tracking }
@@ -970,6 +976,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             iconPicker,
             // Tables with a style: documents and presentations (spreadsheets' tables are cells)
             tablePicker = previewPicker.takeUnless { isSpreadsheet },
+            moreInsertItems = { menu -> documentUi?.addInsertItems(menu) },
             // Text boxes take the typing at once; spreadsheets have none (text goes into cells)
             insertTextBox = if (isSpreadsheet) null else {
                 {
@@ -1074,24 +1081,33 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         bind(R.id.toolAlignRight) { setAlignment(Alignment.RIGHT) }
         bind(R.id.toolUndo) { undo() }
         bind(R.id.toolRedo) { redo() }
-        if (editorsType == EditorsType.PRESENTATION) {
-            // New slides: the button at the end of the slides
-            findViewById<View>(R.id.toolDeleteSlide).isVisible = true
-            bind(R.id.toolDeleteSlide) { deleteSlide() }
-        }
+        // Slides are added and deleted at the slides (the button at their end, a slide's menu)
         findViewById<View>(R.id.toolInsert).setOnClickListener { drawingUi.showInsertMenu(it) }
         documentUi?.let { ui ->
-            findViewById<View>(R.id.toolDocument).isVisible = true
-            findViewById<View>(R.id.toolDocument).setOnClickListener { ui.showDocumentMenu(it) }
+            // PDF forms keep their contents (showPageTools)
+            val navigation = findViewById<View>(R.id.toolNavigation)
+            if (!navigation.isVisible) {
+                navigation.isVisible = true
+                navigation.setOnClickListener { ui.showNavigation() }
+            }
             findViewById<View>(R.id.toolTable).setOnClickListener { ui.showTableMenu(it) }
         }
         findViewById<View>(R.id.toolFormat).isVisible = true
         findViewById<View>(R.id.toolFormat).setOnClickListener { if (isSpreadsheet) cellFormatPanel.show() else formatPanel.show() }
         findViewById<View>(R.id.toolShape).setOnClickListener { drawingUi.showShapePanel() }
-        findViewById<View>(R.id.toolSave).setOnClickListener {
-            save { error -> if (error == 0) toast(getString(Resources.string.editors_saved)) else toast(saveErrorMessage(error)) }
-        }
     }
+
+    // "Comment" in the menu of selected text or cells
+    private fun commentAction(): Pair<String, () -> Unit>? {
+        val comments = commentsUi?.takeIf { it.canComment } ?: return null
+        return getString(Resources.string.editors_comment) to { comments.add() }
+    }
+
+    // Saving from the file menu or with Ctrl+S; co-editing, the Document Server saves
+    private fun canSave() = editing && coConnection == null
+
+    private fun saveNow() =
+        save { error -> if (error == 0) toast(getString(Resources.string.editors_saved)) else toast(saveErrorMessage(error)) }
 
     // ---------------------------------------------------------------------------------
     // PDFs in sdkjs' PDF editor: pages, contents and search; marking text up, drawing, notes
@@ -1116,15 +1132,16 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         // The document editor's tools don't apply
         listOf(
             R.id.toolBold, R.id.toolItalic, R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight,
-            R.id.toolInsert, R.id.toolShape, R.id.toolFormat, R.id.toolDocument, R.id.toolTable, R.id.toolSlideshow
+            R.id.toolInsert, R.id.toolShape, R.id.toolFormat, R.id.toolTable, R.id.toolSlideshow
         ).forEach { findViewById<View>(it).isVisible = false }
         documentView.readOnly = false
         // Typing only goes into text boxes and form fields
         documentView.keyboardWithCursor = true
-        documentView.selectionActions = listOf(
+        documentView.selectionActions = listOfNotNull(
             getString(Resources.string.editors_pdf_highlight) to { edit { markup(PdfMarkupKind.HIGHLIGHT, "FFEB3B") } },
             getString(Resources.string.editors_pdf_underline) to { edit { markup(PdfMarkupKind.UNDERLINE, "3366D9") } },
-            getString(Resources.string.editors_pdf_strikeout) to { edit { markup(PdfMarkupKind.STRIKEOUT, "D92626") } }
+            getString(Resources.string.editors_pdf_strikeout) to { edit { markup(PdfMarkupKind.STRIKEOUT, "D92626") } },
+            commentAction()
         )
         findViewById<View>(R.id.toolPen).isVisible = true
         findViewById<View>(R.id.toolPen).setOnClickListener { showPenMenu(it) }
@@ -1134,9 +1151,6 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolTextBox).setOnClickListener { addTextBox() }
         findViewById<View>(R.id.toolUndo).setOnClickListener { edit { undo() } }
         findViewById<View>(R.id.toolRedo).setOnClickListener { edit { redo() } }
-        findViewById<View>(R.id.toolSave).setOnClickListener {
-            save { error -> if (error == 0) toast(getString(Resources.string.editors_saved)) else toast(saveErrorMessage(error)) }
-        }
     }
 
     // Freehand drawing: pens of a few colors and a marker; one finger draws, two scroll
@@ -1295,8 +1309,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         documentView.onVisiblePageChanged = { strip.setCurrent(it) }
         findViewById<View>(R.id.toolPages).isVisible = true
         findViewById<View>(R.id.toolPages).setOnClickListener { strip.toggle() }
-        findViewById<View>(R.id.toolOutline).isVisible = true
-        findViewById<View>(R.id.toolOutline).setOnClickListener {
+        // Contents and pages: the top bar's navigation, as in documents
+        findViewById<View>(R.id.toolNavigation).isVisible = true
+        findViewById<View>(R.id.toolNavigation).setOnClickListener {
             lifecycleScope.launch {
                 val outline = withContext(EditorEngine.dispatcher) { file.fileOutline() }
                 val labels = listOf(getString(Resources.string.editors_doc_go_to_page)) +
@@ -1351,7 +1366,6 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             hiddenTools.forEach { it.isVisible = true }
             hiddenTools.clear()
         }
-        findViewById<View>(R.id.toolSearch).setOnClickListener { searchBar?.show() }
     }
 
     private fun addSearchBar(target: SearchBar.Target) {
@@ -1569,7 +1583,13 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         FileUi(
             this, lifecycleScope, { document }, copyFormats(), { baseName }, ::deliverCopy,
             spellCheck = { spellCheckOn.takeIf { editing && editorsType != EditorsType.CELLS } },
-            setSpellCheck = ::setSpellCheck
+            setSpellCheck = ::setSpellCheck,
+            moreItems = { menu ->
+                fun item(label: Int, action: () -> Unit) = menu.add(label).setOnMenuItemClickListener { action(); true }
+                if (searchBar != null) item(Resources.string.editors_search) { searchBar?.show() }
+                if (canSave()) item(Resources.string.editors_save) { saveNow() }.isEnabled = modified
+                documentUi?.addDocumentItems(menu)
+            }
         )
     }
 
@@ -1672,11 +1692,11 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         const val KEY_SPELL_CHECK = "spell_check"
         // Toolbar buttons also when viewing
         private val FILLING_HIDDEN_TOOLS = listOf(
-            R.id.toolInsert, R.id.toolShape, R.id.toolFormat, R.id.toolDocument, R.id.toolTable, R.id.toolBold, R.id.toolItalic,
+            R.id.toolInsert, R.id.toolShape, R.id.toolFormat, R.id.toolTable, R.id.toolBold, R.id.toolItalic,
             R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight
         )
         private val VIEWING_TOOLS = setOf(
-            R.id.toolSearch, R.id.toolFile, R.id.toolComments, R.id.toolSlideshow, R.id.toolEdit, R.id.toolPages, R.id.toolOutline,
+            R.id.toolFile, R.id.toolComments, R.id.toolSlideshow, R.id.toolEdit, R.id.toolPages, R.id.toolNavigation,
             R.id.toolSign, R.id.toolCoEditors
         )
         const val UNSUPPORTED_FORMAT = -1

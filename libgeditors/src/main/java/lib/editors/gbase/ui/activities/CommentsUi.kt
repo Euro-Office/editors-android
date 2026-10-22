@@ -18,6 +18,8 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -41,9 +43,11 @@ internal class CommentsUi(
     private val scope: CoroutineScope,
     private val document: () -> EditorDocument?,
     private val edit: (EditorDocument.() -> EditorState) -> Unit,
-    private val canComment: Boolean,
+    val canComment: Boolean,
     private val fileId: String?,
-    private val panels: PanelHost
+    private val panels: PanelHost,
+    /** The number of open (not resolved) comments, for the comments button. */
+    private val onCount: (Int) -> Unit = {}
 ) {
 
     private val density = activity.resources.displayMetrics.density
@@ -51,6 +55,7 @@ internal class CommentsUi(
     private var dialog: PanelHost.Panel? = null
     private val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
     private var users: List<SharedUser> = emptyList()
+    private var counting: Job? = null
     private val messenger: MessengerClient? = fileId?.let { id ->
         MessengerClient(activity).also { client ->
             client.init(activity)
@@ -70,9 +75,22 @@ internal class CommentsUi(
         reload()
     }
 
-    /** After a command: the list again, if it is shown. */
+    /** A new comment on the selection (the selection's menu). */
+    fun add() {
+        if (canComment) compose(null)
+    }
+
+    /** After a command: the list again, if it is shown; the count at most once a second. */
     fun onState() {
         if (dialog != null) reload()
+        if (counting != null) return
+        counting = scope.launch {
+            delay(COUNT_DELAY_MS)
+            counting = null
+            val document = document() ?: return@launch
+            val comments = withContext(EditorEngine.dispatcher) { runCatching { document.comments() }.getOrNull() } ?: return@launch
+            onCount(comments.count { !it.solved })
+        }
     }
 
     private fun reload() {
@@ -256,5 +274,6 @@ internal class CommentsUi(
         const val PREFERENCES = "lib.editors.comments"
         const val KEY_NAME = "user_name"
         const val KEY_ID = "user_id"
+        const val COUNT_DELAY_MS = 1000L
     }
 }
