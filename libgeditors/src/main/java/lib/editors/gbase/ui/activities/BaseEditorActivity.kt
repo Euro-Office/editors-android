@@ -39,6 +39,7 @@ import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -1321,9 +1322,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         val document = document ?: return
         if (saving) return
         saving = true
-        // Not tied to the activity: saving finishes even if it is destroyed meanwhile
-        CoroutineScope(Dispatchers.Main).launch {
-            val (error, state) = withContext(EditorEngine.dispatcher) { saveInto(document, uri) to document.state() }
+        // Not tied to the activity: saving finishes even if it is destroyed meanwhile. Started at
+        // once, so it is on the engine's thread before onDestroy's close
+        CoroutineScope(Dispatchers.Main).launch(start = CoroutineStart.UNDISPATCHED) {
+            val (error, state) = withContext(EditorEngine.dispatcher) {
+                saveInto(document, uri) to runCatching { document.state() }.getOrNull()
+            }
             saving = false
             if (error == 0) {
                 documentSaved = extension in WRITABLE_FORMATS
@@ -1331,7 +1335,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             } else {
                 Log.e(TAG, "save failed: $error")
             }
-            if (!isDestroyed) applyState(state)
+            if (!isDestroyed && state != null) applyState(state)
             onDone(error)
         }
     }

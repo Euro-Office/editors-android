@@ -15,10 +15,15 @@ internal class NativeEditorDocument(private var handle: Long) : EditorDocument {
     override fun renderTile(page: Int, pageWidth: Int, pageHeight: Int, x: Int, y: Int, bitmap: Bitmap): Boolean =
         NativeEngine.nativeRenderTile(handle, page, pageWidth, pageHeight, x, y, bitmap)
 
-    override fun save(path: String, extension: String): Int = NativeEngine.nativeSave(handle, path, extension)
+    // A closed document saves nothing (-1) and runs no scripts (IllegalStateException), instead
+    // of the engine crashing on it
+    override fun save(path: String, extension: String): Int =
+        if (handle == 0L) -1 else NativeEngine.nativeSave(handle, path, extension)
 
-    override fun execute(script: String): String =
-        String(NativeEngine.nativeExecute(handle, script), Charsets.UTF_8)
+    override fun execute(script: String): String {
+        check(handle != 0L) { "the document is closed" }
+        return String(NativeEngine.nativeExecute(handle, script), Charsets.UTF_8)
+    }
 
     override fun close() {
         if (handle != 0L) {
