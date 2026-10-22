@@ -367,14 +367,14 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             coEdit { coOpen(json) }
             while (coConnection != null) {
                 delay(CO_TICK_MS)
-                coEdit { coTick(CO_TICK_BUDGET_MS) }
+                coEdit(isTick = true) { coTick(CO_TICK_BUDGET_MS) }
             }
         }
     }
 
     // A command, then what sdkjs sends goes out; after the session's document was loaded the
     // pages and settings are read again
-    private fun coEdit(command: EditorDocument.() -> EditorState) = edit {
+    private fun coEdit(isTick: Boolean = false, command: EditorDocument.() -> EditorState) = edit(isTick = isTick) {
         val state = command()
         coConnection?.handle(coTakeOutbox())
         if (coTakeReloaded()) {
@@ -742,7 +742,15 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         if (cut) cut() else state()
     }
 
-    private fun edit(isLayoutSlice: Boolean = false, isSpellSlice: Boolean = false, command: EditorDocument.() -> EditorState) {
+    // The state applied last, for co-editing's timer (see isIdle)
+    private var appliedState: EditorState? = null
+
+    private fun edit(
+        isLayoutSlice: Boolean = false,
+        isSpellSlice: Boolean = false,
+        isTick: Boolean = false,
+        command: EditorDocument.() -> EditorState
+    ) {
         lifecycleScope.launch {
             val result = withContext(EditorEngine.dispatcher) {
                 val document = document ?: return@withContext null
@@ -758,9 +766,37 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             if (isLayoutSlice) layingOut = false
             if (isSpellSlice) spellChecking = false
             if (result == null) return@launch
+            // Co-editing's timer runs often; a state that changes nothing isn't applied (that redraws)
+            if (isTick && isIdle(result.first, appliedState)) return@launch
             if (!isSpreadsheet) result.second?.let { documentView.updatePages(it) }
+            appliedState = result.first
             applyState(result.first)
         }
+    }
+
+    private fun isIdle(state: EditorState, previous: EditorState?): Boolean {
+        previous ?: return false
+        if (state.dirtyPages.isNotEmpty() || state.layoutChanged || state.layoutPending || state.error != null || state.openUrl != null) {
+            return false
+        }
+        if (state.cursor != previous.cursor || state.coEditing != previous.coEditing || state.toolbar != previous.toolbar ||
+            state.modified != previous.modified || state.spelling != previous.spelling || state.format != previous.format ||
+            state.link != previous.link || state.search != previous.search || state.currentPage != previous.currentPage
+        ) {
+            return false
+        }
+        fun same(a: List<DoubleArray>, b: List<DoubleArray>) = a.size == b.size && a.zip(b).all { (x, y) -> x.contentEquals(y) }
+        if (!same(state.selection.map { it.points }, previous.selection.map { it.points }) ||
+            !same(state.drawings.map { it.points }, previous.drawings.map { it.points })
+        ) {
+            return false
+        }
+        val sheet = state.sheet ?: return true
+        val old = previous.sheet ?: return false
+        return sheet.geometry == null && sheet.text == old.text && sheet.name == old.name && sheet.active == old.active &&
+            listOf(sheet.c1, sheet.r1, sheet.c2, sheet.r2) == listOf(old.c1, old.r1, old.c2, old.r2) &&
+            sheet.sheets.map { it.name to it.hidden } == old.sheets.map { it.name to it.hidden } &&
+            same(sheet.objects, old.objects) && sheet.cellFormat == old.cellFormat && sheet.warning == null
     }
 
     private fun applyState(state: EditorState) {
@@ -861,6 +897,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     // Copies the picture into the document's images and inserts it at the cursor
     private fun insertPicture(uri: Uri) {
+        Log.i(TAG, "inserting a picture")
         val document = document ?: return
         lifecycleScope.launch {
             val directory = withContext(EditorEngine.dispatcher) { document.imagesDirectory() }
@@ -891,6 +928,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     // The server keeps the picture under a name of its own: the engine's copy takes that name
     private suspend fun uploadPicture(connection: CoEditingConnection, document: EditorDocument, file: File): String? {
+        Log.i(TAG, "uploading the picture ${file.name} (${file.length()} bytes)")
         val (documentId, token) = withContext(EditorEngine.dispatcher) { document.coUploadInfo() }
         val type = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "application/octet-stream"
         val urls = withContext(Dispatchers.IO) { connection.upload(file, type, documentId, token) } ?: return null
@@ -900,6 +938,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         val renamed = withContext(Dispatchers.IO) { name == file.name || file.renameTo(File(file.parentFile, name)) }
         if (!renamed) return null
         withContext(EditorEngine.dispatcher) { document.coAddUrls(urls.toString()) }
+        Log.i(TAG, "uploaded the picture as $name")
         return name
     }
 
