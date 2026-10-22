@@ -140,7 +140,8 @@ internal class DrawingUi(
         fun importPicture(context: Context, uri: Uri, directory: File): Triple<String, Int, Int>? {
             val resolver = context.contentResolver
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+            // Only reads the size (decodeStream returns null then)
+            (resolver.openInputStream(uri) ?: return null).use { BitmapFactory.decodeStream(it, null, bounds) }
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
             var sample = 1
