@@ -319,6 +319,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             })
             applyState(opened.third)
             if (isPdfEditor) showPdfTools(opened.first, opened.second)
+            // PDF forms (in the document editor): their pages as other PDFs'
+            else if (extension == "pdf") showPageTools(opened.first, opened.second)
             if (editorsType == EditorsType.DOCS && isEditable && !isPdfEditor) {
                 val forms = FormsUi(this@BaseEditorActivity, { command -> edit(command = command) },
                     pickPicture = { field ->
