@@ -49,6 +49,9 @@ internal class DocumentUi(
     /** Changes are always tracked (reviewing): recording can't be turned off. */
     var trackChangesForced = false
 
+    /** Mobile view: no headers, footers or pages to set up (they are the document's pages'). */
+    var mobileView = false
+
     /** The bar for headers and footers, notes and tracked changes; above the toolbar. */
     val bar: LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -107,7 +110,7 @@ internal class DocumentUi(
                 edit { insertBreak("sectionContinuous") }
             }
         }
-        menu.addSubMenu(Resources.string.editors_doc_header_footer).setIcon(Resources.drawable.ic_editor_page_number).let { sub ->
+        if (!mobileView) menu.addSubMenu(Resources.string.editors_doc_header_footer).setIcon(Resources.drawable.ic_editor_page_number).let { sub ->
             item(sub, Resources.string.editors_doc_edit_header) { type { editHeaderFooter(documentView.visiblePage(), footer = false) } }
             item(sub, Resources.string.editors_doc_edit_footer) { type { editHeaderFooter(documentView.visiblePage(), footer = true) } }
             item(sub, Resources.string.editors_doc_page_number_footer) { edit { insertPageNumber(2, 2) } }
@@ -124,7 +127,7 @@ internal class DocumentUi(
 
     /** Page setup, word count and reviewing: in the file menu. */
     fun addDocumentItems(menu: Menu) {
-        item(menu, Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) { showPageSetup() }
+        if (!mobileView) item(menu, Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) { showPageSetup() }
         item(menu, Resources.string.editors_doc_statistics, Resources.drawable.ic_editor_info) { showStatistics() }
         menu.addSubMenu(Resources.string.editors_doc_review).setIcon(Resources.drawable.ic_editor_review).let { sub ->
             if (!trackChangesForced) {
@@ -252,7 +255,7 @@ internal class DocumentUi(
                 Resources.string.editors_doc_statistics_paragraphs to statistics.paragraphs,
                 Resources.string.editors_doc_statistics_characters to statistics.symbols,
                 Resources.string.editors_doc_statistics_characters_spaces to statistics.symbolsWithSpaces
-            ).forEach { (label, count) ->
+            ).filter { (_, count) -> count >= 0 }.forEach { (label, count) ->
                 addView(LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL

@@ -103,7 +103,20 @@ class DocumentView @JvmOverloads constructor(
     }
 
     private val density = resources.displayMetrics.density
-    private val pageMargin = 12 * density
+    // Around and between pages; none in continuous pages
+    private val pageMargin get() = if (continuous) 0f else 12 * density
+
+    /** Pages edge to edge, without margins and gaps (mobile view: the text as one). */
+    var continuous = false
+        set(value) {
+            if (field == value) return
+            field = value
+            // Pages are rendered for their width on the view
+            pageBitmaps.evictAll()
+            details = emptyList()
+            layoutPages()
+            invalidate()
+        }
     private val maxZoom = 5f
 
     private var pageSizes: List<PageSize> = emptyList()

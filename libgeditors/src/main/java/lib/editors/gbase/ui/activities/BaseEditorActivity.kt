@@ -179,6 +179,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         } else {
             setContentView(R.layout.activity_editor_viewer)
             documentView = findViewById(R.id.documentView)
+            documentView.addOnLayoutChangeListener(mobileViewResize)
         }
 
         findViewById<View>(R.id.toolClose).setOnClickListener { onBack() }
@@ -909,9 +910,61 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         state.shownComments.firstOrNull()?.let { commentsUi?.showThread(it) }
         formsUi?.update(state)
         documentUi?.update(state)
+        updateMobileView(state)
         val link = state.link?.takeIf { state.selection.isEmpty() }
         showLink(link?.let { it.url.ifEmpty { it.anchor } }, link?.let { { edit { followLink() } } })
         state.openUrl?.let { openUrl(it) }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Mobile view (documents): the text laid out for the screen, as chosen last; phones start
+    // with it
+
+    private val viewPreferences by lazy { getSharedPreferences(VIEW_PREFERENCES, MODE_PRIVATE) }
+    private var mobileViewChosen: Boolean
+        get() = viewPreferences.getBoolean(MOBILE_VIEW, !resources.getBoolean(R.bool.editor_side_panels))
+        set(value) = viewPreferences.edit().putBoolean(MOBILE_VIEW, value).apply()
+    // Switching (the engine lays the document out again), and the width laid out for
+    private var mobileViewPending = false
+    private var mobileViewWidth = 0
+
+    private fun canUseMobileView() = editorsType == EditorsType.DOCS && !isPdfEditor && !fillsForms() && document != null
+
+    private fun updateMobileView(state: EditorState) {
+        if (!canUseMobileView()) return
+        documentView.continuous = state.mobileView
+        documentUi?.mobileView = state.mobileView
+        if (state.mobileView == mobileViewChosen) mobileViewPending = false
+        // Also when co-editing opened the document again
+        else if (!mobileViewPending) applyMobileView()
+    }
+
+    // Pages of the view's width; their height the screen's, so that the keyboard doesn't change them
+    private fun applyMobileView() {
+        val width = documentView.width
+        if (width == 0) {
+            documentView.post { applyMobileView() }
+            return
+        }
+        mobileViewPending = true
+        mobileViewWidth = width
+        val on = mobileViewChosen
+        val mmPerPixel = 25.4 / resources.displayMetrics.densityDpi
+        val widthMm = width * mmPerPixel
+        val heightMm = maxOf(resources.displayMetrics.heightPixels, resources.displayMetrics.widthPixels) * mmPerPixel
+        edit { setMobileView(on, widthMm, heightMm) }
+    }
+
+    private fun toggleMobileView() {
+        mobileViewChosen = !mobileViewChosen
+        applyMobileView()
+    }
+
+    // A new width (turning the device, a window's size): laid out again for it
+    private val mobileViewResize = View.OnLayoutChangeListener { view, left, _, right, _, _, _, _, _ ->
+        if (canUseMobileView() && mobileViewChosen && !mobileViewPending && mobileViewWidth != 0 && right - left != mobileViewWidth) {
+            view.post { applyMobileView() }
+        }
     }
 
     // ---------------------------------------------------------------------------------
@@ -1675,6 +1728,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     menu.add(label).setIcon(icon).setOnMenuItemClickListener { action(); true }
                 if (searchBar != null) item(Resources.string.editors_search, Resources.drawable.ic_editor_search) { searchBar?.show() }
                 if (canSave()) item(Resources.string.editors_save, Resources.drawable.ic_editor_save) { saveNow() }.isEnabled = modified
+                if (canUseMobileView()) {
+                    item(Resources.string.editors_doc_mobile_view, Resources.drawable.ic_editor_mobile_view) { toggleMobileView() }.apply {
+                        isCheckable = true
+                        isChecked = mobileViewChosen
+                    }
+                }
                 documentUi?.addDocumentItems(menu)
                 // Presentations' and spreadsheets' page setup (documents': documentUi's)
                 if (editing && !isPdfEditor) {
@@ -1770,6 +1829,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private companion object {
         const val TAG = "EditorViewer"
+        const val VIEW_PREFERENCES = "editors_view"
+        const val MOBILE_VIEW = "mobileView"
         private const val TEXT_BOX_WIDTH_MM = 200 * 25.4 / 72
         private const val TEXT_BOX_HEIGHT_MM = 85 * 25.4 / 72
 

@@ -624,6 +624,14 @@ interface EditorDocument : PagedDocument {
     /** A footnote (or endnote) at the cursor; editing goes on in it. */
     fun addNote(endnote: Boolean): EditorState = command(if (endnote) "eoEngine.addEndnote()" else "eoEngine.addFootnote()")
 
+    /**
+     * Documents: mobile view ([on]), the text laid out on pages of [widthMm] by [heightMm] (the
+     * screen's), its letters scaled by [scale], without headers and footers; or the document's
+     * pages. PDFs and printing always have the document's pages.
+     */
+    fun setMobileView(on: Boolean, widthMm: Double = 0.0, heightMm: Double = 0.0, scale: Double = 1.0): EditorState =
+        command("eoEngine.setMobileView($on, $widthMm, $heightMm, $scale)")
+
     /** Back to the text from a footnote or endnote. */
     fun endNoteEditing(): EditorState = command("eoEngine.endNoteEditing()")
 

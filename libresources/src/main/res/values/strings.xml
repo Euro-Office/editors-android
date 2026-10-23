@@ -158,6 +158,7 @@
     <string name="editors_doc_toc">Table of contents</string>
     <string name="editors_doc_toc_insert">Insert</string>
     <string name="editors_doc_toc_update">Update</string>
+    <string name="editors_doc_mobile_view">Mobile view</string>
     <string name="editors_doc_page_setup">Page setup</string>
     <string name="editors_doc_orientation">Orientation</string>
     <string name="editors_doc_portrait">Portrait</string>

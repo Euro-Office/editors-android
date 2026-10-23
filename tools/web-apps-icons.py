@@ -52,6 +52,7 @@ MENU_ICONS = {
     "review": "common/mobile/resources/icons/android/icon-review.svg",
     "search": "common/mobile/resources/icons/common/icon-search.svg",
     "page_setup": "documenteditor/mobile/resources/icons/common/icon-doc-setup.svg",
+    "mobile_view": "documenteditor/mobile/resources/icons/common/icon-mobile-view.svg",
     "info": "common/mobile/resources/icons/common/icon-info.svg",
     "spellcheck": "common/mobile/resources/icons/common/icon-spellcheck.svg",
     "print": "common/mobile/resources/icons/common/icon-print.svg",

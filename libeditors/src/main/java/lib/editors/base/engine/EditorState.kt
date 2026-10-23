@@ -378,7 +378,9 @@ class EditorState(
     /** A place to show, after following a link or an entry of the contents (reported once). */
     val navigate: Place? = null,
     /** The comments sdkjs shows: of the commented text tapped, of the selected PDF annotation. */
-    val shownComments: List<String> = emptyList()
+    val shownComments: List<String> = emptyList(),
+    /** Documents: laid out for the screen ([EditorDocument.setMobileView]). */
+    val mobileView: Boolean = false
 ) {
     companion object {
         /** Throws [org.json.JSONException] if [json] isn't a state (the engine failed). */
@@ -435,6 +437,7 @@ class EditorState(
                 },
                 navigate = root.optJSONObject("navigate")?.let { Place(it.optInt("page"), it.optDouble("y")) },
                 shownComments = root.optJSONArray("shownComments")?.let { ids -> (0 until ids.length()).map { ids.getString(it) } }.orEmpty(),
+                mobileView = root.optBoolean("mobileView"),
                 chart = root.optJSONObject("chart")?.let {
                     ChartState(
                         it.optInt("type"), it.optBoolean("title"), it.optInt("legend"), it.optBoolean("labels"),
