@@ -23,9 +23,13 @@ internal class IconPicker(private val context: Context, private val panels: Pane
 
     /**
      * Shows [groups] under [title], [selected] highlighted; [onPick] gets the chosen one's value.
-     * [pictures]: the icons are pictures in their own colors (SmartArt), shown larger.
+     * [pictures]: the icons are pictures in their own colors (SmartArt), shown larger. After a
+     * choice, back to the panel it was opened from ([onBack]), if any.
      */
-    fun <T> show(title: Int, groups: List<InsertCatalog.Group<T>>, selected: T? = null, pictures: Boolean = false, onPick: (T) -> Unit) {
+    fun <T> show(
+        title: Int, groups: List<InsertCatalog.Group<T>>, selected: T? = null, pictures: Boolean = false,
+        onBack: (() -> Unit)? = null, onPick: (T) -> Unit
+    ) {
         lateinit var panel: PanelHost.Panel
         val cell = dp(if (pictures) 96 else 64)
         val columns = ((panels.width - dp(16)) / cell).coerceAtLeast(3)
@@ -56,8 +60,9 @@ internal class IconPicker(private val context: Context, private val panels: Pane
                     contentDescription = label
                     TooltipCompat.setTooltipText(this, label)
                     setOnClickListener {
-                        panel.dismiss()
+                        if (onBack == null) panel.dismiss()
                         onPick(item.value)
+                        onBack?.invoke()
                     }
                     layoutParams = GridLayout.LayoutParams().apply {
                         width = cell
@@ -67,7 +72,7 @@ internal class IconPicker(private val context: Context, private val panels: Pane
             }
             content.addView(grid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        panel = panels.show(context.getString(title), content) {}
+        panel = panels.show(context.getString(title), content, onBack) {}
     }
 
     private fun dp(value: Int) = (value * density).toInt()

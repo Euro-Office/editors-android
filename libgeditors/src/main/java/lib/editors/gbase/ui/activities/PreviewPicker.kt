@@ -36,11 +36,12 @@ internal class PreviewPicker(
     /**
      * Shows the previews of [kind] under [title], the one with [selected] id highlighted, their
      * names under them if [withNames]; [header] goes above them (settings for the choice).
-     * [onPick] gets the chosen one; the panel stays open if [keepOpen].
+     * [onPick] gets the chosen one; the panel stays open if [keepOpen], else goes [onBack] to
+     * the panel it was opened from, if any.
      */
     fun show(
         title: String, kind: String, selected: String? = null, columnWidthDp: Int = 104, withNames: Boolean = false,
-        header: View? = null, keepOpen: Boolean = false, onPick: (Preview) -> Unit
+        header: View? = null, keepOpen: Boolean = false, onBack: (() -> Unit)? = null, onPick: (Preview) -> Unit
     ) {
         val document = document() ?: return
         scope.launch {
@@ -77,9 +78,12 @@ internal class PreviewPicker(
                         })
                     }
                     setOnClickListener {
-                        if (!keepOpen) panel.dismiss()
-                        else for (i in 0 until grid.childCount) grid.getChildAt(i).isSelected = grid.getChildAt(i) === this
+                        when {
+                            keepOpen -> for (i in 0 until grid.childCount) grid.getChildAt(i).isSelected = grid.getChildAt(i) === this
+                            onBack == null -> panel.dismiss()
+                        }
                         onPick(preview)
+                        if (!keepOpen) onBack?.invoke()
                     }
                     layoutParams = GridLayout.LayoutParams().apply { width = cell }
                 })
@@ -90,7 +94,7 @@ internal class PreviewPicker(
                 if (header != null) addView(header)
                 addView(grid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             }
-            panel = panels.show(title, content) { drawing?.cancel() }
+            panel = panels.show(title, content, onBack) { drawing?.cancel() }
             drawing = scope.launch {
                 previews.forEachIndexed { index, preview ->
                     val width = cell - dp(12)

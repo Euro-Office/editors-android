@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.InsetDrawable
+import android.graphics.drawable.LayerDrawable
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -112,6 +114,52 @@ internal abstract class PanelBuilder<F>(protected val context: Context) {
                 updaters += { isSelected = isOn(it) }
             }
         }.also { addView(it, LinearLayout.LayoutParams(dp(48), dp(48))) }
+
+    // A field showing a setting's value (font, style) that opens the list to choose another; in
+    // a row, it takes the room the others leave
+    protected fun LinearLayout.selector(name: Int, value: (F) -> String, onClick: () -> Unit): TextView =
+        TextView(context).apply {
+            gravity = Gravity.CENTER_VERTICAL or Gravity.START
+            textSize = 15f
+            minHeight = dp(44)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setPaddingRelative(dp(14), 0, dp(8), 0)
+            background = framed()
+            setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, ContextCompat.getDrawable(context, Resources.drawable.ic_editor_dropdown), null)
+            setOnClickListener { onClick() }
+            updaters += {
+                text = value(it)
+                contentDescription = context.getString(name) + ", " + text
+            }
+        }.also {
+            addView(it, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(8)
+                topMargin = dp(4)
+                bottomMargin = dp(4)
+            })
+        }
+
+    // A row that opens more settings in their own panel (pictures of table styles, ...)
+    protected fun LinearLayout.action(text: Int, onClick: () -> Unit): TextView =
+        TextView(context).apply {
+            setText(text)
+            gravity = Gravity.CENTER_VERTICAL or Gravity.START
+            textSize = 15f
+            minHeight = dp(48)
+            setPaddingRelative(dp(14), 0, dp(8), 0)
+            background = framed()
+            setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, ContextCompat.getDrawable(context, Resources.drawable.ic_editor_chevron_right), null)
+            setOnClickListener { onClick() }
+        }.also {
+            addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(4)
+                bottomMargin = dp(4)
+            })
+        }
+
+    // Outlined, and marked while pressed as the tools are
+    private fun framed() = LayerDrawable(arrayOf(outline(dp(12)), ContextCompat.getDrawable(context, R.drawable.editor_tool_background)))
 
     // One of several choices: a pill, filled while chosen, with an optional icon before its text
     protected fun LinearLayout.choice(text: String, isOn: (F) -> Boolean, icon: Int? = null, onClick: () -> Unit): TextView =
