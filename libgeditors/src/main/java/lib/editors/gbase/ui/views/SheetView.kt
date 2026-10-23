@@ -356,7 +356,12 @@ class SheetView @JvmOverloads constructor(
             scrollPosY = 0f
         }
         if (changed) version++
-        if (previous != null && (previous.col != sheet.col || previous.row != sheet.row) && !dragging) showCell(sheet.col, sheet.row)
+        if (revealCell) {
+            revealCell = false
+            revealCell(sheet.col, sheet.row)
+        } else if (previous != null && (previous.col != sheet.col || previous.row != sheet.row) && !dragging) {
+            showCell(sheet.col, sheet.row)
+        }
         if (sheet.isSingleCell && actionMode != null && previous?.let { it.c1 != sheet.c1 || it.r1 != sheet.r1 } == true) hideActionMenu()
         if (drawingMenuAfterUpdate) {
             drawingMenuAfterUpdate = false
@@ -457,6 +462,27 @@ class SheetView @JvmOverloads constructor(
         zoom = target
         if (levelFor(zoom) != oldLevel) fallbackLevel = oldLevel
         scrollTo(contentX * zoom - focusX + headerWidth, contentY * zoom - focusY + headerHeight)
+    }
+
+    // The next active cell is shown in the upper half (see revealNextCell)
+    private var revealCell = false
+
+    /**
+     * Shows the next active cell (going to a comment: its cell) in the upper half of the view,
+     * so that a panel over the lower half (the comment's) doesn't hide it.
+     */
+    fun revealNextCell() {
+        revealCell = true
+    }
+
+    private fun revealCell(col: Int, row: Int) {
+        if (col >= geometry.colCount || row >= geometry.rowCount) return
+        showCell(col, row)
+        if (row < (state?.frozenRow ?: 0)) return
+        val top = viewY(geometry.rows[row])
+        val area = headerHeight + frozenHeight()
+        val upper = area + (height - area) / 2f
+        if (top > upper || rowBottom(row) > upper) scrollTo(scrollPosX, scrollPosY + top - (area + (height - area) / 4f))
     }
 
     /** Scrolls so that the cell is visible. */

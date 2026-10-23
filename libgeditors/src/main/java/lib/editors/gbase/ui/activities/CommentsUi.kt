@@ -47,6 +47,8 @@ internal class CommentsUi(
     val canComment: Boolean,
     private val fileId: String?,
     private val panels: PanelHost,
+    /** The document shows what the next command selects above the panel (going to a comment). */
+    private val reveal: () -> Unit = {},
     /** The document's comments after they changed: for the comments button and the marks of them. */
     private val onComments: (List<Comment>) -> Unit = {}
 ) {
@@ -88,6 +90,7 @@ internal class CommentsUi(
         if (dialog != null && threadId == id) return
         val showing = dialog != null && threadId != null
         threadId = id
+        reveal()
         edit { gotoComment(id) }
         if (showing) {
             render()

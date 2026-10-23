@@ -406,6 +406,10 @@ class DocumentView @JvmOverloads constructor(
         if (editListener != null && state.cursor != null && state.cursor != previousCursor) scrollToCursor()
         // Find selects the match
         if (state.search != null && state.search != previousSearch) scrollToSelection()
+        if (revealSelection && state.selection.isNotEmpty()) {
+            revealSelection = false
+            revealSelection()
+        }
         // Presentations: a new slide, for example, becomes the current one
         if (previousPage != null && state.currentPage != previousPage && state.currentPage in pageSizes.indices) {
             showPage(state.currentPage)
@@ -539,6 +543,32 @@ class DocumentView @JvmOverloads constructor(
         if (top >= 0 && bottom <= height) return
         scrollTo(scrollPosX, pageTops[page] * zoom - pageMargin)
         requestDetails()
+    }
+
+    // The next selection is shown in the upper half (see revealNextSelection)
+    private var revealSelection = false
+
+    /**
+     * Shows the next selection (going to a comment: its text) in the upper half of the view, so
+     * that a panel over the lower half (the comment's) doesn't hide it.
+     */
+    fun revealNextSelection() {
+        revealSelection = true
+    }
+
+    private fun revealSelection() {
+        val area = editorState?.selection?.firstOrNull { it.page in pageSizes.indices } ?: return
+        if (height == 0) return
+        val ys = (0 until 4).map { screenY(area.page, area.points[2 * it + 1]) }
+        val xs = (0 until 4).map { screenX(area.page, area.points[2 * it]) }
+        val margin = 48 * density
+        val dy = if (ys.min() < margin || ys.max() > height / 2f) ys.min() - height / 4f else 0f
+        var dx = 0f
+        if (xs.max() > width - margin / 2) dx = xs.max() - (width - margin / 2) else if (xs.min() < margin / 2) dx = xs.min() - margin / 2
+        if (dx != 0f || dy != 0f) {
+            scrollTo(scrollPosX + dx, scrollPosY + dy)
+            requestDetails()
+        }
     }
 
     /** Scrolls so that the start of the selection is visible, with some room around it. */

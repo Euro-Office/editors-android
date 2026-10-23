@@ -298,6 +298,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 canComment = isEditable || editAccess() == EditorsContract.INTERNAL_EDIT_ACCESS_COMMENT,
                 fileId = intent.getStringExtra(EditorsContract.EXTRA_ITEM_ID),
                 panels = panels,
+                reveal = {
+                    if (isSpreadsheet) findViewById<SheetView>(R.id.sheetView).revealNextCell() else documentView.revealNextSelection()
+                },
                 onComments = ::showComments
             )
             commentsUi = comments
