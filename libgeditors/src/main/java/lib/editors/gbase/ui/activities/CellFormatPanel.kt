@@ -18,13 +18,16 @@ import lib.editors.resources.R as Resources
 internal class CellFormatPanel(
     context: Context,
     private val edit: (EditorDocument.() -> EditorState) -> Unit,
-    private val loadFonts: (onLoaded: (List<String>) -> Unit) -> Unit,
+    /** All fonts and the document's, from the engine (on its thread). */
+    private val loadFonts: (onLoaded: (fonts: List<String>, documentFonts: List<String>) -> Unit) -> Unit,
     private val panels: PanelHost
 ) : PanelBuilder<CellFormat>(context) {
 
     private var dialog: PanelHost.Panel? = null
     private var format = CellFormat()
     private var fonts: List<String> = emptyList()
+    private var documentFonts: List<String> = emptyList()
+    private val fontChooser = FontChooser(context, panels)
 
     // A chart, picture or shape is selected: only its text's font applies to it (sdkjs would
     // apply the cells' settings to the cells under it)
@@ -32,7 +35,10 @@ internal class CellFormatPanel(
     private val cellsOnly = mutableListOf<View>()
 
     fun show() {
-        loadFonts { fonts = it }
+        loadFonts { all, used ->
+            fonts = all
+            documentFonts = used
+        }
         updaters.clear()
         cellsOnly.clear()
         val content = content()
@@ -115,12 +121,7 @@ internal class CellFormatPanel(
     }
 
     // In the panel's place, then back to it
-    private fun chooseFont() {
-        val names = fonts.takeIf { it.isNotEmpty() } ?: return
-        panels.choose(context.getString(Resources.string.editors_format_font), names, names.indexOf(format.fontName), onBack = ::show) { index ->
-            edit { setFontName(names[index]) }
-        }
-    }
+    private fun chooseFont() = fontChooser.choose(fonts, documentFonts, format.fontName, ::show) { name -> edit { setFontName(name) } }
 
     // Settings of cells only, hidden while a drawing is selected
     private fun LinearLayout.cellSection(build: LinearLayout.() -> Unit) {

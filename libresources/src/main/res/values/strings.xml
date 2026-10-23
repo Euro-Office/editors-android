@@ -54,6 +54,11 @@
     <string name="editors_format_paragraph">Paragraph</string>
     <string name="editors_format_font">Font</string>
     <string name="editors_format_style">Style</string>
+    <string name="editors_format_font_find">Find a font</string>
+    <string name="editors_format_style_find">Find a style</string>
+    <string name="editors_format_fonts_document">In this document</string>
+    <string name="editors_format_fonts_recent">Recently used</string>
+    <string name="editors_format_fonts_all">All fonts</string>
     <string name="editors_format_strikeout">S</string>
     <string name="editors_format_subscript">x₂</string>
     <string name="editors_format_superscript">x²</string>

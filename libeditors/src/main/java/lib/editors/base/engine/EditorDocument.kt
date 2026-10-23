@@ -146,6 +146,9 @@ interface EditorDocument : PagedDocument {
     /** Font names the engine has, sorted. */
     fun fonts(): List<String> = jsonStrings(execute("eoEngine.getFonts()"))
 
+    /** The fonts the document uses, sorted. */
+    fun documentFonts(): List<String> = jsonStrings(execute("eoEngine.getDocumentFonts()"))
+
     /** Text documents: paragraph style names. */
     fun styles(): List<String> = jsonStrings(execute("eoEngine.getStyles()"))
 

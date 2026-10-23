@@ -406,10 +406,6 @@ class DocumentView @JvmOverloads constructor(
         if (editListener != null && state.cursor != null && state.cursor != previousCursor) scrollToCursor()
         // Find selects the match
         if (state.search != null && state.search != previousSearch) scrollToSelection()
-        if (revealSelection && state.selection.isNotEmpty()) {
-            revealSelection = false
-            revealSelection()
-        }
         // Presentations: a new slide, for example, becomes the current one
         if (previousPage != null && state.currentPage != previousPage && state.currentPage in pageSizes.indices) {
             showPage(state.currentPage)
@@ -545,31 +541,18 @@ class DocumentView @JvmOverloads constructor(
         requestDetails()
     }
 
-    // The next selection is shown in the upper half (see revealNextSelection)
-    private var revealSelection = false
-
     /**
-     * Shows the next selection (going to a comment: its text) in the upper half of the view, so
-     * that a panel over the lower half (the comment's) doesn't hide it.
+     * Shows the position ([page], [yMm] from its top) in the upper half of the view (going to a
+     * comment), so that a panel over the lower half (the comment's) doesn't hide it; near the
+     * document's end with room below it.
      */
-    fun revealNextSelection() {
-        revealSelection = true
-    }
-
-    private fun revealSelection() {
-        val area = editorState?.selection?.firstOrNull { it.page in pageSizes.indices } ?: return
-        if (height == 0) return
-        val ys = (0 until 4).map { screenY(area.page, area.points[2 * it + 1]) }
-        val xs = (0 until 4).map { screenX(area.page, area.points[2 * it]) }
-        val margin = 48 * density
-        val dy = if (ys.min() < margin || ys.max() > height / 2f) ys.min() - height / 4f else 0f
-        var dx = 0f
-        if (xs.max() > width - margin / 2) dx = xs.max() - (width - margin / 2) else if (xs.min() < margin / 2) dx = xs.min() - margin / 2
-        if (dx != 0f || dy != 0f) {
-            revealRoom = height.toFloat()
-            scrollTo(scrollPosX + dx, scrollPosY + dy)
-            requestDetails()
-        }
+    fun reveal(page: Int, yMm: Double) {
+        if (page !in pageSizes.indices || height == 0) return
+        val y = screenY(page, yMm)
+        if (y >= 48 * density && y <= height / 2f) return
+        revealRoom = height.toFloat()
+        scrollTo(scrollPosX, scrollPosY + y - height / 4f)
+        requestDetails()
     }
 
     /** Scrolls so that the start of the selection is visible, with some room around it. */
@@ -1066,7 +1049,7 @@ class DocumentView @JvmOverloads constructor(
     private fun maxScrollY() = max(0f, contentHeight * zoom - height)
 
     // Room below the document's end, so that a comment near it can be shown in the upper half
-    // (see revealSelection); it goes as the view scrolls back up
+    // (see reveal); it goes as the view scrolls back up
     private var revealRoom = 0f
 
     private fun scrollTo(x: Float, y: Float) {

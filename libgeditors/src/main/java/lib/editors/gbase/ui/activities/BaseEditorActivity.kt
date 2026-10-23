@@ -298,8 +298,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 canComment = isEditable || editAccess() == EditorsContract.INTERNAL_EDIT_ACCESS_COMMENT,
                 fileId = intent.getStringExtra(EditorsContract.EXTRA_ITEM_ID),
                 panels = panels,
-                reveal = {
-                    if (isSpreadsheet) findViewById<SheetView>(R.id.sheetView).revealNextCell() else documentView.revealNextSelection()
+                reveal = { comment ->
+                    if (isSpreadsheet) findViewById<SheetView>(R.id.sheetView).revealNextCell() else documentView.reveal(comment.page, comment.y)
                 },
                 onComments = ::showComments
             )
@@ -927,8 +927,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             load = { onLoaded ->
                 val document = document ?: return@FormatPanel
                 lifecycleScope.launch {
-                    val lists = withContext(EditorEngine.dispatcher) { document.fonts() to document.styles() }
-                    onLoaded(lists.first, lists.second)
+                    val lists = withContext(EditorEngine.dispatcher) { Triple(document.fonts(), document.documentFonts(), document.styles()) }
+                    onLoaded(lists.first, lists.second, lists.third)
                 }
             },
             withParagraphs = editorsType != EditorsType.CELLS,
@@ -953,7 +953,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private val cellFormatPanel by lazy {
         CellFormatPanel(this, { command -> edit(command = command) }, loadFonts = { onLoaded ->
             val document = document ?: return@CellFormatPanel
-            lifecycleScope.launch { onLoaded(withContext(EditorEngine.dispatcher) { document.fonts() }) }
+            lifecycleScope.launch {
+                val lists = withContext(EditorEngine.dispatcher) { document.fonts() to document.documentFonts() }
+                onLoaded(lists.first, lists.second)
+            }
         }, panels = panels)
     }
 

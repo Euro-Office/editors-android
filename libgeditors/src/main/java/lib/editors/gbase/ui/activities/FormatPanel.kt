@@ -23,8 +23,8 @@ import lib.editors.resources.R as Resources
 internal class FormatPanel(
     context: Context,
     private val edit: (EditorDocument.() -> EditorState) -> Unit,
-    /** Fonts and paragraph styles, from the engine (on its thread). */
-    private val load: (onLoaded: (fonts: List<String>, styles: List<String>) -> Unit) -> Unit,
+    /** Fonts (all and the document's) and paragraph styles, from the engine (on its thread). */
+    private val load: (onLoaded: (fonts: List<String>, documentFonts: List<String>, styles: List<String>) -> Unit) -> Unit,
     /** Paragraph settings: documents and presentations; styles only for documents. */
     private val withParagraphs: Boolean,
     private val withStyles: Boolean,
@@ -47,7 +47,9 @@ internal class FormatPanel(
     private var dialog: PanelHost.Panel? = null
     private var format = TextFormat()
     private var fonts: List<String> = emptyList()
+    private var documentFonts: List<String> = emptyList()
     private var styles: List<String> = emptyList()
+    private val fontChooser = FontChooser(context, panels)
 
     // A picture, shape or chart is selected (not text in it): highlights and paragraph settings
     // don't apply to it (sdkjs would apply them to the paragraph it is anchored in)
@@ -64,8 +66,9 @@ internal class FormatPanel(
     private var markOutline: (String?) -> Unit = {}
 
     fun show() {
-        load { loadedFonts, loadedStyles ->
+        load { loadedFonts, loadedDocumentFonts, loadedStyles ->
             fonts = loadedFonts
+            documentFonts = loadedDocumentFonts
             styles = loadedStyles
         }
         updaters.clear()
@@ -262,18 +265,13 @@ internal class FormatPanel(
     }
 
     // In the panel's place, then back to it
-    private fun chooseFont() {
-        val names = fonts.takeIf { it.isNotEmpty() } ?: return
-        panels.choose(context.getString(Resources.string.editors_format_font), names, names.indexOf(format.fontName), onBack = ::show) { index ->
-            edit { setFontName(names[index]) }
-        }
-    }
+    private fun chooseFont() = fontChooser.choose(fonts, documentFonts, format.fontName, ::show) { name -> edit { setFontName(name) } }
 
     private fun chooseStyle() {
         val names = styles.takeIf { it.isNotEmpty() } ?: return
         panels.choose(
             context.getString(Resources.string.editors_format_style), names.map { EditorTranslations.styleName(context, it) },
-            names.indexOf(format.style), onBack = ::show
+            names.indexOf(format.style), onBack = ::show, searchHint = context.getString(Resources.string.editors_format_style_find)
         ) { index -> edit { setStyle(names[index]) } }
     }
 

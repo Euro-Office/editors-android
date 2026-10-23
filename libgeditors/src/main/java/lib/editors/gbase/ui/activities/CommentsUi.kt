@@ -47,8 +47,8 @@ internal class CommentsUi(
     val canComment: Boolean,
     private val fileId: String?,
     private val panels: PanelHost,
-    /** The document shows what the next command selects above the panel (going to a comment). */
-    private val reveal: () -> Unit = {},
+    /** The document shows the comment above the panel (going to it). */
+    private val reveal: (Comment) -> Unit = {},
     /** The document's comments after they changed: for the comments button and the marks of them. */
     private val onComments: (List<Comment>) -> Unit = {}
 ) {
@@ -90,8 +90,8 @@ internal class CommentsUi(
         if (dialog != null && threadId == id) return
         val showing = dialog != null && threadId != null
         threadId = id
-        reveal()
         edit { gotoComment(id) }
+        comments.firstOrNull { it.id == id }?.let(reveal)
         if (showing) {
             render()
             return
@@ -111,7 +111,8 @@ internal class CommentsUi(
     // then leaves the new one alone
     private fun open(title: String, content: android.view.View, thread: String?) {
         lateinit var panel: PanelHost.Panel
-        panel = panels.show(title, content) {
+        // The document stays scrollable beside the comments
+        panel = panels.show(title, content, modal = false) {
             if (dialog === panel) {
                 dialog = null
                 threadId = null
