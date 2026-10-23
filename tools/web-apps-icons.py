@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates the pictures and names of the insert pickers (chart types, shapes, SmartArt) and menu icons from web-apps.
+"""Generates the pictures and names of the insert pickers (chart types, shapes, SmartArt), menu and format icons from web-apps.
 
 web-apps draws the chart types and shapes it offers from two SVG sprites; this turns their
 symbols into Android vector drawables, takes the English names from web-apps' texts and writes
@@ -63,6 +63,42 @@ MENU_ICONS = {
     "table_column_right": "common/mobile/resources/icons/common/icon-table-add-column-right.svg",
     "table_delete_row": "common/mobile/resources/icons/common/icon-table-remove-row.svg",
     "table_delete_column": "common/mobile/resources/icons/common/icon-table-remove-column.svg",
+    "format_general": "spreadsheeteditor/mobile/resources/icons/common/icon-format-general.svg",
+    "format_number": "spreadsheeteditor/mobile/resources/icons/common/icon-format-number.svg",
+    "format_currency": "spreadsheeteditor/mobile/resources/icons/common/icon-format-currency.svg",
+    "format_percent": "spreadsheeteditor/mobile/resources/icons/common/icon-format-percentage.svg",
+    "format_date": "spreadsheeteditor/mobile/resources/icons/common/icon-format-date.svg",
+    "format_text": "spreadsheeteditor/mobile/resources/icons/common/icon-format-text.svg",
+}
+
+# Icons of the format panels (ic_editor_<name>): symbols of web-apps' toolbar sprites (under apps/),
+# drawn in two tones as there (the accent for their blue parts)
+SPRITE = "%s/main/resources/img/toolbar/icons.svg"
+FORMAT_ICONS = {
+    "border_all": ("common", "btn-border-all"),
+    "border_outer": ("common", "btn-border-out"),
+    "border_inner": ("common", "btn-border-inside"),
+    "border_left": ("common", "btn-border-left"),
+    "border_top": ("common", "btn-border-top"),
+    "border_right": ("common", "btn-border-right"),
+    "border_bottom": ("common", "btn-border-bottom"),
+    "border_none": ("common", "btn-border-no"),
+    "merge_cells": ("common", "btn-merge-cells"),
+    "wrap_text": ("spreadsheeteditor", "btn-wrap"),
+    "valign_top": ("common", "btn-align-top"),
+    "valign_middle": ("common", "btn-align-middle"),
+    "valign_bottom": ("common", "btn-align-bottom"),
+    "decimals_less": ("spreadsheeteditor", "btn-decdecimal"),
+    "decimals_more": ("spreadsheeteditor", "btn-incdecimal"),
+    "strikeout": ("common", "btn-strikeout"),
+    "subscript": ("common", "btn-subscript"),
+    "superscript": ("common", "btn-superscript"),
+    "clear_format": ("common", "btn-clearstyle"),
+    "bullets": ("common", "btn-setmarkers"),
+    "numbering": ("common", "btn-numbering"),
+    "indent_less": ("common", "btn-decoffset"),
+    "indent_more": ("common", "btn-incoffset"),
+    "line_spacing": ("common", "btn-linespace"),
 }
 
 # Shapes drawn point by point, which one tap can't insert
@@ -161,8 +197,60 @@ def menu_icons(web_apps):
     print("%d menu icons" % len(MENU_ICONS))
 
 
+def two_tone_vector(symbol):
+    """A toolbar symbol: strokes and fills as the symbol and its paths set them, blue parts in the accent."""
+    view = symbol.attrib["viewBox"].split()
+    lines = ['<?xml version="1.0" encoding="utf-8"?>', "<!-- %s -->" % LICENSE,
+             '<vector xmlns:android="http://schemas.android.com/apk/res/android"',
+             '    android:width="24dp"', '    android:height="24dp"',
+             '    android:viewportWidth="%s"' % view[2], '    android:viewportHeight="%s">' % view[3]]
+
+    def walk(element, inherited):
+        for child in element:
+            attrs = dict(inherited)
+            attrs.update({k: v for k, v in child.attrib.items() if k in ("stroke", "fill", "stroke-width", "class", "fill-rule")})
+            if child.tag.replace(SVG, "") == "g":
+                walk(child, attrs)
+                continue
+            data = element_path(child)
+            if not data:
+                continue
+            kind = attrs.get("class", "")
+            color = "@color/editors_accent" if "blue" in kind else "@color/editors_icon"
+            alpha = "0.45" if "secondary" in kind else None
+            lines.append("    <path")
+            if attrs.get("fill", "black") != "none":
+                lines.append('        android:fillColor="%s"' % color)
+                if alpha:
+                    lines.append('        android:fillAlpha="%s"' % alpha)
+                if attrs.get("fill-rule") == "evenodd":
+                    lines.append('        android:fillType="evenOdd"')
+            if attrs.get("stroke", "none") != "none":
+                lines.extend(['        android:strokeColor="%s"' % color, '        android:strokeWidth="%s"' % attrs.get("stroke-width", "1"),
+                              '        android:strokeLineCap="round"', '        android:strokeLineJoin="round"'])
+                if alpha:
+                    lines.append('        android:strokeAlpha="%s"' % alpha)
+            lines.append('        android:pathData="%s" />' % " ".join(data.split()))
+
+    walk(symbol, {k: v for k, v in symbol.attrib.items() if k in ("stroke", "fill", "stroke-width")})
+    lines.append("</vector>")
+    return "\n".join(lines) + "\n"
+
+
+def format_icons(web_apps):
+    """The format panels' icons (FORMAT_ICONS)."""
+    sprites = {}
+    for name, (editor, symbol) in FORMAT_ICONS.items():
+        if editor not in sprites:
+            sprites[editor] = symbols(os.path.join(web_apps, "apps", SPRITE % editor))
+        with open(os.path.join(DRAWABLES, "ic_editor_%s.xml" % name), "w", encoding="utf-8") as out:
+            out.write(two_tone_vector(sprites[editor][symbol]))
+    print("%d format icons" % len(FORMAT_ICONS))
+
+
 def main(web_apps, sdkjs):
     menu_icons(web_apps)
+    format_icons(web_apps)
     toolbar = os.path.join(web_apps, "apps/common/main/resources/img/toolbar")
     strings = []  # (name, English text)
 
