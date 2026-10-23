@@ -304,7 +304,7 @@ class DocumentView @JvmOverloads constructor(
         override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
             scroller.fling(
                 scrollPosX.roundToInt(), scrollPosY.roundToInt(), -velocityX.roundToInt(), -velocityY.roundToInt(),
-                0, maxScrollX().roundToInt(), 0, maxScrollY().roundToInt()
+                0, maxScrollX().roundToInt(), 0, (maxScrollY() + revealRoom).roundToInt()
             )
             postInvalidateOnAnimation()
             return true
@@ -566,6 +566,7 @@ class DocumentView @JvmOverloads constructor(
         var dx = 0f
         if (xs.max() > width - margin / 2) dx = xs.max() - (width - margin / 2) else if (xs.min() < margin / 2) dx = xs.min() - margin / 2
         if (dx != 0f || dy != 0f) {
+            revealRoom = height.toFloat()
             scrollTo(scrollPosX + dx, scrollPosY + dy)
             requestDetails()
         }
@@ -1064,9 +1065,14 @@ class DocumentView @JvmOverloads constructor(
 
     private fun maxScrollY() = max(0f, contentHeight * zoom - height)
 
+    // Room below the document's end, so that a comment near it can be shown in the upper half
+    // (see revealSelection); it goes as the view scrolls back up
+    private var revealRoom = 0f
+
     private fun scrollTo(x: Float, y: Float) {
         scrollPosX = x.coerceIn(0f, maxScrollX())
-        scrollPosY = y.coerceIn(0f, maxScrollY())
+        scrollPosY = y.coerceIn(0f, maxScrollY() + revealRoom)
+        revealRoom = min(revealRoom, max(0f, scrollPosY - maxScrollY()))
         invalidateAccessibility()
         val page = visiblePage()
         if (page != lastVisiblePage) {
