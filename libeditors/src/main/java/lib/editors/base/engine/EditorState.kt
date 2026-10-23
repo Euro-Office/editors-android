@@ -322,14 +322,16 @@ enum class PdfMarkupKind(val value: String) { HIGHLIGHT("highlight"), UNDERLINE(
  * The PDF editor's state: freehand drawing is on ([ink]); the selected annotation ([annotation]
  * its sdkjs type, null for none); text of the page is selected ([textSelected], to mark it up);
  * a text box or text in it is ([textBox], formatted as in presentations); the text of the current
- * page can be made editable ([canEditPage], [EditorDocument.editPage]).
+ * page can be made editable ([canEditPage], [EditorDocument.editPage]); pictures, shapes or text
+ * boxes are selected ([drawing]: filled, outlined and arranged as in the other editors).
  */
 data class PdfState(
     val ink: Boolean,
     val annotation: Int?,
     val textSelected: Boolean,
     val textBox: Boolean = false,
-    val canEditPage: Boolean = false
+    val canEditPage: Boolean = false,
+    val drawing: Boolean = false
 )
 
 /** A place in the document to show: a link or an entry of the contents was followed. */
@@ -444,7 +446,7 @@ class EditorState(
                 coEditing = root.optJSONObject("coEditing")?.let { parseCoEditing(it) },
                 pdf = root.optJSONObject("pdf")?.let {
                     PdfState(it.optBoolean("ink"), it.optJSONObject("annotation")?.optInt("type"), it.optBoolean("textSelected"), it.optBoolean("textBox"),
-                        it.optBoolean("canEditPage"))
+                        it.optBoolean("canEditPage"), it.optBoolean("drawing"))
                 },
                 navigate = root.optJSONObject("navigate")?.let { Place(it.optInt("page"), it.optDouble("y")) },
                 shownComments = root.optJSONArray("shownComments")?.let { ids -> (0 until ids.length()).map { ids.getString(it) } }.orEmpty(),

@@ -47,7 +47,9 @@ internal class ShapePanel(
     private val chartSettings: ChartSettingsPanel,
     private val panels: PanelHost,
     /** The text's settings (of the selected shapes' text). */
-    private val formatText: () -> Unit = {}
+    private val formatText: () -> Unit = {},
+    /** Grouping and ungrouping (not in PDFs). */
+    private val withGroups: Boolean = true
 ) {
 
     private val density = context.resources.displayMetrics.density
@@ -120,8 +122,10 @@ internal class ShapePanel(
                 orientation = LinearLayout.HORIZONTAL
                 button(Resources.string.editors_shape_front) { edit { arrange(DrawingOrder.TO_FRONT) } }
                 button(Resources.string.editors_shape_back) { edit { arrange(DrawingOrder.TO_BACK) } }
-                button(Resources.string.editors_shape_group) { edit { group(true) } }
-                button(Resources.string.editors_shape_ungroup) { edit { group(false) } }
+                if (withGroups) {
+                    button(Resources.string.editors_shape_group) { edit { group(true) } }
+                    button(Resources.string.editors_shape_ungroup) { edit { group(false) } }
+                }
             })
         })
     }

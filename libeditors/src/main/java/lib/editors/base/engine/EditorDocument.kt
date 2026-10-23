@@ -390,6 +390,16 @@ interface EditorDocument : PagedDocument {
      */
     fun editPage(page: Int): EditorState = command("eoEngine.editPage($page)")
 
+    /**
+     * While co-editing, [editPage] waits for the page's pictures to be uploaded: their names in
+     * [imagesDirectory] (empty if none wait). [finishImageUploads] goes on with the names the
+     * Document Server gave them, in the same order.
+     */
+    fun imageUploads(): List<String> = jsonStrings(execute("eoEngine.imageUploads()"))
+
+    fun finishImageUploads(names: List<String>): EditorState =
+        command("eoEngine.finishImageUploads(${JSONObject.quote(org.json.JSONArray(names).toString())})")
+
     /** Removes the selected annotations, pictures and shapes. */
     fun deleteSelection(): EditorState = command("eoEngine.deleteSelection()")
 

@@ -369,7 +369,6 @@
     <string name="editors_pdf_edit_text">Edit text</string>
     <string name="editors_pdf_edit_text_done">Tap text to change it</string>
     <string name="editors_pdf_edit_text_already">The text of this page can already be changed</string>
-    <string name="editors_pdf_edit_text_coediting">Changing the text of pages isn\'t possible while editing together yet</string>
     <string name="editors_sign">Sign</string>
     <string name="editors_sign_draw">Draw your signature</string>
     <string name="editors_sign_place">Place</string>

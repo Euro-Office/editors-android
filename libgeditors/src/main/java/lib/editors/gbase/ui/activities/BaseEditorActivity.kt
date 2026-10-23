@@ -897,6 +897,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             val textBox = state.pdf?.textBox == true
             if (textBox != pdfTextBox) documentView.selectionActions = pdfSelectionActions(textBox)
             pdfTextBox = textBox
+            pdfDrawing = state.pdf?.drawing == true
             pdfPageEditable = state.pdf?.canEditPage == true
             updatePdfTools()
         }
@@ -904,7 +905,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolRedo).isEnabled = toolbar.canRedo
         // In a table (also one on a slide, which is a drawing): the table's and its text's settings
         val inTable = state.structure?.inTable == true
-        formatsDrawings = isEditable() && !isPdfEditor && !fillsForms() && drawingSelected && !inTable
+        formatsDrawings = if (isPdfEditor) state.pdf?.drawing == true else isEditable() && !fillsForms() && drawingSelected && !inTable
         // Pages laid out as the view shows them before going to a place
         updateMobileView(state)
         // A link or an entry of the contents was followed; the place kept in mobile view
@@ -1091,7 +1092,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             ShapePanel(
                 this, lifecycleScope, { document }, { command -> edit(command = command) }, chartUi,
                 ChartSettingsPanel(this, { command -> edit(command = command) }, panels, previewPicker), panels,
-                formatText = ::formatText
+                formatText = ::formatText,
+                withGroups = editorsType != EditorsType.PDF
             ),
             iconPicker,
             // Tables with a style: documents and presentations (spreadsheets' tables are cells)
@@ -1291,6 +1293,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private var pdfTextBox = false
     // The text of the page shown can be made editable (PdfState.canEditPage)
     private var pdfPageEditable = false
+    // Pictures, shapes or text boxes are selected (PdfState.drawing)
+    private var pdfDrawing = false
 
     private fun showPdfTools(document: EditorDocument, pages: List<PageSize>) {
         showPageTools(document, pages)
@@ -1311,11 +1315,14 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     }
 
     // While a text box is selected its text's tools take the place of the PDF's (marking up,
-    // drawing, signing, text boxes); "Edit text" for pages whose text isn't editable yet
+    // drawing, signing, text boxes), and formatting while a picture or shape is; "Edit text" for
+    // pages whose text isn't editable yet
     private fun updatePdfTools() {
-        (TEXT_TOOLS + R.id.toolFormat).forEach { findViewById<View>(it).isVisible = pdfTextBox }
-        listOf(R.id.toolSign, R.id.toolPen, R.id.toolTextBox).forEach { findViewById<View>(it).isVisible = !pdfTextBox }
-        findViewById<View>(R.id.toolEditText).isVisible = !pdfTextBox && pdfPageEditable
+        val selected = pdfTextBox || pdfDrawing
+        TEXT_TOOLS.forEach { findViewById<View>(it).isVisible = pdfTextBox }
+        findViewById<View>(R.id.toolFormat).isVisible = selected
+        listOf(R.id.toolSign, R.id.toolPen, R.id.toolTextBox).forEach { findViewById<View>(it).isVisible = !selected }
+        findViewById<View>(R.id.toolEditText).isVisible = !selected && pdfPageEditable
     }
 
     private fun enablePdfEditing() {
@@ -1341,7 +1348,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         // The text of text boxes (of pages whose text was made editable): its tools show while
         // one is selected (applyState)
         bindTextTools()
-        findViewById<View>(R.id.toolFormat).setOnClickListener { formatText() }
+        // Pictures and shapes: fill, outline and order (their menu too); text: its formatting
+        findViewById<View>(R.id.toolFormat).setOnClickListener { if (formatsDrawings) drawingUi.showShapePanel() else formatText() }
+        documentView.drawingActions = listOf(getString(Resources.string.editors_format) to { drawingUi.showShapePanel() })
         findViewById<View>(R.id.toolUndo).setOnClickListener { edit { undo() } }
         findViewById<View>(R.id.toolRedo).setOnClickListener { edit { redo() } }
     }
@@ -1361,11 +1370,6 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // edited as on slides
     private fun editPageText() {
         val document = document ?: return
-        // The pictures of the page would have to reach the Document Server first
-        if (coConnection != null) {
-            toast(getString(Resources.string.editors_pdf_edit_text_coediting))
-            return
-        }
         if (penOn) setPen(null, 0.0)
         val page = documentView.visiblePage()
         lifecycleScope.launch {
@@ -1374,8 +1378,24 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 return@launch
             }
             edit { editPage(page) }
+            // Co-editing: the others get the page's pictures from the Document Server
+            coConnection?.let { connection -> uploadPagePictures(connection, document) }
             toast(getString(Resources.string.editors_pdf_edit_text_done))
         }
+    }
+
+    // The pictures a page made editable waits for (EditorDocument.imageUploads), uploaded; one
+    // that can't be keeps its name (the others don't see it)
+    private suspend fun uploadPagePictures(connection: CoEditingConnection, document: EditorDocument) {
+        val names = withContext(EditorEngine.dispatcher) { document.imageUploads() }
+        if (names.isEmpty()) return
+        val directory = withContext(EditorEngine.dispatcher) { document.imagesDirectory() }
+        var failed = false
+        val uploaded = names.map { name ->
+            uploadPicture(connection, document, File(directory, name)) ?: name.also { failed = true }
+        }
+        if (failed) toast(getString(Resources.string.editors_coediting_upload_failed))
+        edit { finishImageUploads(uploaded) }
     }
 
     // Freehand drawing: pens of a few colors and a marker; one finger draws, two scroll
