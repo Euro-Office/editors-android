@@ -433,6 +433,20 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         }
     }
 
+    private var leaving = false
+
+    // Sends the changes not sent yet and waits for the server's answer, at most CO_FLUSH_MS; the
+    // session's timer carries them (coEdit)
+    private suspend fun flushCoEditing() {
+        val document = document ?: return
+        val end = SystemClock.elapsedRealtime() + CO_FLUSH_MS
+        while (coConnection != null && SystemClock.elapsedRealtime() < end) {
+            val pending = withContext(EditorEngine.dispatcher) { runCatching { document.coFlush() }.getOrDefault(false) }
+            if (!pending) return
+            delay(CO_TICK_MS)
+        }
+    }
+
     private fun stopCoEditing() {
         coConnection?.close()
         coConnection = null
@@ -1453,17 +1467,25 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        // The app may be closed in the background: keep the edits (co-editing: the server keeps them)
+        // The app may be closed in the background: keep the edits (co-editing: the server keeps
+        // them, once they are sent)
         if (modified && !isChangingConfigurations && coEditingUi == null) save {}
+        if (coEditingUi != null) document?.let { lifecycleScope.launch(EditorEngine.dispatcher) { runCatching { it.coFlush() } } }
     }
 
     /** Leaves the editor, saving the edits first; asks what to do if that doesn't work. */
     private fun leave() {
-        // Co-editing: the Document Server saves into the integration when everybody left
+        // Co-editing: the Document Server saves into the integration when everybody left; the
+        // last changes go to it first (sdkjs sends them a second or two after the last one)
         if (coEditingUi != null) {
-            stopCoEditing()
-            setResult(RESULT_OK, Intent().setData(documentUri).putExtra(EditorsContract.EXTRA_IS_MODIFIED, false))
-            finish()
+            if (leaving) return
+            leaving = true
+            lifecycleScope.launch {
+                flushCoEditing()
+                stopCoEditing()
+                setResult(RESULT_OK, Intent().setData(documentUri).putExtra(EditorsContract.EXTRA_IS_MODIFIED, false))
+                finish()
+            }
             return
         }
         if (pdfEdited || modified) {
@@ -1740,6 +1762,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         /** Editors that co-edit through a Document Server. */
         val CO_EDITORS = setOf(EditorsType.DOCS, EditorsType.PRESENTATION, EditorsType.CELLS, EditorsType.PDF)
         const val CO_TICK_MS = 100L
+        const val CO_FLUSH_MS = 5000L
         const val FORMAT_PULSE = 1.25f
         const val FORMAT_PULSE_MS = 150L
         const val MEDIA_PREFIX = "media/"

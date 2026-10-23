@@ -701,6 +701,12 @@ interface EditorDocument : PagedDocument {
     /** sdkjs' timers while co-editing: layout, sending changes, applying the others'. */
     fun coTick(budgetMs: Int): EditorState = command("eoEngine.tick($budgetMs); eoEngine.coTick()")
 
+    /**
+     * Before leaving the session: sends the changes not sent yet (they go out with the outbox,
+     * see [coTakeOutbox]). True while some still wait for the server's answer.
+     */
+    fun coFlush(): Boolean = execute("String(eoEngine.coFlush())") == "true"
+
     /** A picture of the document (a fetch of [coTakeOutbox]) was downloaded into [imagesDirectory]. */
     fun coImageLoaded(name: String): EditorState = command("eoEngine.coImageLoaded(${JSONObject.quote(name)})")
 
