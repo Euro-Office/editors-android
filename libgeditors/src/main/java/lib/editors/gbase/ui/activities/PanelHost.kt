@@ -9,9 +9,9 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import androidx.core.widget.NestedScrollView
 import androidx.core.view.isVisible
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import lib.editors.gbase.R
@@ -44,7 +44,8 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
      * from (a back button), [onDismiss] runs when it closes, however that happens.
      */
     fun show(title: String, content: View, onBack: (() -> Unit)? = null, onDismiss: () -> Unit): Panel {
-        val scroll = ScrollView(context).apply { addView(content) }
+        // Nested: in a bottom sheet, scrolling back up scrolls the panel before it moves the sheet
+        val scroll = NestedScrollView(context).apply { addView(content) }
         val sheet = (current as? SheetPanel)?.takeIf { !isSide && it.sheet.isShowing }
         if (sheet != null) {
             // In the sheet that is open: no closing and opening again
@@ -99,7 +100,7 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
         }
         panel = show(title, list, onBack) {}
         // The chosen one in view
-        if (selected > 0) list.post { (list.parent as? ScrollView)?.scrollTo(0, list.getChildAt(selected)?.top?.minus(dp(48)) ?: 0) }
+        if (selected > 0) list.post { (list.parent as? NestedScrollView)?.scrollTo(0, list.getChildAt(selected)?.top?.minus(dp(48)) ?: 0) }
     }
 
     private fun showSheet(
