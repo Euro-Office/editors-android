@@ -479,7 +479,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         slidesUi?.editable = true
         if (editorsType == EditorsType.DOCS && !fillsForms()) {
             val ui = DocumentUi(
-                this, lifecycleScope, documentView, { document }, panels, { command -> edit(command = command) }
+                this, lifecycleScope, documentView, { document }, panels, pageSettingsUi, { command -> edit(command = command) }
             )
             val root = findViewById<ViewGroup>(R.id.editorRoot)
             root.addView(ui.bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
@@ -960,6 +960,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private val chartUi by lazy {
         ChartUi(this, lifecycleScope, { document }, iconPicker, panels, showBar = ::showChartBar) { command -> edit(command = command) }
     }
+
+    private val pageSettingsUi by lazy { PageSettingsUi(this, lifecycleScope, { document }, panels) { command -> edit(command = command) } }
 
     private val previewPicker by lazy { PreviewPicker(this, lifecycleScope, { document }, panels) }
 
@@ -1671,6 +1673,14 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 if (searchBar != null) item(Resources.string.editors_search, Resources.drawable.ic_editor_search) { searchBar?.show() }
                 if (canSave()) item(Resources.string.editors_save, Resources.drawable.ic_editor_save) { saveNow() }.isEnabled = modified
                 documentUi?.addDocumentItems(menu)
+                // Presentations' and spreadsheets' page setup (documents': documentUi's)
+                if (editing && !isPdfEditor) {
+                    when (editorsType) {
+                        EditorsType.PRESENTATION -> item(Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) { pageSettingsUi.showSlides() }
+                        EditorsType.CELLS -> item(Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) { pageSettingsUi.showSheet() }
+                        else -> Unit
+                    }
+                }
             }
         )
     }

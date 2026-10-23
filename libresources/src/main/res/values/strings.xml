@@ -158,6 +158,10 @@
     <string name="editors_doc_portrait">Portrait</string>
     <string name="editors_doc_landscape">Landscape</string>
     <string name="editors_doc_size">Size</string>
+    <string name="editors_color_scheme">Color scheme</string>
+    <string name="editors_slide_size">Slide size</string>
+    <string name="editors_cells_view">View</string>
+    <string name="editors_cells_gridlines">Gridlines</string>
     <string name="editors_doc_margins">Margins</string>
     <string name="editors_doc_margins_narrow">Narrow</string>
     <string name="editors_doc_margins_normal">Normal</string>

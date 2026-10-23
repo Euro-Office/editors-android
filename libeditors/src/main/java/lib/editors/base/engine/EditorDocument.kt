@@ -644,6 +644,44 @@ interface EditorDocument : PagedDocument {
         return Statistics(json.getInt("pages"), json.getInt("words"), json.getInt("paragraphs"), json.getInt("symbols"), json.getInt("symbolsWithSpaces"))
     }
 
+    /** The theme's color schemes (built-in and the document's) and the current one. */
+    fun colorSchemes(): ColorSchemes {
+        val json = JSONObject(execute("eoEngine.getColorSchemes()"))
+        val schemes = json.getJSONArray("schemes")
+        return ColorSchemes((0 until schemes.length()).map { i ->
+            val scheme = schemes.getJSONObject(i)
+            val colors = scheme.getJSONArray("colors")
+            ColorScheme(scheme.getString("name"), (0 until colors.length()).map { colors.getString(it) })
+        }, json.getInt("current"))
+    }
+
+    fun setColorScheme(index: Int): EditorState = command("eoEngine.setColorScheme($index)")
+
+    /** Presentations: the slides' size. */
+    fun slideSize(): PageSize {
+        val json = JSONObject(execute("eoEngine.getSlideSize()"))
+        return PageSize(json.getDouble("width"), json.getDouble("height"))
+    }
+
+    /** Presentations: 16:9 ([wide]) or 4:3 slides. */
+    fun setSlideSize(wide: Boolean): EditorState = command("eoEngine.setSlideSize($wide)")
+
+    /** Spreadsheets: the active sheet's gridlines and its pages' orientation and size. */
+    fun sheetSetup(): SheetSetup {
+        val json = JSONObject(execute("eoEngine.getSheetSetup()"))
+        return SheetSetup(json.getBoolean("gridlines"), json.getBoolean("landscape"), json.getDouble("width"), json.getDouble("height"))
+    }
+
+    fun setGridlines(show: Boolean): EditorState = command("eoEngine.setGridlines($show)")
+
+    /** Spreadsheets: the active sheet's pages' orientation, or size (as portrait, mm). */
+    fun setSheetPage(landscape: Boolean? = null, width: Double? = null, height: Double? = null): EditorState {
+        val setup = JSONObject()
+        if (landscape != null) setup.put("landscape", landscape)
+        if (width != null && height != null) setup.put("width", width).put("height", height)
+        return command("eoEngine.setSheetPage($setup)")
+    }
+
     fun setTrackChanges(value: Boolean): EditorState = command("eoEngine.setTrackChanges($value)")
 
     /** next, previous, accept, reject (the change at the cursor, then the next one), acceptAll, rejectAll. */

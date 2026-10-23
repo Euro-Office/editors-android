@@ -39,6 +39,7 @@ internal class DocumentUi(
     private val documentView: DocumentView,
     private val document: () -> EditorDocument?,
     private val panels: PanelHost,
+    private val pageSettings: PageSettingsUi,
     private val edit: (EditorDocument.() -> EditorState) -> Unit
 ) {
 
@@ -178,7 +179,7 @@ internal class DocumentUi(
                 }
                 caption(Resources.string.editors_doc_size)
                 scrollRow {
-                    for ((name, width, height) in PAPER_SIZES) {
+                    for ((name, width, height) in PageSettingsUi.PAPER_SIZES) {
                         choice(name, { abs(minOf(it.width, it.height) - width) < 1 && abs(maxOf(it.width, it.height) - height) < 1 }) {
                             change { setPageSetup(width = width, height = height) }
                         }
@@ -198,6 +199,7 @@ internal class DocumentUi(
                         choice(count.toString(), { it.columns == count }, icon) { change { setPageSetup(columns = count) } }
                     }
                 }
+                action(Resources.string.editors_color_scheme) { pageSettings.chooseColorScheme { showPageSetup() } }
             }
             panels.show(context.getString(Resources.string.editors_doc_page_setup), content) {}
             updaters.forEach { it(setup) }
@@ -324,13 +326,6 @@ internal class DocumentUi(
     }
 
     private companion object {
-        // Name, width and height (portrait) in mm
-        val PAPER_SIZES = listOf(
-            Triple("A4", 210.0, 297.0),
-            Triple("A5", 148.0, 210.0),
-            Triple("Letter", 215.9, 279.4),
-            Triple("Legal", 215.9, 355.6)
-        )
         // All four margins, in mm
         val MARGINS = listOf(
             Resources.string.editors_doc_margins_narrow to 12.7,

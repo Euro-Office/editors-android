@@ -152,6 +152,15 @@ data class PageSetup(
 /** A heading of the document outline, at [level] (0 for the top). */
 data class OutlineItem(val index: Int, val text: String, val level: Int)
 
+/** A color scheme: its name and colors ("RRGGBB": dark 1, light 1, dark 2, light 2, accents 1 to 6, links). */
+data class ColorScheme(val name: String, val colors: List<String>)
+
+/** The color schemes to choose from and the current one's index, -1 for none of them. */
+data class ColorSchemes(val schemes: List<ColorScheme>, val current: Int)
+
+/** Spreadsheets: the active sheet's [gridlines], its pages' orientation and size (mm). */
+data class SheetSetup(val gridlines: Boolean, val landscape: Boolean, val width: Double, val height: Double)
+
 data class Statistics(val pages: Int, val words: Int, val paragraphs: Int, val symbols: Int, val symbolsWithSpaces: Int)
 
 /**
