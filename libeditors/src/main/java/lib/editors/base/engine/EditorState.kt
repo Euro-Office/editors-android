@@ -320,9 +320,10 @@ enum class PdfMarkupKind(val value: String) { HIGHLIGHT("highlight"), UNDERLINE(
 
 /**
  * The PDF editor's state: freehand drawing is on ([ink]); the selected annotation ([annotation]
- * its sdkjs type, null for none); text of the page is selected ([textSelected], to mark it up).
+ * its sdkjs type, null for none); text of the page is selected ([textSelected], to mark it up);
+ * a text box or text in it is ([textBox], formatted as in presentations).
  */
-data class PdfState(val ink: Boolean, val annotation: Int?, val textSelected: Boolean)
+data class PdfState(val ink: Boolean, val annotation: Int?, val textSelected: Boolean, val textBox: Boolean = false)
 
 /** A place in the document to show: a link or an entry of the contents was followed. */
 data class Place(val page: Int, val yMm: Double)
@@ -433,7 +434,7 @@ class EditorState(
                 },
                 coEditing = root.optJSONObject("coEditing")?.let { parseCoEditing(it) },
                 pdf = root.optJSONObject("pdf")?.let {
-                    PdfState(it.optBoolean("ink"), it.optJSONObject("annotation")?.optInt("type"), it.optBoolean("textSelected"))
+                    PdfState(it.optBoolean("ink"), it.optJSONObject("annotation")?.optInt("type"), it.optBoolean("textSelected"), it.optBoolean("textBox"))
                 },
                 navigate = root.optJSONObject("navigate")?.let { Place(it.optInt("page"), it.optDouble("y")) },
                 shownComments = root.optJSONArray("shownComments")?.let { ids -> (0 until ids.length()).map { ids.getString(it) } }.orEmpty(),

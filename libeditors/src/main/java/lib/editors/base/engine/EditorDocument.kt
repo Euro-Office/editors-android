@@ -380,6 +380,16 @@ interface EditorDocument : PagedDocument {
     /** A text box (free text annotation) centered on ([xMm], [yMm]) of [page], with the cursor in it. */
     fun addFreeText(page: Int, xMm: Double, yMm: Double): EditorState = command("eoEngine.addFreeText($page, $xMm, $yMm)")
 
+    /** Whether the text of [page] can be made editable ([editPage]): not if it is already, or the page was added. */
+    fun canEditPage(page: Int): Boolean = execute("String(eoEngine.canEditPage($page))") == "true"
+
+    /**
+     * Makes the text, shapes and pictures of [page] editable, as text boxes, shapes and pictures
+     * (the web PDF editor's "Edit text"), in one undo step. Their text is formatted as in
+     * presentations ([PdfState.textBox]).
+     */
+    fun editPage(page: Int): EditorState = command("eoEngine.editPage($page)")
+
     /** Removes the selected annotations, pictures and shapes. */
     fun deleteSelection(): EditorState = command("eoEngine.deleteSelection()")
 

@@ -28,6 +28,8 @@ internal class FormatPanel(
     /** Paragraph settings: documents and presentations; styles only for documents. */
     private val withParagraphs: Boolean,
     private val withStyles: Boolean,
+    /** Highlighting text: not in PDFs, whose editor marks text up instead. */
+    private val withHighlights: Boolean,
     private val panels: PanelHost,
     /** The fill and outline of the selected drawing (on its thread). */
     private val loadShapeColors: (onLoaded: (DrawingColors?) -> Unit) -> Unit,
@@ -209,13 +211,15 @@ internal class FormatPanel(
         }
         caption(Resources.string.editors_format_color)
         colors(TEXT_COLORS, { it.color }) { color -> edit { setTextColor(color) } }
-        val highlights = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            caption(Resources.string.editors_format_highlight)
-            colors(HIGHLIGHTS, { it.highlight }) { color -> edit { setHighlight(color) } }
+        if (withHighlights) {
+            val highlights = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                caption(Resources.string.editors_format_highlight)
+                colors(HIGHLIGHTS, { it.highlight }) { color -> edit { setHighlight(color) } }
+            }
+            addView(highlights)
+            textOnly += highlights
         }
-        addView(highlights)
-        textOnly += highlights
 
         if (!withParagraphs) return
         val paragraphs = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }

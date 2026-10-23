@@ -86,6 +86,8 @@ class EditorStateTest {
             "navigate": {"page": 3, "y": 120.5}"""))
         assertEquals(PdfState(ink = true, annotation = 8, textSelected = false), parsed.pdf)
         assertEquals(Place(3, 120.5), parsed.navigate)
+        val textBox = EditorState.parse(state(""", "pdf": {"ink": false, "annotation": null, "textSelected": false, "textBox": true}"""))
+        assertEquals(PdfState(ink = false, annotation = null, textSelected = false, textBox = true), textBox.pdf)
         assertNull(EditorState.parse(state("")).pdf)
     }
 

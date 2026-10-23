@@ -105,6 +105,7 @@ FORMAT_ICONS = {
     "columns_one": ("common", "btn-columns-one"),
     "columns_two": ("common", "btn-columns-two"),
     "columns_three": ("common", "btn-columns-three"),
+    "edit_text": ("pdfeditor", "btn-edit-text"),
 }
 
 # Shapes drawn point by point, which one tap can't insert

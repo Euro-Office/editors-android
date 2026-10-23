@@ -32,6 +32,9 @@
         <ImageButton android:id="@+id/toolTextBox" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_text_box" android:src="@drawable/ic_editor_text_box"
             android:visibility="gone" />
+        <ImageButton android:id="@+id/toolEditText" style="@style/EditorToolButton"
+            android:contentDescription="@string/editors_pdf_edit_text" android:src="@drawable/ic_editor_edit_text"
+            android:visibility="gone" />
         <ImageButton android:id="@+id/toolInsert" style="@style/EditorToolButton"
             android:contentDescription="@string/editors_insert" android:src="@drawable/ic_editor_insert" />
         <ImageButton android:id="@+id/toolFormat" style="@style/EditorToolButton"

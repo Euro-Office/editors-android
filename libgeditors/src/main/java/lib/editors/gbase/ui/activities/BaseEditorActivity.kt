@@ -187,8 +187,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         linkBar = createLinkBar()
         Accessibility.pane(linkBar, getString(Resources.string.editors_link))
         // Read as switches: on while selected
-        listOf(R.id.toolBold, R.id.toolItalic, R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight)
-            .forEach { Accessibility.toggle(findViewById(it)) }
+        TEXT_TOOLS.forEach { Accessibility.toggle(findViewById(it)) }
         val root = findViewById<ViewGroup>(R.id.editorRoot)
         root.addView(linkBar, root.indexOfChild(findViewById(R.id.editorToolbar)))
 
@@ -894,6 +893,13 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolAlignCenter).isSelected = !drawingSelected && toolbar.alignment == Alignment.CENTER
         findViewById<View>(R.id.toolAlignRight).isSelected = !drawingSelected && toolbar.alignment == Alignment.RIGHT
         listOf(R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight).forEach { findViewById<View>(it).isEnabled = !drawingSelected }
+        // PDFs: the text tools while a text box or its text is selected
+        if (isPdfEditor && editing) {
+            val textBox = state.pdf?.textBox == true
+            (TEXT_TOOLS + R.id.toolFormat).forEach { findViewById<View>(it).isVisible = textBox }
+            if (textBox != pdfTextBox) documentView.selectionActions = pdfSelectionActions(textBox)
+            pdfTextBox = textBox
+        }
         findViewById<View>(R.id.toolUndo).isEnabled = toolbar.canUndo
         findViewById<View>(R.id.toolRedo).isEnabled = toolbar.canRedo
         // In a table (also one on a slide, which is a drawing): the table's and its text's settings
@@ -1015,6 +1021,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             },
             withParagraphs = editorsType != EditorsType.CELLS,
             withStyles = editorsType == EditorsType.DOCS,
+            withHighlights = editorsType != EditorsType.PDF,
             panels = panels,
             loadShapeColors = { onLoaded -> read({ drawingColors() }, onLoaded) },
             slide = if (editorsType != EditorsType.PRESENTATION) null else FormatPanel.SlideSettings(
@@ -1022,7 +1029,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 chooseLayout = { back -> slidesUi?.chooseLayout(forNewSlide = false, onBack = back) },
                 chooseDesign = ::chooseDesign
             ),
-            chooseTableStyle = if (isSpreadsheet) null else {
+            chooseTableStyle = if (isSpreadsheet || editorsType == EditorsType.PDF) null else {
                 { back ->
                     previewPicker.show(getString(Resources.string.editors_table_style), "tableStyles", keepOpen = true, onBack = back) { style ->
                         edit { setTableStyle(style.id) }
@@ -1182,18 +1189,24 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         return name
     }
 
+    // A toolbar button's command, given whether it is to be on (a switch's)
+    private fun bindTool(id: Int, command: EditorDocument.(selected: Boolean) -> EditorState) {
+        findViewById<View>(id).setOnClickListener { view -> edit { command(!view.isSelected) } }
+    }
+
+    private fun bindTextTools() {
+        bindTool(R.id.toolBold) { setBold(it) }
+        bindTool(R.id.toolItalic) { setItalic(it) }
+        bindTool(R.id.toolUnderline) { setUnderline(it) }
+        bindTool(R.id.toolAlignLeft) { setAlignment(Alignment.LEFT) }
+        bindTool(R.id.toolAlignCenter) { setAlignment(Alignment.CENTER) }
+        bindTool(R.id.toolAlignRight) { setAlignment(Alignment.RIGHT) }
+    }
+
     private fun bindToolbar() {
-        fun bind(id: Int, command: EditorDocument.(selected: Boolean) -> EditorState) {
-            findViewById<View>(id).setOnClickListener { view -> edit { command(!view.isSelected) } }
-        }
-        bind(R.id.toolBold) { setBold(it) }
-        bind(R.id.toolItalic) { setItalic(it) }
-        bind(R.id.toolUnderline) { setUnderline(it) }
-        bind(R.id.toolAlignLeft) { setAlignment(Alignment.LEFT) }
-        bind(R.id.toolAlignCenter) { setAlignment(Alignment.CENTER) }
-        bind(R.id.toolAlignRight) { setAlignment(Alignment.RIGHT) }
-        bind(R.id.toolUndo) { undo() }
-        bind(R.id.toolRedo) { redo() }
+        bindTextTools()
+        bindTool(R.id.toolUndo) { undo() }
+        bindTool(R.id.toolRedo) { redo() }
         // Slides are added and deleted at the slides (the button at their end, a slide's menu)
         findViewById<View>(R.id.toolInsert).setOnClickListener { drawingUi.showInsertMenu(it) }
         documentUi?.let { ui ->
@@ -1274,6 +1287,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // (comments), signatures and others' annotations, saved into the PDF
 
     private var penOn = false
+    // A text box or its text is selected (PdfState.textBox)
+    private var pdfTextBox = false
 
     private fun showPdfTools(document: EditorDocument, pages: List<PageSize>) {
         showPageTools(document, pages)
@@ -1297,20 +1312,53 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         documentView.readOnly = false
         // Typing only goes into text boxes and form fields
         documentView.keyboardWithCursor = true
-        documentView.selectionActions = listOfNotNull(
-            getString(Resources.string.editors_pdf_highlight) to { edit { markup(PdfMarkupKind.HIGHLIGHT, "FFEB3B") } },
-            getString(Resources.string.editors_pdf_underline) to { edit { markup(PdfMarkupKind.UNDERLINE, "3366D9") } },
-            getString(Resources.string.editors_pdf_strikeout) to { edit { markup(PdfMarkupKind.STRIKEOUT, "D92626") } },
-            commentAction()
-        )
+        documentView.selectionActions = pdfSelectionActions(textBox = false)
         findViewById<View>(R.id.toolPen).isVisible = true
         findViewById<View>(R.id.toolPen).setOnClickListener { showPenMenu(it) }
         findViewById<View>(R.id.toolSign).isVisible = true
         findViewById<View>(R.id.toolSign).setOnClickListener { SignaturePad(this) { picture, aspect -> placeSignature(picture, aspect) }.show() }
         findViewById<View>(R.id.toolTextBox).isVisible = true
         findViewById<View>(R.id.toolTextBox).setOnClickListener { addTextBox() }
+        findViewById<View>(R.id.toolEditText).isVisible = true
+        findViewById<View>(R.id.toolEditText).setOnClickListener { editPageText() }
+        // The text of text boxes (of pages whose text was made editable): its tools show while
+        // one is selected (applyState)
+        bindTextTools()
+        findViewById<View>(R.id.toolFormat).setOnClickListener { formatText() }
         findViewById<View>(R.id.toolUndo).setOnClickListener { edit { undo() } }
         findViewById<View>(R.id.toolRedo).setOnClickListener { edit { redo() } }
+    }
+
+    // Selected text of the page is marked up; in text boxes it is formatted
+    private fun pdfSelectionActions(textBox: Boolean): List<Pair<String, () -> Unit>> = if (textBox) listOf(
+        getString(Resources.string.editors_pdf_underline) to { edit { setUnderline(true) } },
+        getString(Resources.string.editors_pdf_strikeout) to { edit { setStrikeout(true) } }
+    ) else listOfNotNull(
+        getString(Resources.string.editors_pdf_highlight) to { edit { markup(PdfMarkupKind.HIGHLIGHT, "FFEB3B") } },
+        getString(Resources.string.editors_pdf_underline) to { edit { markup(PdfMarkupKind.UNDERLINE, "3366D9") } },
+        getString(Resources.string.editors_pdf_strikeout) to { edit { markup(PdfMarkupKind.STRIKEOUT, "D92626") } },
+        commentAction()
+    )
+
+    // The text, shapes and pictures of the page shown become text boxes, shapes and pictures,
+    // edited as on slides
+    private fun editPageText() {
+        val document = document ?: return
+        // The pictures of the page would have to reach the Document Server first
+        if (coConnection != null) {
+            toast(getString(Resources.string.editors_pdf_edit_text_coediting))
+            return
+        }
+        if (penOn) setPen(null, 0.0)
+        val page = documentView.visiblePage()
+        lifecycleScope.launch {
+            if (!withContext(EditorEngine.dispatcher) { document.canEditPage(page) }) {
+                toast(getString(Resources.string.editors_pdf_edit_text_already))
+                return@launch
+            }
+            edit { editPage(page) }
+            toast(getString(Resources.string.editors_pdf_edit_text_done))
+        }
     }
 
     // Freehand drawing: pens of a few colors and a marker; one finger draws, two scroll
@@ -1880,6 +1928,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         const val MAX_SUGGESTIONS = 3
         const val SPELLING_PREFERENCES = "lib.editors.spelling"
         const val KEY_SPELL_CHECK = "spell_check"
+        private val TEXT_TOOLS = listOf(R.id.toolBold, R.id.toolItalic, R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight)
         // Toolbar buttons also when viewing
         private val FILLING_HIDDEN_TOOLS = listOf(
             R.id.toolInsert, R.id.toolFormat, R.id.toolBold, R.id.toolItalic,
