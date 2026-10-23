@@ -33,8 +33,9 @@ import app.documents.shared.MessengerClient
 import app.documents.shared.models.SharedUser
 
 /**
- * Comments in a panel (see [PanelHost]): all comments with their replies; a tap shows one in the
- * document. With [canComment], comments can be added (on the selection), answered, resolved
+ * Comments in a panel (see [PanelHost]): all comments in the document's order; a tap on one, or
+ * on it in the document, shows it with its replies, where it is, and the way to the previous
+ * and next one. With [canComment], comments can be added (on the selection), answered, resolved
  * and deleted. In DocSpace files ([fileId]), "@" suggests the people the file is shared with
  * and mentioned people are notified.
  */
@@ -46,8 +47,8 @@ internal class CommentsUi(
     val canComment: Boolean,
     private val fileId: String?,
     private val panels: PanelHost,
-    /** The number of open (not resolved) comments, for the comments button. */
-    private val onCount: (Int) -> Unit = {}
+    /** The document's comments after they changed: for the comments button and the marks of them. */
+    private val onComments: (List<Comment>) -> Unit = {}
 ) {
 
     private val density = activity.resources.displayMetrics.density
@@ -56,6 +57,10 @@ internal class CommentsUi(
     private val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
     private var users: List<SharedUser> = emptyList()
     private var counting: Job? = null
+    private var comments: List<Comment> = emptyList()
+    // The comment shown on its own (with its replies), null while the list is shown
+    private var threadId: String? = null
+    private val thread = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
     private val messenger: MessengerClient? = fileId?.let { id ->
         MessengerClient(activity).also { client ->
             client.init(activity)
@@ -63,7 +68,9 @@ internal class CommentsUi(
         }
     }
 
+    /** All comments. */
     fun show() {
+        threadId = null
         val content = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPaddingRelative(dp(16), 0, dp(16), dp(24))
@@ -71,7 +78,32 @@ internal class CommentsUi(
             (list.parent as? android.view.ViewGroup)?.removeView(list)
             addView(list)
         }
-        dialog = panels.show(activity.getString(Resources.string.editors_comments), content) { dialog = null }
+        dialog = panels.show(activity.getString(Resources.string.editors_comments), content) { dialog = null; threadId = null }
+        reload()
+    }
+
+    /**
+     * One comment with its replies, a field to reply and the way to the previous and next
+     * comment; the document shows where it is.
+     */
+    fun showThread(id: String) {
+        if (dialog != null && threadId == id) return
+        val showing = dialog != null && threadId != null
+        threadId = id
+        edit { gotoComment(id) }
+        if (showing) {
+            render()
+            return
+        }
+        val reply = replyField()
+        val content = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPaddingRelative(dp(16), 0, dp(16), dp(24))
+            (thread.parent as? android.view.ViewGroup)?.removeView(thread)
+            addView(thread)
+            if (canComment) addView(reply)
+        }
+        dialog = panels.show(activity.getString(Resources.string.editors_comment_title), content) { dialog = null; threadId = null }
         reload()
     }
 
@@ -80,75 +112,182 @@ internal class CommentsUi(
         if (canComment) compose(null)
     }
 
-    /** After a command: the list again, if it is shown; the count at most once a second. */
+    /** After a command: the panel again, if it is shown; the comments at most once a second otherwise. */
     fun onState() {
-        if (dialog != null) reload()
+        if (dialog != null) {
+            reload()
+            return
+        }
         if (counting != null) return
         counting = scope.launch {
             delay(COUNT_DELAY_MS)
             counting = null
-            val document = document() ?: return@launch
-            val comments = withContext(EditorEngine.dispatcher) { runCatching { document.comments() }.getOrNull() } ?: return@launch
-            onCount(comments.count { !it.solved })
+            load()
         }
     }
+
+    private suspend fun load(): List<Comment>? {
+        val document = document() ?: return null
+        val loaded = withContext(EditorEngine.dispatcher) { runCatching { document.comments() }.getOrNull() } ?: return null
+        if (loaded != comments) {
+            comments = loaded
+            onComments(loaded)
+        }
+        return loaded
+    }
+
+    // In the document's order: by sheet, page, then from top to bottom
+    private fun ordered() = comments.sortedWith(
+        compareBy<Comment>({ it.sheet }, { it.page }, { if (it.sheet >= 0) it.row.toDouble() else it.y }, { if (it.sheet >= 0) it.col.toDouble() else it.x }, { it.time })
+    )
 
     private fun reload() {
-        val document = document() ?: return
         scope.launch {
-            val comments = withContext(EditorEngine.dispatcher) { runCatching { document.comments() }.getOrDefault(emptyList()) }
-            list.removeAllViews()
-            if (comments.isEmpty()) {
-                list.addView(TextView(activity).apply {
-                    setText(Resources.string.editors_comments_none)
-                    setPaddingRelative(0, dp(16), 0, dp(16))
-                })
-            }
-            comments.sortedBy { it.time }.forEach { list.addView(commentView(it)) }
+            load() ?: return@launch
+            render()
         }
     }
 
-    private fun commentView(comment: Comment) = LinearLayout(activity).apply {
-        orientation = LinearLayout.VERTICAL
-        setPaddingRelative(0, dp(12), 0, dp(4))
-        alpha = if (comment.solved) 0.6f else 1f
-        addView(header(comment.user, comment.time))
-        if (comment.quote.isNotEmpty()) {
-            addView(TextView(activity).apply {
-                text = comment.quote
-                maxLines = 2
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                setTypeface(typeface, Typeface.ITALIC)
-                alpha = 0.7f
+    private fun render() {
+        val id = threadId
+        if (id != null) {
+            renderThread(id)
+            return
+        }
+        list.removeAllViews()
+        if (comments.isEmpty()) {
+            list.addView(TextView(activity).apply {
+                setText(Resources.string.editors_comments_none)
+                setPaddingRelative(0, dp(16), 0, dp(16))
             })
         }
-        addView(TextView(activity).apply {
-            text = comment.text
-            textSize = 15f
-            setPaddingRelative(0, dp(2), 0, dp(2))
+        ordered().forEach { list.addView(commentView(it)) }
+    }
+
+    // The comment, its replies and what can be done with it; above, the way through the comments
+    private fun renderThread(id: String) {
+        thread.removeAllViews()
+        val all = ordered()
+        val index = all.indexOfFirst { it.id == id }
+        val comment = all.getOrNull(index)
+        thread.addView(LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(action(Resources.string.editors_comments_all) { show() })
+            addView(android.view.View(activity), LinearLayout.LayoutParams(0, 1, 1f))
+            if (all.size > 1 && index >= 0) {
+                addView(arrow("‹", Resources.string.editors_comments_previous) { showThread(all[(index - 1 + all.size) % all.size].id) })
+                addView(TextView(activity).apply {
+                    text = activity.getString(Resources.string.editors_comments_position, index + 1, all.size)
+                    setPaddingRelative(dp(4), 0, dp(4), 0)
+                })
+                addView(arrow("›", Resources.string.editors_comments_next) { showThread(all[(index + 1) % all.size].id) })
+            }
         })
-        comment.replies.forEach { reply ->
-            addView(LinearLayout(activity).apply {
-                orientation = LinearLayout.VERTICAL
-                setPaddingRelative(dp(16), dp(6), 0, 0)
-                addView(header(reply.user, reply.time))
-                addView(TextView(activity).apply { text = reply.text })
+        if (comment == null) {
+            thread.addView(TextView(activity).apply {
+                setText(Resources.string.editors_comments_none)
+                setPaddingRelative(0, dp(16), 0, dp(16))
             })
+            return
         }
+        thread.addView(LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPaddingRelative(0, dp(8), 0, dp(4))
+            addView(header(comment.user, comment.time))
+            if (comment.quote.isNotEmpty()) addView(quote(comment.quote))
+            addView(TextView(activity).apply {
+                text = comment.text
+                textSize = 16f
+                setPaddingRelative(0, dp(4), 0, dp(4))
+            })
+            comment.replies.forEach { reply ->
+                addView(LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPaddingRelative(dp(16), dp(8), 0, 0)
+                    addView(header(reply.user, reply.time))
+                    addView(TextView(activity).apply { text = reply.text; textSize = 15f })
+                })
+            }
+        })
         if (canComment) {
-            addView(LinearLayout(activity).apply {
+            thread.addView(LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
-                addView(action(Resources.string.editors_comments_reply) { compose(comment.id) })
                 addView(action(if (comment.solved) Resources.string.editors_comments_reopen else Resources.string.editors_comments_resolve) {
                     edit { resolveComment(comment.id, !comment.solved) }
                 })
-                addView(action(Resources.string.editors_comments_delete) { edit { deleteComment(comment.id) } })
+                addView(action(Resources.string.editors_comments_delete) {
+                    // On to the next comment, or the list after the last one
+                    val next = all.getOrNull(index + 1) ?: all.getOrNull(index - 1)
+                    edit { deleteComment(comment.id) }
+                    if (next != null) showThread(next.id) else show()
+                })
             })
         }
-        setOnClickListener {
-            edit { gotoComment(comment.id) }
-            dialog?.dismiss()
+    }
+
+    // A field and a button to answer the comment shown; kept while the comment is drawn again
+    private fun replyField() = LinearLayout(activity).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPaddingRelative(0, dp(8), 0, 0)
+        val input = EditText(activity).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            maxLines = 4
+            setHint(Resources.string.editors_comments_reply_hint)
         }
+        val mentioned = mutableMapOf<String, String>()
+        if (users.isNotEmpty()) suggestMentions(input, mentioned)
+        addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        addView(action(Resources.string.editors_comments_post) {
+            val text = input.text.toString().trim()
+            val id = threadId
+            if (text.isEmpty() || id == null) return@action
+            post(id, text, mentioned) { input.text.clear() }
+        })
+    }
+
+    private fun arrow(text: String, description: Int, onClick: () -> Unit) = TextView(activity).apply {
+        this.text = text
+        textSize = 22f
+        gravity = Gravity.CENTER
+        minWidth = dp(48)
+        minHeight = dp(48)
+        contentDescription = activity.getString(description)
+        setBackgroundResource(R.drawable.editor_tool_background)
+        setOnClickListener { onClick() }
+    }
+
+    private fun quote(text: String) = TextView(activity).apply {
+        this.text = text
+        maxLines = 2
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        setTypeface(typeface, Typeface.ITALIC)
+        alpha = 0.7f
+    }
+
+    // A comment in the list: a tap shows it with its replies
+    private fun commentView(comment: Comment) = LinearLayout(activity).apply {
+        orientation = LinearLayout.VERTICAL
+        setPaddingRelative(dp(4), dp(12), dp(4), dp(12))
+        alpha = if (comment.solved) 0.6f else 1f
+        setBackgroundResource(R.drawable.editor_tool_background)
+        addView(header(comment.user, comment.time))
+        if (comment.quote.isNotEmpty()) addView(quote(comment.quote))
+        addView(TextView(activity).apply {
+            text = comment.text
+            textSize = 15f
+            maxLines = 3
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPaddingRelative(0, dp(2), 0, dp(2))
+        })
+        if (comment.replies.isNotEmpty()) {
+            addView(TextView(activity).apply {
+                text = activity.resources.getQuantityString(Resources.plurals.editors_comments_replies, comment.replies.size, comment.replies.size)
+                setTextColor(activity.getColor(Resources.color.editors_selection_handle))
+            })
+        }
+        setOnClickListener { showThread(comment.id) }
     }
 
     private fun header(user: String, time: Long) = TextView(activity).apply {
@@ -194,18 +333,28 @@ internal class CommentsUi(
             })
             .setPositiveButton(Resources.string.editors_comments_post) { _, _ ->
                 val text = input.text.toString().trim()
-                if (text.isEmpty()) return@setPositiveButton
-                edit {
-                    setCommentUser(preferences.getString(KEY_ID, null).orEmpty(), name)
-                    if (replyTo == null) addComment(text) else replyComment(replyTo, text)
-                }
-                // Mentions still in the text are notified
-                val emails = mentioned.filterKeys { text.contains("@$it") }.values.toSet()
-                if (emails.isNotEmpty() && fileId != null) messenger?.sendMentionNotifications(fileId, emails, text)
+                if (text.isNotEmpty()) post(replyTo, text, mentioned)
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
         input.requestFocus()
+    }
+
+    // A new comment or a reply ([replyTo]) by the user, whose name is asked once; mentions
+    // still in the text are notified
+    private fun post(replyTo: String?, text: String, mentioned: Map<String, String>, onPosted: () -> Unit = {}) {
+        val name = preferences.getString(KEY_NAME, null)
+        if (name.isNullOrBlank()) {
+            askName { post(replyTo, text, mentioned, onPosted) }
+            return
+        }
+        edit {
+            setCommentUser(preferences.getString(KEY_ID, null).orEmpty(), name)
+            if (replyTo == null) addComment(text) else replyComment(replyTo, text)
+        }
+        val emails = mentioned.filterKeys { text.contains("@$it") }.values.toSet()
+        if (emails.isNotEmpty() && fileId != null) messenger?.sendMentionNotifications(fileId, emails, text)
+        onPosted()
     }
 
     // "@" and the start of a name suggest people; a choice puts "@Name " in the text

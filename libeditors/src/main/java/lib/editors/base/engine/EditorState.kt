@@ -367,7 +367,9 @@ class EditorState(
     /** PDFs in sdkjs' PDF editor. */
     val pdf: PdfState? = null,
     /** A place to show, after following a link or an entry of the contents (reported once). */
-    val navigate: Place? = null
+    val navigate: Place? = null,
+    /** The comments sdkjs shows: of the commented text tapped, of the selected PDF annotation. */
+    val shownComments: List<String> = emptyList()
 ) {
     companion object {
         /** Throws [org.json.JSONException] if [json] isn't a state (the engine failed). */
@@ -423,6 +425,7 @@ class EditorState(
                     PdfState(it.optBoolean("ink"), it.optJSONObject("annotation")?.optInt("type"), it.optBoolean("textSelected"))
                 },
                 navigate = root.optJSONObject("navigate")?.let { Place(it.optInt("page"), it.optDouble("y")) },
+                shownComments = root.optJSONArray("shownComments")?.let { ids -> (0 until ids.length()).map { ids.getString(it) } }.orEmpty(),
                 chart = root.optJSONObject("chart")?.let {
                     ChartState(
                         it.optInt("type"), it.optBoolean("title"), it.optInt("legend"), it.optBoolean("labels"),

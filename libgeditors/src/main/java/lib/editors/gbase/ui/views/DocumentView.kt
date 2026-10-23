@@ -142,6 +142,23 @@ class DocumentView @JvmOverloads constructor(
     /** More actions in the menu while the cursor is in a table, such as adding a row. */
     var tableActions: List<Pair<String, () -> Unit>> = emptyList()
 
+    /** A comment's marker at its place on a page (presentations' comments), in mm. */
+    data class CommentMarker(val id: String, val page: Int, val xMm: Double, val yMm: Double)
+
+    /** Markers of comments; a tap on one calls [onCommentMarker] with its comment. */
+    var commentMarkers: List<CommentMarker> = emptyList()
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
+    var onCommentMarker: ((String) -> Unit)? = null
+    private val markerSize = 28 * density
+    private val markerIcon by lazy { ContextCompat.getDrawable(context, Resources.drawable.ic_editor_comment)?.mutate() }
+    private val markerPaint by lazy {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ContextCompat.getColor(context, Resources.color.editors_accent) }
+    }
+
     /**
      * Actions for the misspelled word at the cursor (suggestions, ignore, ...), first in the menu.
      * Set before [setEditorState]: a tap on such a word opens the menu.
@@ -294,6 +311,10 @@ class DocumentView @JvmOverloads constructor(
         }
 
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+            markerAt(e.x, e.y)?.let { marker ->
+                onCommentMarker?.invoke(marker.id)
+                return true
+            }
             if (editListener == null) return false
             hideActionMenu()
             if (readOnly) {
@@ -1362,6 +1383,7 @@ class DocumentView @JvmOverloads constructor(
             }
         }
         state.coEditing?.cursors?.forEach { drawForeignCursor(canvas, it) }
+        drawCommentMarkers(canvas)
         val cursor = state.cursor ?: return
         if (cursorShown && cursor.page in pageSizes.indices && editListener != null) {
             canvas.drawLine(
@@ -1369,6 +1391,32 @@ class DocumentView @JvmOverloads constructor(
                 screenX(cursor.page, cursor.x2), screenY(cursor.page, cursor.y2),
                 cursorPaint
             )
+        }
+    }
+
+    // A speech bubble in the accent at each comment's place (its top left corner there)
+    private fun drawCommentMarkers(canvas: Canvas) {
+        val icon = markerIcon ?: return
+        icon.setTint(ContextCompat.getColor(context, Resources.color.editors_on_accent))
+        for (marker in commentMarkers) {
+            if (marker.page !in pageSizes.indices) continue
+            val left = screenX(marker.page, marker.xMm)
+            val top = screenY(marker.page, marker.yMm)
+            if (left > width || top > height || left + markerSize < 0 || top + markerSize < 0) continue
+            canvas.drawRoundRect(left, top, left + markerSize, top + markerSize, markerSize / 4, markerSize / 4, markerPaint)
+            val inset = (markerSize / 5).toInt()
+            icon.setBounds(left.toInt() + inset, top.toInt() + inset, (left + markerSize).toInt() - inset, (top + markerSize).toInt() - inset)
+            icon.draw(canvas)
+        }
+    }
+
+    // The marker under a tap, with some room around it for the finger
+    private fun markerAt(x: Float, y: Float): CommentMarker? {
+        val slop = 8 * density
+        return commentMarkers.lastOrNull { marker ->
+            marker.page in pageSizes.indices &&
+                x >= screenX(marker.page, marker.xMm) - slop && x <= screenX(marker.page, marker.xMm) + markerSize + slop &&
+                y >= screenY(marker.page, marker.yMm) - slop && y <= screenY(marker.page, marker.yMm) + markerSize + slop
         }
     }
 

@@ -14,4 +14,6 @@
     <color name="editors_sheet_header">#2D2E30</color>
     <color name="editors_sheet_header_selected">#1E3A4C</color>
     <color name="editors_sheet_header_line">#4A4B4F</color>
+    <!-- The corner mark of commented cells -->
+    <color name="editors_comment_mark">#F28B82</color>
 </resources>

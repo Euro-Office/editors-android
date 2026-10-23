@@ -51,11 +51,13 @@ import lib.editors.base.convert.DocumentConverter
 import lib.editors.base.engine.Alignment
 import lib.editors.base.engine.CoEditingConnection
 import lib.editors.base.engine.DrawingFileResult
+import lib.editors.base.engine.Comment
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorSpelling
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.Misspelling
+import lib.editors.base.engine.SheetState
 import lib.editors.base.engine.SpellService
 import lib.editors.base.engine.DocumentResult
 import lib.editors.base.engine.FormField
@@ -296,10 +298,13 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 canComment = isEditable || editAccess() == EditorsContract.INTERNAL_EDIT_ACCESS_COMMENT,
                 fileId = intent.getStringExtra(EditorsContract.EXTRA_ITEM_ID),
                 panels = panels,
-                onCount = { findViewById<BadgeButton>(R.id.toolComments).count = it }
+                onComments = ::showComments
             )
             commentsUi = comments
             comments.onState()
+            // Tapping a comment's mark shows it
+            if (isSpreadsheet) findViewById<SheetView>(R.id.sheetView).onCellComment = comments::showThread
+            else documentView.onCommentMarker = comments::showThread
             findViewById<View>(R.id.toolComments).isVisible = true
             findViewById<View>(R.id.toolComments).setOnClickListener { comments.show() }
             // Commenting the selected text or cells from their menu
@@ -848,6 +853,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     }
 
     private fun applyState(state: EditorState) {
+        currentSheet = state.sheet
         if (!isSpreadsheet) documentView.spellingActions = spellingActions(state.spelling?.word)
         coEditingUi?.update(state.coEditing)
         if (isSpreadsheet) spreadsheetUi?.setState(state) else documentView.setEditorState(state)
@@ -882,6 +888,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         slidesUi?.update(state)
         drawingUi.chart = state.chart
         commentsUi?.onState()
+        // Tapped commented text, a PDF annotation with a comment: the comment
+        state.shownComments.firstOrNull()?.let { commentsUi?.showThread(it) }
         formsUi?.update(state)
         documentUi?.update(state)
         val link = state.link?.takeIf { state.selection.isEmpty() }
@@ -1121,9 +1129,34 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         }
 
     // "Comment" in the menu of selected text or cells
+    // On a commented cell (one comment per cell) it shows that comment
     private fun commentAction(): Pair<String, () -> Unit>? {
         val comments = commentsUi?.takeIf { it.canComment } ?: return null
-        return getString(Resources.string.editors_comment) to { comments.add() }
+        return getString(Resources.string.editors_comment) to {
+            val sheet = currentSheet
+            val existing = if (sheet == null) null else documentComments.firstOrNull {
+                it.sheet == sheet.active && it.col == sheet.col && it.row == sheet.row
+            }
+            if (existing != null) comments.showThread(existing.id) else comments.add()
+        }
+    }
+
+    // Spreadsheets: the sheet and the active cell, after the last command
+    private var currentSheet: SheetState? = null
+
+    // The comments: how many are open on their button, their marks on slides and cells
+    private var documentComments: List<Comment> = emptyList()
+
+    private fun showComments(comments: List<Comment>) {
+        documentComments = comments
+        findViewById<BadgeButton>(R.id.toolComments).count = comments.count { !it.solved }
+        if (editorsType == EditorsType.PRESENTATION) {
+            documentView.commentMarkers = comments.filter { it.page >= 0 }.map { DocumentView.CommentMarker(it.id, it.page, it.x, it.y) }
+        }
+        if (isSpreadsheet) {
+            findViewById<SheetView>(R.id.sheetView).cellComments =
+                comments.filter { it.sheet >= 0 }.map { SheetView.CellComment(it.id, it.sheet, it.col, it.row) }
+        }
     }
 
     // Saving from the file menu or with Ctrl+S; co-editing, the Document Server saves

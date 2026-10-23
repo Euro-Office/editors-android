@@ -20,4 +20,6 @@
     <color name="editors_sheet_header">#F1F3F4</color>
     <color name="editors_sheet_header_selected">#CCE6F4</color>
     <color name="editors_sheet_header_line">#DADCE0</color>
+    <!-- The corner mark of commented cells -->
+    <color name="editors_comment_mark">#D93025</color>
 </resources>

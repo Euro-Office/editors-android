@@ -172,6 +172,22 @@ class SheetView @JvmOverloads constructor(
     /** More actions in the menu of selected pictures and shapes, such as formatting them. */
     var drawingActions: List<Pair<String, () -> Unit>> = emptyList()
 
+    /** A comment on a cell of a sheet (its index). */
+    data class CellComment(val id: String, val sheet: Int, val col: Int, val row: Int)
+
+    /** Comments, marked in their cells' corners; a tap on a mark calls [onCellComment] with its comment. */
+    var cellComments: List<CellComment> = emptyList()
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
+    var onCellComment: ((String) -> Unit)? = null
+    private val commentMarkSize = 7 * density
+    private val commentMarkPaint by lazy {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ContextCompat.getColor(context, Resources.color.editors_comment_mark) }
+    }
+
     // Mouse: a button is down on cells, on a heading (columns or rows) or on a drawing; the cell
     // or heading the selection started at; the last click, for double clicks
     private var mouseDown = false
@@ -259,6 +275,11 @@ class SheetView @JvmOverloads constructor(
         }
 
         override fun onSingleTapUp(e: MotionEvent): Boolean {
+            // Comments open also when viewing
+            commentMarkAt(e.x, e.y)?.let { comment ->
+                onCellComment?.invoke(comment.id)
+                return true
+            }
             val listener = listener ?: return false
             hideActionMenu()
             // The listener moves the focus: typed text must be entered first, and the formula bar keeps it while a formula is edited
@@ -963,6 +984,7 @@ class SheetView @JvmOverloads constructor(
         }
         if (frozenWidth() > 0) canvas.drawLine(headerWidth + frozenWidth(), headerHeight, headerWidth + frozenWidth(), height.toFloat(), freezePaint)
         if (frozenHeight() > 0) canvas.drawLine(headerWidth, headerHeight + frozenHeight(), width.toFloat(), headerHeight + frozenHeight(), freezePaint)
+        drawCommentMarks(canvas)
         foreignSelections.forEach { drawForeignSelection(canvas, it) }
         if (drawings.isEmpty()) {
             state?.let { drawSelection(canvas, it) }
@@ -1053,6 +1075,36 @@ class SheetView @JvmOverloads constructor(
         }
         canvas.drawRect(rect, selectionBorder)
         if (listener != null) canvas.drawCircle(rect.right, rect.bottom, handleRadius, handlePaint)
+    }
+
+    // Commented cells: a triangle in their top right corner, as in Excel
+    private fun commentsOnSheet(): List<CellComment> {
+        val sheet = state?.active ?: return emptyList()
+        return cellComments.filter { it.sheet == sheet && it.col < geometry.colCount && it.row < geometry.rowCount }
+    }
+
+    private fun drawCommentMarks(canvas: Canvas) {
+        for (comment in commentsOnSheet()) {
+            val right = columnRight(comment.col)
+            val top = viewY(geometry.rows[comment.row])
+            val path = Path().apply {
+                moveTo(right - commentMarkSize, top)
+                lineTo(right, top)
+                lineTo(right, top + commentMarkSize)
+                close()
+            }
+            canvas.drawPath(path, commentMarkPaint)
+        }
+    }
+
+    // A mark near a tap: the corner, with room for the finger
+    private fun commentMarkAt(x: Float, y: Float): CellComment? {
+        val reach = 16 * density
+        return commentsOnSheet().firstOrNull { comment ->
+            val right = columnRight(comment.col)
+            val top = viewY(geometry.rows[comment.row])
+            x in right - reach..right + reach / 2 && y in top - reach / 2..top + reach
+        }
     }
 
     // Someone else's cells: framed in their color, with their name above the first range
