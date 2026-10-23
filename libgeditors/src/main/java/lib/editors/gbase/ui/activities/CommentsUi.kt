@@ -70,7 +70,6 @@ internal class CommentsUi(
 
     /** All comments. */
     fun show() {
-        threadId = null
         val content = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPaddingRelative(dp(16), 0, dp(16), dp(24))
@@ -78,8 +77,7 @@ internal class CommentsUi(
             (list.parent as? android.view.ViewGroup)?.removeView(list)
             addView(list)
         }
-        dialog = panels.show(activity.getString(Resources.string.editors_comments), content) { dialog = null; threadId = null }
-        reload()
+        open(activity.getString(Resources.string.editors_comments), content, null)
     }
 
     /**
@@ -103,7 +101,21 @@ internal class CommentsUi(
             addView(thread)
             if (canComment) addView(reply)
         }
-        dialog = panels.show(activity.getString(Resources.string.editors_comment_title), content) { dialog = null; threadId = null }
+        open(activity.getString(Resources.string.editors_comment_title), content, id)
+    }
+
+    // A new panel replaces the one shown, whose closing (maybe later, after its animation)
+    // then leaves the new one alone
+    private fun open(title: String, content: android.view.View, thread: String?) {
+        lateinit var panel: PanelHost.Panel
+        panel = panels.show(title, content) {
+            if (dialog === panel) {
+                dialog = null
+                threadId = null
+            }
+        }
+        dialog = panel
+        threadId = thread
         reload()
     }
 
