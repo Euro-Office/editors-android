@@ -295,12 +295,41 @@ class DocumentView @JvmOverloads constructor(
         }
     }
 
+    /** Continuous pages (mobile view): the text's size, which a pinch changes ([onTextScale]) instead of zooming. */
+    var textScale = 1.0
+    var onTextScale: ((Double) -> Unit)? = null
+
+    // While pinching the text's size: how much (the view zooms meanwhile, to show it)
+    private var pinchFactor: Float? = null
+
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+            if (continuous && onTextScale != null) pinchFactor = 1f
+            return true
+        }
+
         override fun onScale(detector: ScaleGestureDetector): Boolean {
+            pinchFactor?.let { pinchFactor = it * detector.scaleFactor }
             zoomTo(zoom * detector.scaleFactor, detector.focusX, detector.focusY)
             return true
         }
+
+        override fun onScaleEnd(detector: ScaleGestureDetector) {
+            val factor = pinchFactor ?: return
+            pinchFactor = null
+            val scale = pinchedTextScale(factor)
+            zoomTo(1f, detector.focusX, detector.focusY)
+            if (scale != textScale) onTextScale?.invoke(scale)
+            invalidate()
+        }
     })
+
+    // In steps of 10 %
+    private fun pinchedTextScale(factor: Float) = (Math.round(textScale * factor * 10) / 10.0).coerceIn(MIN_TEXT_SCALE, MAX_TEXT_SCALE)
+
+    /** Continuous pages: the place at the top of the view (page, x and y in mm), to keep there when the text is laid out again. */
+    fun topPlace(): Triple<Int, Double, Double>? =
+        toPage(width * 0.1f, TOP_PLACE_DP * density)?.let { Triple(it.page, it.xMm, it.yMm) }
 
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent): Boolean {
@@ -1351,6 +1380,22 @@ class DocumentView @JvmOverloads constructor(
     // ---------------------------------------------------------------------------------
     // Drawing
 
+    private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC323232.toInt() }
+    private val hintTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 16 * resources.displayMetrics.scaledDensity
+        textAlign = Paint.Align.CENTER
+    }
+
+    // "Text size 120 %" while pinching
+    private fun drawTextScaleHint(canvas: Canvas, scale: Double) {
+        val text = context.getString(Resources.string.editors_text_size, Math.round(scale * 100).toInt())
+        val halfWidth = hintTextPaint.measureText(text) / 2 + 16 * density
+        val top = 24 * density
+        canvas.drawRoundRect(width / 2f - halfWidth, top, width / 2f + halfWidth, top + 40 * density, 20 * density, 20 * density, hintPaint)
+        canvas.drawText(text, width / 2f, top + 20 * density - (hintTextPaint.ascent() + hintTextPaint.descent()) / 2, hintTextPaint)
+    }
+
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(background)
         if (pageSizes.isEmpty()) return
@@ -1385,6 +1430,7 @@ class DocumentView @JvmOverloads constructor(
         canvas.restore()
 
         drawEditorState(canvas)
+        pinchFactor?.let { drawTextScaleHint(canvas, pinchedTextScale(it)) }
     }
 
     private fun drawEditorState(canvas: Canvas) {
@@ -1535,6 +1581,10 @@ class DocumentView @JvmOverloads constructor(
     private fun pageCacheBytes(): Int = min(64L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 6).toInt()
 
     private companion object {
+        const val MIN_TEXT_SCALE = 0.5
+        const val MAX_TEXT_SCALE = 3.0
+        // Where goToPage puts a place
+        const val TOP_PLACE_DP = 48
         const val BLINK_MS = 500L
         const val MOVE_INTERVAL_MS = 40L
         const val ACCESSIBILITY_DELAY_MS = 200L

@@ -627,10 +627,12 @@ interface EditorDocument : PagedDocument {
     /**
      * Documents: mobile view ([on]), the text laid out on pages of [widthMm] by [heightMm] (the
      * screen's), its letters scaled by [scale], without headers and footers; or the document's
-     * pages. PDFs and printing always have the document's pages.
+     * pages. PDFs and printing always have the document's pages. The text at [page], [xMm],
+     * [yMm] (before) is where [EditorState.navigate] says afterwards.
      */
-    fun setMobileView(on: Boolean, widthMm: Double = 0.0, heightMm: Double = 0.0, scale: Double = 1.0): EditorState =
-        command("eoEngine.setMobileView($on, $widthMm, $heightMm, $scale)")
+    fun setMobileView(
+        on: Boolean, widthMm: Double = 0.0, heightMm: Double = 0.0, scale: Double = 1.0, page: Int = -1, xMm: Double = 0.0, yMm: Double = 0.0
+    ): EditorState = command("eoEngine.setMobileView($on, $widthMm, $heightMm, $scale, $page, $xMm, $yMm)")
 
     /** Back to the text from a footnote or endnote. */
     fun endNoteEditing(): EditorState = command("eoEngine.endNoteEditing()")

@@ -37,6 +37,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
@@ -898,7 +899,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         // In a table (also one on a slide, which is a drawing): the table's and its text's settings
         val inTable = state.structure?.inTable == true
         formatsDrawings = isEditable() && !isPdfEditor && !fillsForms() && drawingSelected && !inTable
-        // A link or an entry of the contents was followed
+        // Pages laid out as the view shows them before going to a place
+        updateMobileView(state)
+        // A link or an entry of the contents was followed; the place kept in mobile view
         state.navigate?.let { documentView.goToPage(it.page, it.yMm.toFloat()) }
         formatPanel.update(state.format, drawingSelected && !inTable, state.cursor != null || state.selection.isNotEmpty(), inTable)
         state.sheet?.let { cellFormatPanel.update(it.cellFormat, drawingSelected) }
@@ -910,7 +913,6 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         state.shownComments.firstOrNull()?.let { commentsUi?.showThread(it) }
         formsUi?.update(state)
         documentUi?.update(state)
-        updateMobileView(state)
         val link = state.link?.takeIf { state.selection.isEmpty() }
         showLink(link?.let { it.url.ifEmpty { it.anchor } }, link?.let { { edit { followLink() } } })
         state.openUrl?.let { openUrl(it) }
@@ -924,22 +926,47 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private var mobileViewChosen: Boolean
         get() = viewPreferences.getBoolean(MOBILE_VIEW, !resources.getBoolean(R.bool.editor_side_panels))
         set(value) = viewPreferences.edit().putBoolean(MOBILE_VIEW, value).apply()
+    // The text's size in mobile view (a pinch changes it)
+    private var mobileViewTextScale: Double
+        get() = viewPreferences.getFloat(TEXT_SCALE, 1f).toDouble()
+        set(value) = viewPreferences.edit().putFloat(TEXT_SCALE, value.toFloat()).apply()
     // Switching (the engine lays the document out again), and the width laid out for
     private var mobileViewPending = false
     private var mobileViewWidth = 0
+    // The document is shown: in the chosen view (not the document's pages first), or after a while
+    private var mobileViewSettled = false
 
     private fun canUseMobileView() = editorsType == EditorsType.DOCS && !isPdfEditor && !fillsForms() && document != null
 
     private fun updateMobileView(state: EditorState) {
         if (!canUseMobileView()) return
         documentView.continuous = state.mobileView
+        documentView.textScale = mobileViewTextScale
+        documentView.onTextScale = { scale ->
+            mobileViewTextScale = scale
+            applyMobileView()
+        }
         documentUi?.mobileView = state.mobileView
-        if (state.mobileView == mobileViewChosen) mobileViewPending = false
-        // Also when co-editing opened the document again
-        else if (!mobileViewPending) applyMobileView()
+        if (state.mobileView == mobileViewChosen) {
+            mobileViewPending = false
+            showDocument()
+        } else if (!mobileViewPending) {
+            // Also when co-editing opened the document again
+            if (!mobileViewSettled) {
+                documentView.isInvisible = true
+                documentView.postDelayed(::showDocument, MOBILE_VIEW_SETTLE_MS)
+            }
+            applyMobileView()
+        }
     }
 
-    // Pages of the view's width; their height the screen's, so that the keyboard doesn't change them
+    private fun showDocument() {
+        mobileViewSettled = true
+        documentView.isInvisible = false
+    }
+
+    // Pages of the view's width; their height the screen's, so that the keyboard doesn't change
+    // them. The text at the top of the view stays there (the state's navigate).
     private fun applyMobileView() {
         val width = documentView.width
         if (width == 0) {
@@ -949,10 +976,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         mobileViewPending = true
         mobileViewWidth = width
         val on = mobileViewChosen
+        val scale = mobileViewTextScale
         val mmPerPixel = 25.4 / resources.displayMetrics.densityDpi
         val widthMm = width * mmPerPixel
         val heightMm = maxOf(resources.displayMetrics.heightPixels, resources.displayMetrics.widthPixels) * mmPerPixel
-        edit { setMobileView(on, widthMm, heightMm) }
+        val place = documentView.topPlace().takeIf { mobileViewSettled }
+        edit { setMobileView(on, widthMm, heightMm, scale, place?.first ?: -1, place?.second ?: 0.0, place?.third ?: 0.0) }
     }
 
     private fun toggleMobileView() {
@@ -1831,6 +1860,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         const val TAG = "EditorViewer"
         const val VIEW_PREFERENCES = "editors_view"
         const val MOBILE_VIEW = "mobileView"
+        const val TEXT_SCALE = "mobileViewTextScale"
+        const val MOBILE_VIEW_SETTLE_MS = 3000L
         private const val TEXT_BOX_WIDTH_MM = 200 * 25.4 / 72
         private const val TEXT_BOX_HEIGHT_MM = 85 * 25.4 / 72
 
