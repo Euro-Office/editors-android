@@ -99,6 +99,11 @@ FORMAT_ICONS = {
     "indent_less": ("common", "btn-decoffset"),
     "indent_more": ("common", "btn-incoffset"),
     "line_spacing": ("common", "btn-linespace"),
+    "page_portrait": ("common", "btn-page-portrait"),
+    "page_landscape": ("common", "btn-page-landscape"),
+    "columns_one": ("common", "btn-columns-one"),
+    "columns_two": ("common", "btn-columns-two"),
+    "columns_three": ("common", "btn-columns-three"),
 }
 
 # Shapes drawn point by point, which one tap can't insert

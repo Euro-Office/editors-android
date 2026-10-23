@@ -1,16 +1,13 @@
 package lib.editors.gbase.ui.activities
 
 import android.content.Context
+import android.graphics.Typeface
 import android.text.InputType
 import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
-import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.isVisible
@@ -21,10 +18,13 @@ import lib.editors.base.engine.DocumentStructure
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
+import lib.editors.base.engine.PageSetup
 import lib.editors.gbase.R
 import lib.editors.gbase.ui.views.DocumentView
 import java.text.DateFormat
+import java.text.NumberFormat
 import java.util.Date
+import kotlin.math.abs
 import lib.editors.resources.R as Resources
 
 /**
@@ -38,6 +38,7 @@ internal class DocumentUi(
     private val scope: CoroutineScope,
     private val documentView: DocumentView,
     private val document: () -> EditorDocument?,
+    private val panels: PanelHost,
     private val edit: (EditorDocument.() -> EditorState) -> Unit
 ) {
 
@@ -157,51 +158,66 @@ internal class DocumentUi(
     // ---------------------------------------------------------------------------------
     // Dialogs
 
-    private fun showPageSetup() = read({ pageSetup() }) { setup ->
-        val content = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(24), dp(8), dp(24), 0)
-        }
-        val orientation = choices(
-            content, Resources.string.editors_doc_orientation,
-            listOf(context.getString(Resources.string.editors_doc_portrait), context.getString(Resources.string.editors_doc_landscape)),
-            if (setup.landscape) 1 else 0
-        )
-        val sizeIndex = PAPER_SIZES.indexOfFirst {
-            kotlin.math.abs(it.second - minOf(setup.width, setup.height)) < 1 && kotlin.math.abs(it.third - maxOf(setup.width, setup.height)) < 1
-        }
-        val size = choices(content, Resources.string.editors_doc_size, PAPER_SIZES.map { it.first }, sizeIndex)
-        val marginIndex = MARGINS.indexOfFirst { kotlin.math.abs(it.second - setup.left) < 0.5 && kotlin.math.abs(it.second - setup.top) < 0.5 }
-        val margins = choices(content, Resources.string.editors_doc_margins, MARGINS.map { context.getString(it.first) }, marginIndex)
-        val columns = choices(content, Resources.string.editors_doc_columns, listOf("1", "2", "3"), setup.columns - 1)
-        AlertDialog.Builder(context)
-            .setTitle(Resources.string.editors_doc_page_setup)
-            .setView(ScrollView(context).apply { addView(content) })
-            .setPositiveButton(android.R.string.ok) { _, _ ->
-                val paper = PAPER_SIZES.getOrNull(size())
-                val margin = MARGINS.getOrNull(margins())?.second
-                edit {
-                    setPageSetup(
-                        width = paper?.second, height = paper?.third,
-                        landscape = orientation() == 1,
-                        margins = margin?.let { doubleArrayOf(it, it, it, it) },
-                        columns = columns().takeIf { it >= 0 }?.plus(1)
-                    )
+    private fun showPageSetup() = read({ pageSetup() }) { PageSetupPanel(it).show() }
+
+    /** Orientation, size, margins and columns, each applied as it is chosen (as the format panel's). */
+    private inner class PageSetupPanel(private var setup: PageSetup) : PanelBuilder<PageSetup>(context) {
+
+        fun show() {
+            val content = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
+                caption(Resources.string.editors_doc_orientation)
+                scrollRow {
+                    choice(context.getString(Resources.string.editors_doc_portrait), { !it.landscape }, Resources.drawable.ic_editor_page_portrait) {
+                        change { setPageSetup(landscape = false) }
+                    }
+                    choice(context.getString(Resources.string.editors_doc_landscape), { it.landscape }, Resources.drawable.ic_editor_page_landscape) {
+                        change { setPageSetup(landscape = true) }
+                    }
+                }
+                caption(Resources.string.editors_doc_size)
+                scrollRow {
+                    for ((name, width, height) in PAPER_SIZES) {
+                        choice(name, { abs(minOf(it.width, it.height) - width) < 1 && abs(maxOf(it.width, it.height) - height) < 1 }) {
+                            change { setPageSetup(width = width, height = height) }
+                        }
+                    }
+                }
+                caption(Resources.string.editors_doc_margins)
+                scrollRow {
+                    for ((name, margin) in MARGINS) {
+                        choice(context.getString(name), { abs(it.left - margin) < 0.5 && abs(it.top - margin) < 0.5 }) {
+                            change { setPageSetup(margins = doubleArrayOf(margin, margin, margin, margin)) }
+                        }
+                    }
+                }
+                caption(Resources.string.editors_doc_columns)
+                scrollRow {
+                    for ((count, icon) in COLUMNS) {
+                        choice(count.toString(), { it.columns == count }, icon) { change { setPageSetup(columns = count) } }
+                    }
                 }
             }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            panels.show(context.getString(Resources.string.editors_doc_page_setup), content) {}
+            updaters.forEach { it(setup) }
+        }
+
+        // Applies a change, then marks what the page has now
+        private fun change(command: EditorDocument.() -> EditorState) {
+            edit(command)
+            read({ pageSetup() }) { changed ->
+                setup = changed
+                updaters.forEach { it(changed) }
+            }
+        }
     }
 
     fun showNavigation() = read({ outline() }) { items ->
-        val labels = mutableListOf(context.getString(Resources.string.editors_doc_go_to_page))
-        labels += items.map { " ".repeat(it.level) + it.text }
-        AlertDialog.Builder(context)
-            .setTitle(Resources.string.editors_doc_navigation)
-            .setItems(labels.toTypedArray()) { _, position ->
-                if (position == 0) askPage() else edit { gotoOutline(items[position - 1].index) }
-            }
-            .show()
+        val labels = listOf(context.getString(Resources.string.editors_doc_go_to_page)) + items.map { "\u2003".repeat(it.level) + it.text }
+        panels.choose(context.getString(Resources.string.editors_doc_navigation), labels, selected = -1) { position ->
+            if (position == 0) askPage() else edit { gotoOutline(items[position - 1].index) }
+        }
     }
 
     private fun askPage() {
@@ -223,17 +239,36 @@ internal class DocumentUi(
             .show()
     }
 
+    // The counts, a row each
     private fun showStatistics() = read({ statistics() }) { statistics ->
-        AlertDialog.Builder(context)
-            .setTitle(Resources.string.editors_doc_statistics)
-            .setMessage(
-                context.getString(
-                    Resources.string.editors_doc_statistics_text, statistics.pages, statistics.words,
-                    statistics.paragraphs, statistics.symbols, statistics.symbolsWithSpaces
-                )
-            )
-            .setPositiveButton(android.R.string.ok, null)
-            .show()
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPaddingRelative(dp(16), 0, dp(16), dp(24))
+            listOf(
+                Resources.string.editors_doc_statistics_pages to statistics.pages,
+                Resources.string.editors_doc_statistics_words to statistics.words,
+                Resources.string.editors_doc_statistics_paragraphs to statistics.paragraphs,
+                Resources.string.editors_doc_statistics_characters to statistics.symbols,
+                Resources.string.editors_doc_statistics_characters_spaces to statistics.symbolsWithSpaces
+            ).forEach { (label, count) ->
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    minimumHeight = dp(48)
+                    addView(TextView(context).apply {
+                        setText(label)
+                        textSize = 16f
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    addView(TextView(context).apply {
+                        text = NumberFormat.getIntegerInstance().format(count)
+                        textSize = 16f
+                        setTypeface(typeface, Typeface.BOLD)
+                    })
+                })
+            }
+        }
+        panels.show(context.getString(Resources.string.editors_doc_statistics), content) {}
     }
 
     // Reads from the document on the engine's thread, then shows the result
@@ -288,24 +323,6 @@ internal class DocumentUi(
         })
     }
 
-    // A titled row of choices; returns the chosen index (-1 if none) when called
-    private fun choices(parent: LinearLayout, title: Int, labels: List<String>, selected: Int): () -> Int {
-        parent.addView(TextView(context).apply {
-            setText(title)
-            setPaddingRelative(0, dp(12), 0, dp(4))
-        })
-        val group = RadioGroup(context).apply { orientation = RadioGroup.HORIZONTAL }
-        labels.forEachIndexed { index, label ->
-            group.addView(RadioButton(context).apply {
-                id = View.generateViewId()
-                text = label
-                isChecked = index == selected
-            })
-        }
-        parent.addView(group)
-        return { (0 until group.childCount).firstOrNull { (group.getChildAt(it) as RadioButton).isChecked } ?: -1 }
-    }
-
     private companion object {
         // Name, width and height (portrait) in mm
         val PAPER_SIZES = listOf(
@@ -319,6 +336,11 @@ internal class DocumentUi(
             Resources.string.editors_doc_margins_narrow to 12.7,
             Resources.string.editors_doc_margins_normal to 25.4,
             Resources.string.editors_doc_margins_wide to 38.1
+        )
+        val COLUMNS = listOf(
+            1 to Resources.drawable.ic_editor_columns_one,
+            2 to Resources.drawable.ic_editor_columns_two,
+            3 to Resources.drawable.ic_editor_columns_three
         )
     }
 }

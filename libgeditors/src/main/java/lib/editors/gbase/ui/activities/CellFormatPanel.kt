@@ -3,10 +3,8 @@ package lib.editors.gbase.ui.activities
 import android.content.Context
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.core.view.isVisible
 import lib.editors.base.engine.CellFormat
 import lib.editors.base.engine.EditorDocument
@@ -73,11 +71,7 @@ internal class CellFormatPanel(
 
         heading(Resources.string.editors_format_text)
         row {
-            val fontButton = button("") { chooseFont() }.apply {
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                gravity = Gravity.CENTER_VERTICAL or Gravity.START
-            }
-            updaters += { fontButton.text = it.fontName.ifEmpty { "—" } }
+            selector(Resources.string.editors_format_font, { it.fontName.ifEmpty { "—" } }) { chooseFont() }
             // Not without a size (text of different sizes)
             button("−") { if (format.fontSize > 1) edit { setFontSize(format.fontSize - 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_down)
             val size = TextView(context).apply { gravity = Gravity.CENTER; minWidth = dp(40) }.also { addView(it) }
@@ -120,13 +114,12 @@ internal class CellFormatPanel(
         }
     }
 
+    // In the panel's place, then back to it
     private fun chooseFont() {
-        if (fonts.isEmpty()) return
-        val names = fonts.toTypedArray()
-        AlertDialog.Builder(context)
-            .setTitle(Resources.string.editors_format_font)
-            .setItems(names) { _, index -> edit { setFontName(names[index]) } }
-            .show()
+        val names = fonts.takeIf { it.isNotEmpty() } ?: return
+        panels.choose(context.getString(Resources.string.editors_format_font), names, names.indexOf(format.fontName), onBack = ::show) { index ->
+            edit { setFontName(names[index]) }
+        }
     }
 
     // Settings of cells only, hidden while a drawing is selected

@@ -52,18 +52,23 @@ internal class ShapePanel(
 
     private val density = context.resources.displayMetrics.density
 
-    fun show(chart: ChartState?) {
+    /**
+     * Shows the panel for the selected chart ([chart], read after the changes so far) or other
+     * drawings. The chart's settings open in the panel's place and come back to it.
+     */
+    fun show(chart: () -> ChartState?) {
         val document = document() ?: return
         scope.launch {
+            // After the commands before it, the chart's state as they left it
             val colors = withContext(EditorEngine.dispatcher) { runCatching { document.drawingColors() }.getOrNull() }
-            lateinit var panel: PanelHost.Panel
-            val content = content(chart, colors ?: DrawingColors(null, null)) { panel.dismiss() }
-            val title = if (chart != null) Resources.string.editors_chart_insert else Resources.string.editors_insert_shape
-            panel = panels.show(context.getString(title), content) {}
+            val current = chart()
+            val content = content(current, colors ?: DrawingColors(null, null)) { show(chart) }
+            val title = if (current != null) Resources.string.editors_chart_insert else Resources.string.editors_insert_shape
+            panels.show(context.getString(title), content) {}
         }
     }
 
-    private fun content(chart: ChartState?, colors: DrawingColors, dismiss: () -> Unit): View = LinearLayout(context).apply {
+    private fun content(chart: ChartState?, colors: DrawingColors, back: () -> Unit): View = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
 
@@ -71,23 +76,19 @@ internal class ShapePanel(
         if (chart != null) {
             val type = InsertCatalog.CHARTS.flatMap { it.items }.firstOrNull { it.value == chart.type }
             action(context.getString(Resources.string.editors_chart_type), type?.let { context.getString(it.label) }, type?.icon) {
-                dismiss()
-                chartUi.chooseType(Resources.string.editors_chart_type, chart.type) { edit { setChartType(it) } }
+                chartUi.chooseType(Resources.string.editors_chart_type, chart.type, onBack = back) { edit { setChartType(it) } }
             }
             if (chart.styles > 0) {
                 action(context.getString(Resources.string.editors_chart_style), chart.style?.toString()) {
-                    dismiss()
-                    chartSettings.chooseStyle(chart)
+                    chartSettings.chooseStyle(chart, back)
                 }
             }
             action(context.getString(Resources.string.editors_chart_titles), chart.titleText.ifEmpty { null }) {
-                dismiss()
-                chartUi.showTitles(chart)
+                chartUi.showTitles(chart, back)
             }
             if (chart.layout != null) {
                 action(context.getString(Resources.string.editors_chart_layout)) {
-                    dismiss()
-                    chartSettings.showLayout(chart)
+                    chartSettings.showLayout(chart, back)
                 }
             }
             // The vertical axis first
@@ -95,22 +96,17 @@ internal class ShapePanel(
                 .filter { if (it) chart.valueAxis != null else chart.categoryAxis != null }
                 .forEach { value ->
                     action(context.getString(chartSettings.axisName(chart, value))) {
-                        dismiss()
-                        chartSettings.showAxis(chart, value)
+                        chartSettings.showAxis(chart, value, back)
                     }
                 }
             action(context.getString(Resources.string.editors_chart_data), chart.range.removePrefix("=").ifEmpty { null }) {
-                dismiss()
-                if (chart.dataInCells) chartUi.editRange(chart) else chartUi.editData()
+                if (chart.dataInCells) chartUi.editRange(chart, back) else chartUi.editData(back)
             }
         }
 
         // The shapes' text: font, paragraph, ... (charts have their titles)
         if (chart == null) {
-            action(context.getString(Resources.string.editors_shape_text)) {
-                dismiss()
-                formatText()
-            }
+            action(context.getString(Resources.string.editors_shape_text)) { formatText() }
         }
 
         heading(Resources.string.editors_shape_fill)
@@ -171,6 +167,10 @@ internal class ShapePanel(
                     layoutParams = LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginStart = dp(8) }
                 })
             }
+            addView(ImageView(context).apply {
+                setImageResource(Resources.drawable.ic_editor_chevron_right)
+                layoutParams = LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginStart = dp(4) }
+            })
         })
     }
 

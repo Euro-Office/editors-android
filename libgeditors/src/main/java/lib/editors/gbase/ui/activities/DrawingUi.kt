@@ -71,7 +71,7 @@ internal class DrawingUi(
         }.show()
     }
 
-    fun showShapePanel() = shapePanel.show(chart)
+    fun showShapePanel() = shapePanel.show { chart }
 
     // The table's size above pictures of the styles; a style inserts it
     private fun chooseTable() {

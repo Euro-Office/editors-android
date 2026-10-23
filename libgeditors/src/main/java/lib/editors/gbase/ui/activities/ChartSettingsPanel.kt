@@ -5,14 +5,15 @@ import android.text.InputType
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.widget.CheckBox
 import android.widget.EditText
-import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import lib.editors.base.engine.ChartAxis
+import lib.editors.base.engine.ChartLayout
 import lib.editors.base.engine.ChartState
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
@@ -22,8 +23,9 @@ import lib.editors.resources.R as Resources
 /**
  * A chart's style (pictures of the type in its styles), layout (title, legend, axes' titles,
  * gridlines, value labels) and axes (minimum, maximum, units, where the other axis crosses, tick
- * marks, labels), in panels (see [PanelHost]) as web-apps' mobile chart settings. A setting is
- * applied as it is chosen.
+ * marks, labels), in panels (see [PanelHost]) as web-apps' mobile chart settings, with a back
+ * button to the chart's menu. A setting is applied as it is chosen; a list of choices opens in
+ * the panel's place and goes back to it.
  */
 internal class ChartSettingsPanel(
     private val context: Context,
@@ -34,49 +36,97 @@ internal class ChartSettingsPanel(
 
     private val density = context.resources.displayMetrics.density
 
-    fun chooseStyle(chart: ChartState) =
-        previews.show(context.getString(Resources.string.editors_chart_style), "chartStyles", chart.style?.toString(), columnWidthDp = 88, keepOpen = true) {
+    fun chooseStyle(chart: ChartState, onBack: () -> Unit) =
+        previews.show(
+            context.getString(Resources.string.editors_chart_style), "chartStyles", chart.style?.toString(), columnWidthDp = 88,
+            keepOpen = true, onBack = onBack
+        ) {
             it.id.toIntOrNull()?.let { style -> edit { setChartStyle(style) } }
         }
 
-    fun showLayout(chart: ChartState) {
-        val layout = chart.layout ?: return
-        fun set(name: String, value: Int) = edit { setChartLayout(mapOf(name to value)) }
-        val content = column {
-            choice(Resources.string.editors_chart_title, TITLES, layout.title) { set("title", it) }
-            choice(Resources.string.editors_chart_legend, LEGENDS, layout.legend) { set("legend", it) }
-            layout.horizontalTitle?.let { current -> choice(Resources.string.editors_chart_axis_horizontal, HORIZONTAL_TITLES, current) { set("horizontalTitle", it) } }
-            layout.verticalTitle?.let { current -> choice(Resources.string.editors_chart_axis_vertical, VERTICAL_TITLES, current) { set("verticalTitle", it) } }
-            layout.horizontalGridlines?.let { current -> choice(Resources.string.editors_chart_gridlines_horizontal, GRIDLINES, current) { set("horizontalGridlines", it) } }
-            layout.verticalGridlines?.let { current -> choice(Resources.string.editors_chart_gridlines_vertical, GRIDLINES, current) { set("verticalGridlines", it) } }
-            choice(Resources.string.editors_chart_labels, dataLabels(chart.type), layout.dataLabels) { set("dataLabels", it) }
+    fun showLayout(chart: ChartState, onBack: () -> Unit) {
+        var layout = chart.layout ?: return
+        fun open() {
+            fun set(name: String, value: Int, changed: ChartLayout) {
+                layout = changed
+                edit { setChartLayout(mapOf(name to value)) }
+            }
+            val content = column {
+                choice(Resources.string.editors_chart_title, TITLES, layout.title, ::open) { set("title", it, layout.copy(title = it)) }
+                choice(Resources.string.editors_chart_legend, LEGENDS, layout.legend, ::open) { set("legend", it, layout.copy(legend = it)) }
+                layout.horizontalTitle?.let { current ->
+                    choice(Resources.string.editors_chart_axis_horizontal, HORIZONTAL_TITLES, current, ::open) {
+                        set("horizontalTitle", it, layout.copy(horizontalTitle = it))
+                    }
+                }
+                layout.verticalTitle?.let { current ->
+                    choice(Resources.string.editors_chart_axis_vertical, VERTICAL_TITLES, current, ::open) {
+                        set("verticalTitle", it, layout.copy(verticalTitle = it))
+                    }
+                }
+                layout.horizontalGridlines?.let { current ->
+                    choice(Resources.string.editors_chart_gridlines_horizontal, GRIDLINES, current, ::open) {
+                        set("horizontalGridlines", it, layout.copy(horizontalGridlines = it))
+                    }
+                }
+                layout.verticalGridlines?.let { current ->
+                    choice(Resources.string.editors_chart_gridlines_vertical, GRIDLINES, current, ::open) {
+                        set("verticalGridlines", it, layout.copy(verticalGridlines = it))
+                    }
+                }
+                choice(Resources.string.editors_chart_labels, dataLabels(chart.type), layout.dataLabels, ::open) {
+                    set("dataLabels", it, layout.copy(dataLabels = it))
+                }
+            }
+            panels.show(context.getString(Resources.string.editors_chart_layout), content, onBack) {}
         }
-        panels.show(context.getString(Resources.string.editors_chart_layout), content) {}
+        open()
     }
 
     /** The value axis' settings ([value]), or the category axis'. */
-    fun showAxis(chart: ChartState, value: Boolean) {
-        val axis = (if (value) chart.valueAxis else chart.categoryAxis) ?: return
-        fun set(name: String, v: Any?) = edit { setChartAxis(value, mapOf(name to v)) }
-        val content = column {
-            if (value) {
-                number(Resources.string.editors_chart_minimum, axis.min) { set("min", it) }
-                number(Resources.string.editors_chart_maximum, axis.max) { set("max", it) }
-                axis.units?.let { current -> choice(Resources.string.editors_chart_units, UNITS, current) { set("units", it) } }
+    fun showAxis(chart: ChartState, value: Boolean, onBack: () -> Unit) {
+        var axis = (if (value) chart.valueAxis else chart.categoryAxis) ?: return
+        fun open() {
+            fun set(name: String, v: Any?, changed: ChartAxis) {
+                axis = changed
+                edit { setChartAxis(value, mapOf(name to v)) }
             }
-            crosses(axis) { name, v -> set(name, v) }
-            if (!value) axis.position?.let { current -> choice(Resources.string.editors_chart_axis_position, POSITIONS, current) { set("position", it) } }
-            choice(Resources.string.editors_chart_ticks_major, TICKS, axis.majorTicks) { set("majorTicks", it) }
-            choice(Resources.string.editors_chart_ticks_minor, TICKS, axis.minorTicks) { set("minorTicks", it) }
-            choice(Resources.string.editors_chart_axis_labels, LABELS, axis.labels) { set("labels", it) }
-            addView(CheckBox(context).apply {
-                setText(if (value) Resources.string.editors_chart_reverse_values else Resources.string.editors_chart_reverse_categories)
-                isChecked = axis.reverse
-                minHeight = dp(48)
-                setOnCheckedChangeListener { _, checked -> set("reverse", checked) }
-            })
+            val content = column {
+                if (value) {
+                    number(Resources.string.editors_chart_minimum, axis.min, allowAuto = true) { set("min", it, axis.copy(min = it)) }
+                    number(Resources.string.editors_chart_maximum, axis.max, allowAuto = true) { set("max", it, axis.copy(max = it)) }
+                    axis.units?.let { current -> choice(Resources.string.editors_chart_units, UNITS, current, ::open) { set("units", it, axis.copy(units = it)) } }
+                }
+                // Where the other axis crosses: automatic, at the minimum or maximum, or at a value
+                choice(Resources.string.editors_chart_crosses, CROSSES, axis.crosses, ::open) { rule ->
+                    if (rule == CROSSES_AT_VALUE) {
+                        val at = axis.crossesValue ?: 0.0
+                        set("crossesValue", at, axis.copy(crosses = rule, crossesValue = at))
+                    } else {
+                        set("crosses", rule, axis.copy(crosses = rule))
+                    }
+                }
+                if (axis.crosses == CROSSES_AT_VALUE) {
+                    number(Resources.string.editors_chart_crossing_value, axis.crossesValue, allowAuto = false) {
+                        set("crossesValue", it, axis.copy(crossesValue = it))
+                    }
+                }
+                if (!value) axis.position?.let { current ->
+                    choice(Resources.string.editors_chart_axis_position, POSITIONS, current, ::open) { set("position", it, axis.copy(position = it)) }
+                }
+                choice(Resources.string.editors_chart_ticks_major, TICKS, axis.majorTicks, ::open) { set("majorTicks", it, axis.copy(majorTicks = it)) }
+                choice(Resources.string.editors_chart_ticks_minor, TICKS, axis.minorTicks, ::open) { set("minorTicks", it, axis.copy(minorTicks = it)) }
+                choice(Resources.string.editors_chart_axis_labels, LABELS, axis.labels, ::open) { set("labels", it, axis.copy(labels = it)) }
+                addView(CheckBox(context).apply {
+                    setText(if (value) Resources.string.editors_chart_reverse_values else Resources.string.editors_chart_reverse_categories)
+                    isChecked = axis.reverse
+                    minHeight = dp(48)
+                    setOnCheckedChangeListener { _, checked -> set("reverse", checked, axis.copy(reverse = checked)) }
+                })
+            }
+            panels.show(context.getString(axisName(chart, value)), content, onBack) {}
         }
-        panels.show(context.getString(axisName(chart, value)), content) {}
+        open()
     }
 
     /** The name of the value axis ([value]) or the category axis: vertical, horizontal for horizontal bars. */
@@ -85,24 +135,8 @@ internal class ChartSettingsPanel(
         return if (value != horizontalBars) Resources.string.editors_chart_axis_vertical_settings else Resources.string.editors_chart_axis_horizontal_settings
     }
 
-    // Where the other axis crosses: automatic, at the minimum or maximum, or at a value
-    private fun LinearLayout.crosses(axis: ChartAxis, set: (String, Any?) -> Unit) {
-        lateinit var valueText: TextView
-        choice(Resources.string.editors_chart_crosses, CROSSES, axis.crosses) { rule ->
-            if (rule == CROSSES_AT_VALUE) {
-                askNumber(Resources.string.editors_chart_crosses, axis.crossesValue ?: 0.0, allowAuto = false) { v ->
-                    valueText.text = format(v)
-                    set("crossesValue", v)
-                }
-            } else {
-                set("crosses", rule)
-            }
-        }.also { valueText = it }
-        if (axis.crosses == CROSSES_AT_VALUE) valueText.text = format(axis.crossesValue)
-    }
-
     // ---------------------------------------------------------------------------------
-    // Rows: a setting's name and its value; a tap chooses another
+    // Rows: a setting's name and its value
 
     private fun column(build: LinearLayout.() -> Unit) = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
@@ -110,84 +144,68 @@ internal class ChartSettingsPanel(
         build()
     }
 
-    // Returns the view showing the value
-    private fun LinearLayout.row(name: Int, value: String, onClick: (TextView) -> Unit): TextView {
-        val valueView = TextView(context).apply {
-            text = value
-            textSize = 14f
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-            setTextColor(ContextCompat.getColor(context, Resources.color.editors_icon))
-        }
-        addView(LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(48)
-            setPaddingRelative(dp(4), 0, dp(4), 0)
+    private fun LinearLayout.row(name: Int, build: LinearLayout.() -> Unit) = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = dp(48)
+        setPaddingRelative(dp(4), 0, dp(4), 0)
+        addView(TextView(context).apply {
+            setText(name)
+            textSize = 15f
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        build()
+    }.also { addView(it) }
+
+    // The chosen one's name; a tap lists the others in the panel's place, then [reopen]s it
+    private fun LinearLayout.choice(name: Int, options: List<Pair<Int, Int>>, current: Int, reopen: () -> Unit, onChoose: (Int) -> Unit) {
+        val labels = options.map { context.getString(it.first) }
+        val selected = options.indexOfFirst { it.second == current }
+        row(name) {
             setBackgroundResource(R.drawable.editor_tool_background)
             addView(TextView(context).apply {
-                setText(name)
-                textSize = 15f
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                text = labels.getOrElse(selected) { "" }
+                textSize = 14f
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                setTextColor(ContextCompat.getColor(context, Resources.color.editors_icon))
             })
-            addView(valueView)
-            setOnClickListener { onClick(valueView) }
-        })
-        return valueView
-    }
-
-    private fun LinearLayout.choice(name: Int, options: List<Pair<Int, Int>>, current: Int, onChoose: (Int) -> Unit): TextView {
-        val label = { v: Int -> options.firstOrNull { it.second == v }?.let { context.getString(it.first) } ?: "" }
-        var selected = current
-        return row(name, label(current)) { valueView ->
-            AlertDialog.Builder(context)
-                .setTitle(name)
-                .setSingleChoiceItems(options.map { context.getString(it.first) }.toTypedArray(), options.indexOfFirst { it.second == selected }) { dialog, index ->
-                    dialog.dismiss()
-                    selected = options[index].second
-                    valueView.text = label(selected)
-                    onChoose(selected)
+            addView(ImageView(context).apply { setImageResource(Resources.drawable.ic_editor_chevron_right) }, LinearLayout.LayoutParams(dp(24), dp(24)))
+            setOnClickListener {
+                panels.choose(context.getString(name), labels, selected, onBack = reopen) { index ->
+                    if (index != selected) onChoose(options[index].second)
                 }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
+            }
         }
     }
 
-    // A number; empty for automatic
-    private fun LinearLayout.number(name: Int, current: Double?, onValue: (Double?) -> Unit) {
+    // A number, typed in place; empty for automatic if [allowAuto]. Applied when typing ends.
+    private fun LinearLayout.number(name: Int, current: Double?, allowAuto: Boolean, onValue: (Double?) -> Unit) {
         var value = current
-        row(name, format(current)) { valueView ->
-            askNumber(name, value, allowAuto = true) {
-                value = it
-                valueView.text = format(it)
-                onValue(it)
+        row(name) {
+            val input = EditText(context).apply {
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+                imeOptions = EditorInfo.IME_ACTION_DONE
+                setText(current?.let { format(it) }.orEmpty())
+                if (allowAuto) hint = context.getString(Resources.string.editors_chart_auto)
+                isSingleLine = true
+                gravity = Gravity.END
+                contentDescription = context.getString(name)
             }
-        }
-    }
-
-    private fun askNumber(title: Int, current: Double?, allowAuto: Boolean, onValue: (Double?) -> Unit) {
-        val input = EditText(context).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
-            setText(current?.let { format(it) }.orEmpty())
-            if (allowAuto) hint = context.getString(Resources.string.editors_chart_auto)
-            isSingleLine = true
-        }
-        AlertDialog.Builder(context)
-            .setTitle(title)
-            .setView(FrameLayout(context).apply {
-                setPaddingRelative(dp(24), dp(8), dp(24), 0)
-                addView(input)
-            })
-            .setPositiveButton(android.R.string.ok) { _, _ ->
+            fun apply() {
                 val text = input.text.toString().trim().replace(',', '.')
-                val number = text.toDoubleOrNull()
-                when {
-                    text.isEmpty() && allowAuto -> onValue(null)
-                    number != null -> onValue(number)
-                }
+                val typed = if (text.isEmpty()) null else text.toDoubleOrNull() ?: return
+                if (typed == null && !allowAuto || typed == value) return
+                value = typed
+                onValue(typed)
             }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            input.setOnEditorActionListener { _, _, _ ->
+                apply()
+                false
+            }
+            input.setOnFocusChangeListener { _, focused -> if (!focused) apply() }
+            addView(input, LinearLayout.LayoutParams(dp(120), ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
     }
 
     private fun format(value: Double?): String = when {

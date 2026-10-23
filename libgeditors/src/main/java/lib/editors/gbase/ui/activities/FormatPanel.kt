@@ -3,11 +3,9 @@ package lib.editors.gbase.ui.activities
 import android.content.Context
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.core.view.isVisible
 import lib.editors.base.engine.DrawingColors
 import lib.editors.base.engine.EditorDocument
@@ -35,15 +33,15 @@ internal class FormatPanel(
     private val loadShapeColors: (onLoaded: (DrawingColors?) -> Unit) -> Unit,
     /** Presentations: the slide's settings. */
     private val slide: SlideSettings? = null,
-    /** Documents and presentations: the table's style (pictures of the styles); null without tables. */
-    private val chooseTableStyle: (() -> Unit)? = null
+    /** Documents and presentations: the table's style (pictures of the styles, back to this panel); null without tables. */
+    private val chooseTableStyle: ((onBack: () -> Unit) -> Unit)? = null
 ) : PanelBuilder<TextFormat>(context) {
 
-    /** The current slide's background color (null: another kind), its layout and the design. */
+    /** The current slide's background color (null: another kind), its layout and the design (back to this panel). */
     class SlideSettings(
         val loadBackground: (onLoaded: (String?) -> Unit) -> Unit,
-        val chooseLayout: () -> Unit,
-        val chooseDesign: () -> Unit
+        val chooseLayout: (onBack: () -> Unit) -> Unit,
+        val chooseDesign: (onBack: () -> Unit) -> Unit
     )
 
     private var dialog: PanelHost.Panel? = null
@@ -136,10 +134,8 @@ internal class FormatPanel(
                 heading(Resources.string.editors_slide)
                 caption(Resources.string.editors_slide_background)
                 val background = colorsOf(SHAPE_COLORS.filter { it.isNotEmpty() }) { color -> color?.let { edit { setSlideBackground(it) } } }
-                row {
-                    button(context.getString(Resources.string.editors_slide_design)) { slide.chooseDesign() }
-                    button(context.getString(Resources.string.editors_slides_layout)) { slide.chooseLayout() }
-                }
+                action(Resources.string.editors_slide_design) { slide.chooseDesign(::show) }
+                action(Resources.string.editors_slides_layout) { slide.chooseLayout(::show) }
                 // Marked as the background, while no shape is selected
                 val markShape = markFill
                 markFill = { color -> if (drawingSelected) markShape(color) else background(color) }
@@ -158,37 +154,33 @@ internal class FormatPanel(
         text.textSettings()
     }
 
-    private fun LinearLayout.tableSettings(chooseStyle: () -> Unit) {
+    private fun LinearLayout.tableSettings(chooseStyle: (onBack: () -> Unit) -> Unit) {
         heading(Resources.string.editors_doc_table_menu)
-        fun action(name: String) = edit { tableAction(name) }
+        fun table(name: String) = edit { tableAction(name) }
         scrollRow {
             group {
-                icon(Resources.drawable.ic_editor_table_row_above, Resources.string.editors_doc_row_above) { action("rowAbove") }
-                icon(Resources.drawable.ic_editor_table_row_below, Resources.string.editors_doc_row_below) { action("rowBelow") }
-                icon(Resources.drawable.ic_editor_table_column_left, Resources.string.editors_doc_column_left) { action("columnLeft") }
-                icon(Resources.drawable.ic_editor_table_column_right, Resources.string.editors_doc_column_right) { action("columnRight") }
+                icon(Resources.drawable.ic_editor_table_row_above, Resources.string.editors_doc_row_above) { table("rowAbove") }
+                icon(Resources.drawable.ic_editor_table_row_below, Resources.string.editors_doc_row_below) { table("rowBelow") }
+                icon(Resources.drawable.ic_editor_table_column_left, Resources.string.editors_doc_column_left) { table("columnLeft") }
+                icon(Resources.drawable.ic_editor_table_column_right, Resources.string.editors_doc_column_right) { table("columnRight") }
             }
             group {
-                icon(Resources.drawable.ic_editor_table_delete_row, Resources.string.editors_doc_delete_row) { action("deleteRow") }
-                icon(Resources.drawable.ic_editor_table_delete_column, Resources.string.editors_doc_delete_column) { action("deleteColumn") }
+                icon(Resources.drawable.ic_editor_table_delete_row, Resources.string.editors_doc_delete_row) { table("deleteRow") }
+                icon(Resources.drawable.ic_editor_table_delete_column, Resources.string.editors_doc_delete_column) { table("deleteColumn") }
             }
         }
+        action(Resources.string.editors_table_style) { chooseStyle(::show) }
         scrollRow {
-            button(context.getString(Resources.string.editors_table_style)) { chooseStyle() }
-            button(context.getString(Resources.string.editors_doc_merge_cells)) { action("merge") }
-            button(context.getString(Resources.string.editors_doc_split_cell)) { action("split") }
-            button(context.getString(Resources.string.editors_doc_delete_table)) { action("deleteTable") }
+            button(context.getString(Resources.string.editors_doc_merge_cells)) { table("merge") }
+            button(context.getString(Resources.string.editors_doc_split_cell)) { table("split") }
+            button(context.getString(Resources.string.editors_doc_delete_table)) { table("deleteTable") }
         }
     }
 
     private fun LinearLayout.textSettings() {
         heading(Resources.string.editors_format_text)
         row {
-            val fontButton = button("") { chooseFont() }.apply {
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                gravity = Gravity.CENTER_VERTICAL or Gravity.START
-            }
-            updaters += { fontButton.text = it.fontName.ifEmpty { "—" } }
+            selector(Resources.string.editors_format_font, { it.fontName.ifEmpty { "—" } }) { chooseFont() }
             // Not without a size (text of different sizes)
             button("−") { if (format.fontSize > 1) edit { setFontSize(format.fontSize - 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_down)
             val size = TextView(context).apply { gravity = Gravity.CENTER; minWidth = dp(40) }.also { addView(it) }
@@ -233,11 +225,9 @@ internal class FormatPanel(
         heading(Resources.string.editors_format_paragraph)
         if (withStyles) {
             row {
-                val styleButton = button("") { chooseStyle() }.apply {
-                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                    gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                selector(Resources.string.editors_format_style, { it.style.ifEmpty { "—" }.let { name -> EditorTranslations.styleName(context, name) } }) {
+                    chooseStyle()
                 }
-                updaters += { styleButton.text = it.style.ifEmpty { "—" }.let { name -> EditorTranslations.styleName(context, name) } }
             }
         }
         scrollRow {
@@ -271,22 +261,20 @@ internal class FormatPanel(
         }
     }
 
+    // In the panel's place, then back to it
     private fun chooseFont() {
-        if (fonts.isEmpty()) return
-        val names = fonts.toTypedArray()
-        AlertDialog.Builder(context)
-            .setTitle(Resources.string.editors_format_font)
-            .setItems(names) { _, index -> edit { setFontName(names[index]) } }
-            .show()
+        val names = fonts.takeIf { it.isNotEmpty() } ?: return
+        panels.choose(context.getString(Resources.string.editors_format_font), names, names.indexOf(format.fontName), onBack = ::show) { index ->
+            edit { setFontName(names[index]) }
+        }
     }
 
     private fun chooseStyle() {
-        if (styles.isEmpty()) return
-        val names = styles.toTypedArray()
-        AlertDialog.Builder(context)
-            .setTitle(Resources.string.editors_format_style)
-            .setItems(names.map { EditorTranslations.styleName(context, it) }.toTypedArray()) { _, index -> edit { setStyle(names[index]) } }
-            .show()
+        val names = styles.takeIf { it.isNotEmpty() } ?: return
+        panels.choose(
+            context.getString(Resources.string.editors_format_style), names.map { EditorTranslations.styleName(context, it) },
+            names.indexOf(format.style), onBack = ::show
+        ) { index -> edit { setStyle(names[index]) } }
     }
 
     // ---------------------------------------------------------------------------------

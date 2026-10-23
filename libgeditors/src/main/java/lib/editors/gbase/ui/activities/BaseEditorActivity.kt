@@ -476,7 +476,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         slidesUi?.editable = true
         if (editorsType == EditorsType.DOCS && !fillsForms()) {
             val ui = DocumentUi(
-                this, lifecycleScope, documentView, { document }, { command -> edit(command = command) }
+                this, lifecycleScope, documentView, { document }, panels, { command -> edit(command = command) }
             )
             val root = findViewById<ViewGroup>(R.id.editorRoot)
             root.addView(ui.bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
@@ -934,12 +934,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             loadShapeColors = { onLoaded -> read({ drawingColors() }, onLoaded) },
             slide = if (editorsType != EditorsType.PRESENTATION) null else FormatPanel.SlideSettings(
                 loadBackground = { onLoaded -> read({ slideBackground() }, onLoaded) },
-                chooseLayout = { slidesUi?.chooseLayout(forNewSlide = false) },
+                chooseLayout = { back -> slidesUi?.chooseLayout(forNewSlide = false, onBack = back) },
                 chooseDesign = ::chooseDesign
             ),
             chooseTableStyle = if (isSpreadsheet) null else {
-                {
-                    previewPicker.show(getString(Resources.string.editors_table_style), "tableStyles", keepOpen = true) { style ->
+                { back ->
+                    previewPicker.show(getString(Resources.string.editors_table_style), "tableStyles", keepOpen = true, onBack = back) { style ->
                         edit { setTableStyle(style.id) }
                     }
                 }
@@ -955,15 +955,15 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     }
 
     private val chartUi by lazy {
-        ChartUi(this, lifecycleScope, { document }, iconPicker, showBar = ::showChartBar) { command -> edit(command = command) }
+        ChartUi(this, lifecycleScope, { document }, iconPicker, panels, showBar = ::showChartBar) { command -> edit(command = command) }
     }
 
     private val previewPicker by lazy { PreviewPicker(this, lifecycleScope, { document }, panels) }
 
     // Presentations: the design of all slides, by pictures of them (converted the first time)
-    private fun chooseDesign() = read({ prepareThemes() }) { count ->
+    private fun chooseDesign(onBack: (() -> Unit)?) = read({ prepareThemes() }) { count ->
         if ((count ?: 0) == 0) return@read
-        previewPicker.show(getString(Resources.string.editors_slide_design), "themes", columnWidthDp = 136, withNames = true) { design ->
+        previewPicker.show(getString(Resources.string.editors_slide_design), "themes", columnWidthDp = 136, withNames = true, onBack = onBack) { design ->
             design.id.toIntOrNull()?.let { edit { setTheme(it) } }
         }
     }

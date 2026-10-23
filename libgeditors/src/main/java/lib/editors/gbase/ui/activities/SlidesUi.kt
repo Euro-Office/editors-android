@@ -192,10 +192,10 @@ internal class SlidesUi(
         }.show()
     }
 
-    fun chooseLayout(forNewSlide: Boolean) {
+    fun chooseLayout(forNewSlide: Boolean, onBack: (() -> Unit)? = null) {
         val title = context.getString(if (forNewSlide) Resources.string.editors_slides_new else Resources.string.editors_slides_layout)
         if (previews != null) {
-            previews.show(title, "layouts", columnWidthDp = 136, withNames = true) { layout ->
+            previews.show(title, "layouts", columnWidthDp = 136, withNames = true, onBack = onBack) { layout ->
                 val index = layout.id.toIntOrNull() ?: return@show
                 edit { if (forNewSlide) addSlide(index) else setLayout(index) }
             }

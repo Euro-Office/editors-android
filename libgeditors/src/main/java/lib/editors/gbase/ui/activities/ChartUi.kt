@@ -1,6 +1,7 @@
 package lib.editors.gbase.ui.activities
 
 import android.content.Context
+import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
@@ -10,12 +11,10 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TableLayout
 import android.widget.TableRow
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -37,6 +36,7 @@ internal class ChartUi(
     private val scope: CoroutineScope,
     private val document: () -> EditorDocument?,
     private val picker: IconPicker,
+    private val panels: PanelHost,
     /** Shows a bar under the top bar (the one while the chart's cells are selected on the sheet), null hides it. */
     private val showBar: (View?) -> Unit,
     private val edit: (EditorDocument.() -> EditorState) -> Unit
@@ -45,9 +45,9 @@ internal class ChartUi(
     private val density = context.resources.displayMetrics.density
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    /** Chart types with their pictures, [selected] (the chart's) highlighted. */
-    fun chooseType(title: Int, selected: Int? = null, onType: (Int) -> Unit) =
-        picker.show(title, InsertCatalog.CHARTS, selected, onPick = onType)
+    /** Chart types with their pictures, [selected] (the chart's) highlighted; then [onBack], if any. */
+    fun chooseType(title: Int, selected: Int? = null, onBack: (() -> Unit)? = null, onType: (Int) -> Unit) =
+        picker.show(title, InsertCatalog.CHARTS, selected, onBack = onBack, onPick = onType)
 
     /** SmartArt layouts with their pictures, in web-apps' groups. */
     fun chooseSmartArt() =
@@ -56,11 +56,8 @@ internal class ChartUi(
         }
 
     /** The texts of the chart's title and, if it has axes, their titles; an empty one is removed. */
-    fun showTitles(chart: ChartState) {
-        val content = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(24), dp(8), dp(24), 0)
-        }
+    fun showTitles(chart: ChartState, onBack: () -> Unit) {
+        val content = column()
         fun field(label: Int, value: String) = EditText(context).apply {
             setText(value)
             hint = context.getString(label)
@@ -76,60 +73,47 @@ internal class ChartUi(
         val title = field(Resources.string.editors_chart_title, chart.titleText)
         val horizontal = if (chart.axes) field(Resources.string.editors_chart_axis_horizontal, chart.horizontalTitle) else null
         val vertical = if (chart.axes) field(Resources.string.editors_chart_axis_vertical, chart.verticalTitle) else null
-        AlertDialog.Builder(context)
-            .setTitle(Resources.string.editors_chart_titles)
-            .setView(ScrollView(context).apply { addView(content) })
-            .setPositiveButton(android.R.string.ok) { _, _ ->
-                edit {
-                    setChartTitles(
-                        title.text.toString().trim(),
-                        horizontal?.text?.toString()?.trim() ?: chart.horizontalTitle,
-                        vertical?.text?.toString()?.trim() ?: chart.verticalTitle
-                    )
-                }
+        content.done {
+            edit {
+                setChartTitles(
+                    title.text.toString().trim(),
+                    horizontal?.text?.toString()?.trim() ?: chart.horizontalTitle,
+                    vertical?.text?.toString()?.trim() ?: chart.verticalTitle
+                )
             }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            onBack()
+        }
+        panels.show(context.getString(Resources.string.editors_chart_titles), content, onBack) {}
     }
 
-    /** Legend, value labels and gridlines; the title is set in [showTitles]. */
     // ---------------------------------------------------------------------------------
     // Spreadsheets: the cells the chart shows
 
-    fun editRange(chart: ChartState) {
+    fun editRange(chart: ChartState, onBack: () -> Unit) {
+        lateinit var panel: PanelHost.Panel
         val range = EditText(context).apply {
             setText(chart.range.removePrefix("="))
             isSingleLine = true
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         }
-        lateinit var dialog: AlertDialog
-        val content = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(24), dp(8), dp(24), 0)
+        val content = column().apply {
             addView(TextView(context).apply { setText(Resources.string.editors_chart_range) })
             addView(range)
-            fun button(label: Int, action: () -> Unit) = addView(TextView(context).apply {
-                setText(label)
-                minHeight = dp(48)
-                gravity = Gravity.CENTER_VERTICAL
-                setTextColor(context.getColor(Resources.color.editors_selection_handle))
-                setOnClickListener {
-                    dialog.dismiss()
-                    action()
-                }
-            })
-            button(Resources.string.editors_chart_range_select) { pickRange() }
-            button(Resources.string.editors_chart_switch) { edit { switchChartRowCol() } }
-        }
-        dialog = AlertDialog.Builder(context)
-            .setTitle(Resources.string.editors_chart_data)
-            .setView(ScrollView(context).apply { addView(content) })
-            .setPositiveButton(android.R.string.ok) { _, _ ->
+            link(Resources.string.editors_chart_range_select) {
+                panel.dismiss()
+                pickRange()
+            }
+            link(Resources.string.editors_chart_switch) {
+                edit { switchChartRowCol() }
+                onBack()
+            }
+            done {
                 val typed = range.text.toString().trim()
                 if (typed.isNotEmpty() && typed != chart.range.removePrefix("=")) edit { setChartRange(typed) { rangeError() } }
+                onBack()
             }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+        }
+        panel = panels.show(context.getString(Resources.string.editors_chart_data), content, onBack) {}
     }
 
     // The cells are selected on the sheet while a bar says so; Done gives them to the chart
@@ -170,15 +154,15 @@ internal class ChartUi(
     // ---------------------------------------------------------------------------------
     // Data: categories in the first column, a column per series
 
-    fun editData() {
+    fun editData(onBack: () -> Unit) {
         val document = document() ?: return
         scope.launch {
             val data = withContext(EditorEngine.dispatcher) { runCatching { document.chartData() }.getOrNull() } ?: return@launch
-            showDataTable(data)
+            showDataTable(data, onBack)
         }
     }
 
-    private fun showDataTable(initial: ChartData) {
+    private fun showDataTable(initial: ChartData, onBack: () -> Unit) {
         // Cells as text: [row][column], row 0 the series names, column 0 the categories
         val cells = mutableListOf<MutableList<String>>()
         cells += (listOf("") + initial.series).toMutableList()
@@ -220,8 +204,11 @@ internal class ChartUi(
             orientation = LinearLayout.HORIZONTAL
             fun button(label: Int, action: () -> Unit) = addView(TextView(context).apply {
                 setText(label)
-                setPaddingRelative(dp(8), dp(10), dp(8), dp(10))
+                gravity = Gravity.CENTER
+                minHeight = dp(48)
+                setPaddingRelative(dp(10), 0, dp(10), 0)
                 setTextColor(context.getColor(Resources.color.editors_selection_handle))
+                setBackgroundResource(R.drawable.editor_tool_background)
                 setOnClickListener { action(); rebuild() }
             })
             button(Resources.string.editors_chart_add_category) { cells += MutableList(cells[0].size) { "" } }
@@ -229,24 +216,54 @@ internal class ChartUi(
             button(Resources.string.editors_chart_add_series) { cells.forEach { it += "" } }
             button(Resources.string.editors_chart_remove_series) { if (cells[0].size > 2) cells.forEach { it.removeAt(it.size - 1) } }
         }
-        val content = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(16), dp(8), dp(16), 0)
+        val content = column().apply {
             addView(HorizontalScrollView(context).apply { addView(buttons) })
             addView(HorizontalScrollView(context).apply { addView(table) })
-        }
-        AlertDialog.Builder(context)
-            .setTitle(Resources.string.editors_chart_data)
-            .setView(ScrollView(context).apply { addView(content) })
-            .setPositiveButton(android.R.string.ok) { _, _ ->
+            done {
                 val series = cells[0].drop(1)
                 val categories = cells.drop(1).map { it[0] }
                 val values = series.indices.map { s -> cells.drop(1).map { row -> row[s + 1].replace(',', '.').toDoubleOrNull() } }
                 edit { setChartData(ChartData(series, categories, values)) }
+                onBack()
             }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+        }
+        panels.show(context.getString(Resources.string.editors_chart_data), content, onBack) {}
     }
+
+    // ---------------------------------------------------------------------------------
+    // Panels' views
+
+    private fun column() = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setPaddingRelative(dp(16), dp(4), dp(16), dp(24))
+    }
+
+    // An action in a panel, as a link
+    private fun LinearLayout.link(label: Int, action: () -> Unit) = addView(TextView(context).apply {
+        setText(label)
+        minHeight = dp(48)
+        gravity = Gravity.CENTER_VERTICAL
+        setPaddingRelative(dp(4), 0, dp(4), 0)
+        setTextColor(context.getColor(Resources.color.editors_selection_handle))
+        setBackgroundResource(R.drawable.editor_tool_background)
+        setOnClickListener { action() }
+    })
+
+    // Applies what the panel's fields say, at its end
+    private fun LinearLayout.done(action: () -> Unit) = addView(TextView(context).apply {
+        setText(Resources.string.editors_done)
+        textSize = 15f
+        setTypeface(typeface, Typeface.BOLD)
+        gravity = Gravity.CENTER
+        minHeight = dp(48)
+        setPaddingRelative(dp(20), 0, dp(20), 0)
+        setTextColor(context.getColor(Resources.color.editors_selection_handle))
+        setBackgroundResource(R.drawable.editor_tool_background)
+        setOnClickListener { action() }
+    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        gravity = Gravity.END
+        topMargin = dp(12)
+    })
 
     private fun number(value: Double): String =
         if (value == Math.floor(value) && kotlin.math.abs(value) < 1e15) value.toLong().toString() else value.toString()

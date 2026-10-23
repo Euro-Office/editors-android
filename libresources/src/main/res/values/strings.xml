@@ -165,7 +165,11 @@
     <string name="editors_doc_navigation">Navigation</string>
     <string name="editors_doc_go_to_page">Go to page…</string>
     <string name="editors_doc_statistics">Word count</string>
-    <string name="editors_doc_statistics_text">Pages: %1$d\nWords: %2$d\nParagraphs: %3$d\nCharacters: %4$d\nCharacters with spaces: %5$d</string>
+    <string name="editors_doc_statistics_pages">Pages</string>
+    <string name="editors_doc_statistics_words">Words</string>
+    <string name="editors_doc_statistics_paragraphs">Paragraphs</string>
+    <string name="editors_doc_statistics_characters">Characters</string>
+    <string name="editors_doc_statistics_characters_spaces">Characters with spaces</string>
     <string name="editors_doc_review">Track changes</string>
     <string name="editors_doc_track_changes">Record changes</string>
     <string name="editors_doc_next_change">Next change</string>
@@ -279,6 +283,7 @@
     <string name="editors_chart_trillions">Trillions</string>
     <string name="editors_chart_crosses">Axis crosses</string>
     <string name="editors_chart_crosses_value">At a value</string>
+    <string name="editors_chart_crossing_value">Crossing value</string>
     <string name="editors_chart_crosses_minimum">Minimum value</string>
     <string name="editors_chart_crosses_maximum">Maximum value</string>
     <string name="editors_chart_axis_position">Axis position</string>
