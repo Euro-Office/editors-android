@@ -88,6 +88,10 @@ class EditorStateTest {
         assertEquals(Place(3, 120.5), parsed.navigate)
         val textBox = EditorState.parse(state(""", "pdf": {"ink": false, "annotation": null, "textSelected": false, "textBox": true}"""))
         assertEquals(PdfState(ink = false, annotation = null, textSelected = false, textBox = true), textBox.pdf)
+        val framed = EditorState.parse(state(""", "textFrame": {"page": 2, "points": [1, 2, 3, 2, 3, 4, 1, 4]}"""))
+        assertEquals(2, framed.textFrame!!.page)
+        assertEquals(listOf(1.0, 2.0, 3.0, 2.0, 3.0, 4.0, 1.0, 4.0), framed.textFrame!!.points.toList())
+        assertNull(textBox.textFrame)
         assertNull(EditorState.parse(state("")).pdf)
     }
 

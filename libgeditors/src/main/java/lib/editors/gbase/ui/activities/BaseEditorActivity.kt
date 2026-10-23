@@ -893,12 +893,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolAlignCenter).isSelected = !drawingSelected && toolbar.alignment == Alignment.CENTER
         findViewById<View>(R.id.toolAlignRight).isSelected = !drawingSelected && toolbar.alignment == Alignment.RIGHT
         listOf(R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight).forEach { findViewById<View>(it).isEnabled = !drawingSelected }
-        // PDFs: the text tools while a text box or its text is selected
         if (isPdfEditor && editing) {
             val textBox = state.pdf?.textBox == true
-            (TEXT_TOOLS + R.id.toolFormat).forEach { findViewById<View>(it).isVisible = textBox }
             if (textBox != pdfTextBox) documentView.selectionActions = pdfSelectionActions(textBox)
             pdfTextBox = textBox
+            pdfPageEditable = state.pdf?.canEditPage == true
+            updatePdfTools()
         }
         findViewById<View>(R.id.toolUndo).isEnabled = toolbar.canUndo
         findViewById<View>(R.id.toolRedo).isEnabled = toolbar.canRedo
@@ -1289,15 +1289,33 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private var penOn = false
     // A text box or its text is selected (PdfState.textBox)
     private var pdfTextBox = false
+    // The text of the page shown can be made editable (PdfState.canEditPage)
+    private var pdfPageEditable = false
 
     private fun showPdfTools(document: EditorDocument, pages: List<PageSize>) {
         showPageTools(document, pages)
-        // Searching starts on the page shown
+        // Searching starts on the page shown; its text can be made editable or not
         val onPage = documentView.onVisiblePageChanged
         documentView.onVisiblePageChanged = { page ->
             onPage?.invoke(page)
-            lifecycleScope.launch(EditorEngine.dispatcher) { this@BaseEditorActivity.document?.setCurrentPage(page) }
+            lifecycleScope.launch {
+                val editable = withContext(EditorEngine.dispatcher) {
+                    val current = this@BaseEditorActivity.document ?: return@withContext false
+                    current.setCurrentPage(page)
+                    current.canEditPage(page)
+                }
+                pdfPageEditable = editable
+                if (editing) updatePdfTools()
+            }
         }
+    }
+
+    // While a text box is selected its text's tools take the place of the PDF's (marking up,
+    // drawing, signing, text boxes); "Edit text" for pages whose text isn't editable yet
+    private fun updatePdfTools() {
+        (TEXT_TOOLS + R.id.toolFormat).forEach { findViewById<View>(it).isVisible = pdfTextBox }
+        listOf(R.id.toolSign, R.id.toolPen, R.id.toolTextBox).forEach { findViewById<View>(it).isVisible = !pdfTextBox }
+        findViewById<View>(R.id.toolEditText).isVisible = !pdfTextBox && pdfPageEditable
     }
 
     private fun enablePdfEditing() {
@@ -1319,7 +1337,6 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolSign).setOnClickListener { SignaturePad(this) { picture, aspect -> placeSignature(picture, aspect) }.show() }
         findViewById<View>(R.id.toolTextBox).isVisible = true
         findViewById<View>(R.id.toolTextBox).setOnClickListener { addTextBox() }
-        findViewById<View>(R.id.toolEditText).isVisible = true
         findViewById<View>(R.id.toolEditText).setOnClickListener { editPageText() }
         // The text of text boxes (of pages whose text was made editable): its tools show while
         // one is selected (applyState)

@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
@@ -267,6 +268,12 @@ class DocumentView @JvmOverloads constructor(
     private val handleRadius = 11 * density
     private val handleTouchRadius = 28 * density
     private val paperPaint = Paint().apply { color = Color.WHITE }
+    private val textFramePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = ContextCompat.getColor(context, Resources.color.editors_selection_handle)
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f * resources.displayMetrics.density
+        pathEffect = DashPathEffect(floatArrayOf(6 * resources.displayMetrics.density, 4 * resources.displayMetrics.density), 0f)
+    }
     private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK
@@ -1448,6 +1455,17 @@ class DocumentView @JvmOverloads constructor(
         }
         // Selected pictures and shapes: their frame with handles
         if (editListener != null && !readOnly) drawingHandles.draw(canvas, visibleDrawings(), toScreen)
+        // The text box whose text is edited
+        state.textFrame?.takeIf { it.page in pageSizes.indices && editListener != null }?.let { frame ->
+            val path = Path()
+            for (i in 0 until 4) {
+                val x = screenX(frame.page, frame.points[2 * i])
+                val y = screenY(frame.page, frame.points[2 * i + 1])
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            path.close()
+            canvas.drawPath(path, textFramePaint)
+        }
         selectionHandles()?.let { (start, end) ->
             for (handle in listOf(start, end)) {
                 val isStart = handle === start

@@ -321,9 +321,16 @@ enum class PdfMarkupKind(val value: String) { HIGHLIGHT("highlight"), UNDERLINE(
 /**
  * The PDF editor's state: freehand drawing is on ([ink]); the selected annotation ([annotation]
  * its sdkjs type, null for none); text of the page is selected ([textSelected], to mark it up);
- * a text box or text in it is ([textBox], formatted as in presentations).
+ * a text box or text in it is ([textBox], formatted as in presentations); the text of the current
+ * page can be made editable ([canEditPage], [EditorDocument.editPage]).
  */
-data class PdfState(val ink: Boolean, val annotation: Int?, val textSelected: Boolean, val textBox: Boolean = false)
+data class PdfState(
+    val ink: Boolean,
+    val annotation: Int?,
+    val textSelected: Boolean,
+    val textBox: Boolean = false,
+    val canEditPage: Boolean = false
+)
 
 /** A place in the document to show: a link or an entry of the contents was followed. */
 data class Place(val page: Int, val yMm: Double)
@@ -381,7 +388,9 @@ class EditorState(
     /** The comments sdkjs shows: of the commented text tapped, of the selected PDF annotation. */
     val shownComments: List<String> = emptyList(),
     /** Documents: laid out for the screen ([EditorDocument.setMobileView]). */
-    val mobileView: Boolean = false
+    val mobileView: Boolean = false,
+    /** PDFs: the frame of the text box whose text is edited (outlined, without handles). */
+    val textFrame: SelectionArea? = null
 ) {
     companion object {
         /** Throws [org.json.JSONException] if [json] isn't a state (the engine failed). */
@@ -434,11 +443,16 @@ class EditorState(
                 },
                 coEditing = root.optJSONObject("coEditing")?.let { parseCoEditing(it) },
                 pdf = root.optJSONObject("pdf")?.let {
-                    PdfState(it.optBoolean("ink"), it.optJSONObject("annotation")?.optInt("type"), it.optBoolean("textSelected"), it.optBoolean("textBox"))
+                    PdfState(it.optBoolean("ink"), it.optJSONObject("annotation")?.optInt("type"), it.optBoolean("textSelected"), it.optBoolean("textBox"),
+                        it.optBoolean("canEditPage"))
                 },
                 navigate = root.optJSONObject("navigate")?.let { Place(it.optInt("page"), it.optDouble("y")) },
                 shownComments = root.optJSONArray("shownComments")?.let { ids -> (0 until ids.length()).map { ids.getString(it) } }.orEmpty(),
                 mobileView = root.optBoolean("mobileView"),
+                textFrame = root.optJSONObject("textFrame")?.let { area ->
+                    val points = area.getJSONArray("points")
+                    SelectionArea(area.getInt("page"), DoubleArray(points.length()) { points.getDouble(it) })
+                },
                 chart = root.optJSONObject("chart")?.let {
                     ChartState(
                         it.optInt("type"), it.optBoolean("title"), it.optInt("legend"), it.optBoolean("labels"),
