@@ -158,6 +158,37 @@ data class ColorScheme(val name: String, val colors: List<String>)
 /** The color schemes to choose from and the current one's index, -1 for none of them. */
 data class ColorSchemes(val schemes: List<ColorScheme>, val current: Int)
 
+/**
+ * The colors of the palettes, "RRGGBB". [theme] has 6 for each of the theme's 10 colors
+ * (background 1, text 1, background 2, text 2, accents 1 to 6): the color, then lighter and
+ * darker ones; empty without a theme (PDFs). The commands take the Nth as [themeColor] N, which
+ * follows the document's color scheme, and others as "RRGGBB".
+ */
+data class ThemeColors(val theme: List<String>, val standard: List<String>) {
+
+    /** The "RRGGBB" of a color of the commands; null for none or a theme color not in [theme]. */
+    fun hexOf(color: String?): String? {
+        if (color.isNullOrEmpty()) return null
+        if (!color.startsWith(THEME_PREFIX)) return color
+        return color.removePrefix(THEME_PREFIX).toIntOrNull()?.let { theme.getOrNull(it) }
+    }
+
+    companion object {
+        const val THEME_COLUMNS = 10
+        const val THEME_SHADES = 6
+        private const val THEME_PREFIX = "theme:"
+
+        /** The theme's color [column] (see [theme]) in [shade] 0 to 5, as the commands take it. */
+        fun themeColor(column: Int, shade: Int = 0) = "$THEME_PREFIX${column * THEME_SHADES + shade}"
+
+        fun parse(json: String): ThemeColors {
+            val root = JSONObject(json)
+            fun list(name: String) = root.optJSONArray(name)?.let { array -> (0 until array.length()).map { array.getString(it) } }.orEmpty()
+            return ThemeColors(list("theme"), list("standard"))
+        }
+    }
+}
+
 /** Spreadsheets: the active sheet's [gridlines], its pages' orientation and size (mm). */
 data class SheetSetup(val gridlines: Boolean, val landscape: Boolean, val width: Double, val height: Double)
 

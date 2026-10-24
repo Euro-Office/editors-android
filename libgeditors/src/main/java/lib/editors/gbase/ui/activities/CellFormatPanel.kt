@@ -20,7 +20,8 @@ internal class CellFormatPanel(
     private val edit: (EditorDocument.() -> EditorState) -> Unit,
     /** All fonts and the document's, from the engine (on its thread). */
     private val loadFonts: (onLoaded: (fonts: List<String>, documentFonts: List<String>) -> Unit) -> Unit,
-    private val panels: PanelHost
+    private val panels: PanelHost,
+    private val colorPicker: ColorPicker
 ) : PanelBuilder<CellFormat>(context) {
 
     private var dialog: PanelHost.Panel? = null
@@ -33,6 +34,7 @@ internal class CellFormatPanel(
     // apply the cells' settings to the cells under it)
     private var drawingSelected = false
     private val cellsOnly = mutableListOf<View>()
+    private val colorRows = mutableListOf<ColorPicker.Row>()
 
     fun show() {
         loadFonts { all, used ->
@@ -41,9 +43,12 @@ internal class CellFormatPanel(
         }
         updaters.clear()
         cellsOnly.clear()
+        colorRows.clear()
         val content = content()
         dialog = panels.show(context.getString(Resources.string.editors_format), content) { dialog = null }
         update(format, drawingSelected)
+        // The theme's colors with the current color scheme
+        colorPicker.load { colors -> colorRows.forEach { it.setColors(colors) } }
     }
 
     /** The format of the active cell, or of the selected drawing's text ([drawing]). */
@@ -93,10 +98,10 @@ internal class CellFormatPanel(
             }
         }
         caption(Resources.string.editors_format_color)
-        colors(TEXT_COLORS, { it.color }) { color -> edit { setTextColor(color) } }
+        colorRow(Resources.string.editors_format_color, none = null, { it.color }) { color -> edit { setTextColor(color) } }
         cellSection {
             caption(Resources.string.editors_cells_fill_color)
-            colors(FILLS, { it.fill }) { color -> edit { setCellFill(color) } }
+            colorRow(Resources.string.editors_cells_fill_color, Resources.string.editors_color_none, { it.fill }) { color -> edit { setCellFill(color) } }
 
             heading(Resources.string.editors_cells_cells)
             caption(Resources.string.editors_cells_borders)
@@ -122,6 +127,14 @@ internal class CellFormatPanel(
 
     // In the panel's place, then back to it
     private fun chooseFont() = fontChooser.choose(fonts, documentFonts, format.fontName, ::show) { name -> edit { setFontName(name) } }
+
+    // A row of colors, the current one marked, all of them in the panel's place (see ColorPicker)
+    private fun LinearLayout.colorRow(title: Int, none: Int?, current: (CellFormat) -> String, onColor: (String?) -> Unit) {
+        val row = colorPicker.Row(title, none, ::show, onColor)
+        addView(row.view)
+        colorRows += row
+        updaters += { row.mark(current(it)) }
+    }
 
     // Settings of cells only, hidden while a drawing is selected
     private fun LinearLayout.cellSection(build: LinearLayout.() -> Unit) {
@@ -159,7 +172,5 @@ internal class CellFormatPanel(
             Triple(Resources.drawable.ic_editor_valign_middle, Resources.string.editors_cells_align_middle, 1),
             Triple(Resources.drawable.ic_editor_valign_bottom, Resources.string.editors_cells_align_bottom, 0)
         )
-        val TEXT_COLORS = listOf("000000", "595959", "C00000", "FF0000", "FFC000", "00B050", "0070C0", "002060", "7030A0")
-        val FILLS = listOf("", "FFFFFF", "F2F2F2", "FFF2CC", "FCE4D6", "E2EFDA", "DDEBF7", "FFFF00", "FFC000", "92D050")
     }
 }

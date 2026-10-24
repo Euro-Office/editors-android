@@ -59,10 +59,10 @@ interface EditorDocument : PagedDocument {
     /** A text box with the cursor in it; in presentations centered on ([xMm], [yMm]) of slide [page]. */
     fun insertTextBox(page: Int, xMm: Double, yMm: Double): EditorState = command("eoEngine.insertTextBox($page, $xMm, $yMm)")
 
-    /** Fill of the selected shapes as "RRGGBB"; null for none. */
+    /** Fill of the selected shapes, "RRGGBB" or a theme color (see [ThemeColors]); null for none. */
     fun setShapeFill(color: String?): EditorState = command("eoEngine.setShapeFill(${JSONObject.quote(color.orEmpty())})")
 
-    /** Outline of the selected shapes as "RRGGBB" ([color] null for none), [widthMm] wide. */
+    /** Outline of the selected shapes, "RRGGBB" or a theme color (see [ThemeColors]; [color] null for none), [widthMm] wide. */
     fun setShapeOutline(color: String?, widthMm: Double = 0.75): EditorState =
         command("eoEngine.setShapeOutline(${JSONObject.quote(color.orEmpty())}, $widthMm)")
 
@@ -161,7 +161,7 @@ interface EditorDocument : PagedDocument {
     /** 0 baseline, 1 subscript, 2 superscript. */
     fun setBaseline(value: Int): EditorState = command("eoEngine.setBaseline($value)")
 
-    /** Text color as "RRGGBB"; null for automatic. */
+    /** Text color, "RRGGBB" or a theme color (see [ThemeColors]); null for automatic. */
     fun setTextColor(color: String?): EditorState = command("eoEngine.setTextColor(${JSONObject.quote(color.orEmpty())})")
 
     /** Highlight as "RRGGBB"; null for none. */
@@ -190,7 +190,7 @@ interface EditorDocument : PagedDocument {
     // ---------------------------------------------------------------------------------
     // Spreadsheets: cell formats, rows and columns, sheets (state: EditorState.sheet)
 
-    /** A cell fill as "RRGGBB"; null for none. */
+    /** A cell fill, "RRGGBB" or a theme color (see [ThemeColors]); null for none. */
     fun setCellFill(color: String?): EditorState = command("eoEngine.setCellFill(${JSONObject.quote(color.orEmpty())})")
 
     /** A number format code: "General", "0.00", "0.00%", "#,##0.00 €", "dd.mm.yyyy", "@" (text). */
@@ -579,7 +579,7 @@ interface EditorDocument : PagedDocument {
     /** The design of all slides ([previews] "themes" after [prepareThemes]). */
     fun setTheme(index: Int): EditorState = command("eoEngine.setTheme($index)")
 
-    /** The current slide's background color, "RRGGBB". */
+    /** The current slide's background color, "RRGGBB" or a theme color (see [ThemeColors]). */
     fun setSlideBackground(hex: String): EditorState = command("eoEngine.setSlideBackground(${JSONObject.quote(hex)})")
 
     /** The current slide's background color "RRGGBB", or null for other backgrounds (pictures, from its layout). */
@@ -692,6 +692,9 @@ interface EditorDocument : PagedDocument {
     }
 
     fun setColorScheme(index: Int): EditorState = command("eoEngine.setColorScheme($index)")
+
+    /** The colors to choose from: the theme's (with the current color scheme) and the standard ones. */
+    fun themeColors(): ThemeColors = ThemeColors.parse(execute("eoEngine.getThemeColors()"))
 
     /** Presentations: the slides' size. */
     fun slideSize(): PageSize {

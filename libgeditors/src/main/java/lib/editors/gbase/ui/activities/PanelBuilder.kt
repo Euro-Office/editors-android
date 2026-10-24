@@ -2,7 +2,6 @@ package lib.editors.gbase.ui.activities
 
 import android.content.Context
 import android.content.res.ColorStateList
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.InsetDrawable
@@ -203,7 +202,7 @@ internal abstract class PanelBuilder<F>(protected val context: Context) {
             }
             updaters += {
                 swatch.isSelected = current(it).equals(color, ignoreCase = true)
-                swatch.background = InsetDrawable(swatchDrawable(color, swatch.isSelected), dp(6))
+                swatch.background = InsetDrawable(swatchDrawable(context, color, swatch.isSelected), dp(6))
             }
             row.addView(swatch)
         }
@@ -211,13 +210,6 @@ internal abstract class PanelBuilder<F>(protected val context: Context) {
             isHorizontalScrollBarEnabled = false
             addView(row)
         })
-    }
-
-    protected fun swatchDrawable(color: String, selected: Boolean) = GradientDrawable().apply {
-        shape = GradientDrawable.OVAL
-        setColor(if (color.isEmpty()) Color.TRANSPARENT else Color.parseColor("#$color"))
-        val border = ContextCompat.getColor(context, if (selected) Resources.color.editors_selection_handle else Resources.color.editors_sheet_header_line)
-        setStroke(if (selected) dp(3) else dp(1), border)
     }
 
     private fun outline(radius: Int) = GradientDrawable().apply {

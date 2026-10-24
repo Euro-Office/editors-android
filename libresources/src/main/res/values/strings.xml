@@ -399,6 +399,18 @@
     <string name="editors_color_pink">Pink</string>
     <string name="editors_color_dark">Dark %1$s</string>
     <string name="editors_color_light">Light %1$s</string>
+    <string name="editors_color_automatic">Automatic</string>
+    <string name="editors_color_theme">Theme colors</string>
+    <string name="editors_color_standard">Standard colors</string>
+    <string name="editors_color_recent">Recent colors</string>
+    <string name="editors_color_custom">Custom color</string>
+    <string name="editors_color_more">More colors</string>
+    <string name="editors_color_hex">Hex code</string>
+    <!-- The theme's colors, as in "Accent 1, light blue" (editors_color_in_theme) -->
+    <string name="editors_color_theme_background">Background %1$d</string>
+    <string name="editors_color_theme_text">Text %1$d</string>
+    <string name="editors_color_theme_accent">Accent %1$d</string>
+    <string name="editors_color_in_theme">%1$s, %2$s</string>
     <string name="editors_format_size_down">Smaller text</string>
     <string name="editors_format_size_up">Larger text</string>
     <string name="editors_format_size">Size</string>

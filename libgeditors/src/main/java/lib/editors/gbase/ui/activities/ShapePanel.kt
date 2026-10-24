@@ -2,16 +2,7 @@ package lib.editors.gbase.ui.activities
 
 import android.content.Context
 import android.content.res.ColorStateList
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.ColorFilter
-import android.graphics.Paint
-import android.graphics.PixelFormat
 import android.graphics.Typeface
-import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.InsetDrawable
-import android.graphics.drawable.LayerDrawable
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
@@ -46,6 +37,7 @@ internal class ShapePanel(
     private val chartUi: ChartUi,
     private val chartSettings: ChartSettingsPanel,
     private val panels: PanelHost,
+    private val colorPicker: ColorPicker,
     /** The text's settings (of the selected shapes' text). */
     private val formatText: () -> Unit = {},
     /** Grouping and ungrouping (not in PDFs). */
@@ -64,13 +56,16 @@ internal class ShapePanel(
             // After the commands before it, the chart's state as they left it
             val colors = withContext(EditorEngine.dispatcher) { runCatching { document.drawingColors() }.getOrNull() }
             val current = chart()
-            val content = content(current, colors ?: DrawingColors(null, null)) { show(chart) }
+            val rows = mutableListOf<ColorPicker.Row>()
+            val content = content(current, colors ?: DrawingColors(null, null), rows) { show(chart) }
             val title = if (current != null) Resources.string.editors_chart_insert else Resources.string.editors_insert_shape
             panels.show(context.getString(title), content) {}
+            // The theme's colors with the current color scheme
+            colorPicker.load { loaded -> rows.forEach { it.setColors(loaded) } }
         }
     }
 
-    private fun content(chart: ChartState?, colors: DrawingColors, back: () -> Unit): View = LinearLayout(context).apply {
+    private fun content(chart: ChartState?, colors: DrawingColors, rows: MutableList<ColorPicker.Row>, back: () -> Unit): View = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
 
@@ -111,10 +106,13 @@ internal class ShapePanel(
             action(context.getString(Resources.string.editors_shape_text)) { formatText() }
         }
 
+        // The current ones marked; tapping one marks it
         heading(Resources.string.editors_shape_fill)
-        colors(FILLS, colors.fill) { color -> edit { setShapeFill(color) } }
+        rows += colorPicker.Row(Resources.string.editors_shape_fill, Resources.string.editors_color_none, back) { color -> edit { setShapeFill(color) } }
+            .also { addView(it.view); it.mark(colors.fill) }
         heading(Resources.string.editors_shape_outline)
-        colors(FILLS, colors.outline) { color -> edit { setShapeOutline(color) } }
+        rows += colorPicker.Row(Resources.string.editors_shape_outline, Resources.string.editors_color_none, back) { color -> edit { setShapeOutline(color) } }
+            .also { addView(it.view); it.mark(colors.outline) }
 
         heading(Resources.string.editors_shape_arrange)
         addView(HorizontalScrollView(context).apply {
@@ -190,64 +188,5 @@ internal class ShapePanel(
         })
     }
 
-    // A row of color swatches, [current] marked; "" is none. Tapping one marks it.
-    private fun LinearLayout.colors(colors: List<String>, current: String?, onColor: (String?) -> Unit) {
-        val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-        val swatches = mutableListOf<Pair<String, View>>()
-        fun mark(selected: String?) = swatches.forEach { (color, swatch) ->
-            swatch.isSelected = selected != null && selected.equals(color, ignoreCase = true)
-            swatch.background = InsetDrawable(swatchDrawable(color, swatch.isSelected), dp(6))
-        }
-        for (color in colors) {
-            val swatch = View(context).apply {
-                // 48 dp to touch, 36 dp to see
-                layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
-                contentDescription = Accessibility.colorName(context, color)
-                setOnClickListener {
-                    mark(color)
-                    onColor(color.ifEmpty { null })
-                }
-            }
-            swatches += color to swatch
-            row.addView(swatch)
-        }
-        mark(current)
-        addView(HorizontalScrollView(context).apply { addView(row) })
-    }
-
-    // "None" is crossed out
-    private fun swatchDrawable(color: String, selected: Boolean) = GradientDrawable().apply {
-        shape = GradientDrawable.OVAL
-        setColor(if (color.isEmpty()) Color.TRANSPARENT else Color.parseColor("#$color"))
-        val border = ContextCompat.getColor(context, if (selected) Resources.color.editors_selection_handle else Resources.color.editors_sheet_header_line)
-        setStroke(if (selected) dp(3) else dp(1), border)
-    }.let { circle ->
-        if (color.isNotEmpty()) circle else LayerDrawable(arrayOf(circle, NoneMark(ContextCompat.getColor(context, Resources.color.editors_icon), density)))
-    }
-
-    // A diagonal line across the swatch
-    private class NoneMark(color: Int, density: Float) : Drawable() {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = color
-            strokeWidth = 1.5f * density
-        }
-
-        override fun draw(canvas: Canvas) {
-            val b = bounds
-            val inset = b.width() * 0.2f
-            canvas.drawLine(b.right - inset, b.top + inset, b.left + inset, b.bottom - inset, paint)
-        }
-
-        override fun setAlpha(alpha: Int) = Unit
-        override fun setColorFilter(colorFilter: ColorFilter?) = Unit
-        @Deprecated("Deprecated in Java")
-        override fun getOpacity() = PixelFormat.TRANSLUCENT
-    }
-
     private fun dp(value: Int) = (value * density).toInt()
-
-    private companion object {
-        // "" is none
-        val FILLS = listOf("", "FFFFFF", "000000", "808080", "C00000", "FF0000", "FFC000", "FFFF00", "00B050", "0070C0", "002060", "7030A0")
-    }
 }

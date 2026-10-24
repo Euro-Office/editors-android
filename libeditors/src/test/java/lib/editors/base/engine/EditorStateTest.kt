@@ -100,6 +100,21 @@ class EditorStateTest {
         assertNull(EditorState.parse(state(""", "coEditing": null""")).coEditing)
     }
 
+    @Test
+    fun `parses theme colors and resolves them`() {
+        val theme = (0 until 60).map { "%06X".format(it) }
+        val json = """{"theme": [${theme.joinToString { "\"$it\"" }}], "standard": ["C00000", "FF0000"]}"""
+        val colors = ThemeColors.parse(json)
+        assertEquals(60, colors.theme.size)
+        assertEquals(listOf("C00000", "FF0000"), colors.standard)
+        assertEquals("theme:26", ThemeColors.themeColor(4, 2))
+        assertEquals("00001A", colors.hexOf("theme:26"))
+        assertEquals("123456", colors.hexOf("123456"))
+        assertNull(colors.hexOf(""))
+        assertNull(colors.hexOf(null))
+        assertNull(ThemeColors.parse("""{"theme": [], "standard": []}""").hexOf("theme:3"))
+    }
+
     @Test(expected = org.json.JSONException::class)
     fun `fails for something that isn't a state`() {
         EditorState.parse("undefined")
