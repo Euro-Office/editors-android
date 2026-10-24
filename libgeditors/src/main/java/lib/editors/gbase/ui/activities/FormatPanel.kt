@@ -47,8 +47,9 @@ internal class FormatPanel(
     private val chooseFill: ((target: FillTarget, onBack: () -> Unit) -> Unit)? = null,
     /** List presets by their pictures; null without them. */
     private val chooseList: ((kind: ListKind, onBack: () -> Unit) -> Unit)? = null,
-    /** Text documents: numbering restarted or continued, the advanced paragraph settings, caps. */
+    /** Text documents: numbering restarted or continued, the advanced paragraph settings. */
     private val withNumberingRestart: Boolean = false,
+    /** All caps and small caps (documents and presentations). */
     private val withCaps: Boolean = false,
     private val withAdvanced: Boolean = false
 ) : PanelBuilder<TextFormat>(context) {

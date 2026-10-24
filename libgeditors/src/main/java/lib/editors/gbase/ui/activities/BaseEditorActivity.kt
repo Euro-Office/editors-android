@@ -1130,7 +1130,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             chooseFill = if (editorsType == EditorsType.PDF) null else fillPanel::show,
             chooseList = if (editorsType == EditorsType.DOCS || editorsType == EditorsType.PRESENTATION) ::chooseListPreset else null,
             withNumberingRestart = editorsType == EditorsType.DOCS,
-            withCaps = editorsType == EditorsType.DOCS,
+            withCaps = editorsType == EditorsType.DOCS || editorsType == EditorsType.PRESENTATION,
             withAdvanced = editorsType == EditorsType.DOCS
         )
     }
