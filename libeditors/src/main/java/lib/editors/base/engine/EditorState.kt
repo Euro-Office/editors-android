@@ -282,8 +282,21 @@ data class DrawingColors(
     val textDirection: ShapeTextDirection? = null,
     /** The outline's width in mm (null: not given) and dash. */
     val outlineWidthMm: Double? = null,
-    val outlineDash: OutlineDash = OutlineDash.SOLID
+    val outlineDash: OutlineDash = OutlineDash.SOLID,
+    /** The fill's opacity in percent. */
+    val opacity: Int = 100,
+    /** The outer shadow; null for drawings without shadows (charts). */
+    val shadow: ShapeShadow? = null
 )
+
+/**
+ * Outer shadows as web-apps offers them, by where they fall; [value] is sdkjs' preset (the
+ * shadow's alignment, so the opposite corner), [CUSTOM] one of none of them.
+ */
+enum class ShapeShadow(val value: String) {
+    NONE(""), TOP_LEFT("br"), TOP("b"), TOP_RIGHT("bl"), LEFT("r"), CENTER("ctr"), RIGHT("l"),
+    BOTTOM_LEFT("tr"), BOTTOM("t"), BOTTOM_RIGHT("tl"), CUSTOM("custom")
+}
 
 /** Outlines' dashes as web-apps offers them; [value] is Asc.c_oDashType. */
 enum class OutlineDash(val value: Int) {

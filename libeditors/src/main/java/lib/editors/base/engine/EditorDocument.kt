@@ -73,6 +73,12 @@ interface EditorDocument : PagedDocument {
     fun setShapeOutline(color: String?, widthMm: Double = 0.75, dash: OutlineDash = OutlineDash.SOLID): EditorState =
         command("eoEngine.setShapeOutline(${JSONObject.quote(color.orEmpty())}, $widthMm, ${dash.value})")
 
+    /** The opacity of the selected drawings' fill, in percent. */
+    fun setShapeOpacity(percent: Int): EditorState = command("eoEngine.setShapeOpacity($percent)")
+
+    /** The selected shapes' and pictures' outer shadow ([ShapeShadow.NONE] removes it). */
+    fun setShapeShadow(shadow: ShapeShadow): EditorState = command("eoEngine.setShapeShadow(${JSONObject.quote(shadow.value)})")
+
     /** The direction of the selected shapes' text. */
     fun setTextDirection(direction: ShapeTextDirection): EditorState = command("eoEngine.setTextVert(${direction.value})")
 
@@ -565,7 +571,9 @@ interface EditorDocument : PagedDocument {
         return DrawingColors(
             color("fill"), color("outline"), ShapeTextDirection.entries.firstOrNull { it.value == vert },
             outlineWidthMm = if (root.isNull("outlineWidth")) null else root.optDouble("outlineWidth"),
-            outlineDash = OutlineDash.entries.firstOrNull { it.value == root.optInt("outlineDash", OutlineDash.SOLID.value) } ?: OutlineDash.SOLID
+            outlineDash = OutlineDash.entries.firstOrNull { it.value == root.optInt("outlineDash", OutlineDash.SOLID.value) } ?: OutlineDash.SOLID,
+            opacity = root.optInt("opacity", 100),
+            shadow = if (root.isNull("shadow")) null else ShapeShadow.entries.firstOrNull { it.value == root.optString("shadow") } ?: ShapeShadow.CUSTOM
         )
     }
 

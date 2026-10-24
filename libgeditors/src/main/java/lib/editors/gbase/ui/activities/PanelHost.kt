@@ -50,9 +50,9 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
     /**
      * Shows [content] (scrolled) under [title]; [onBack] shows the panel this one was opened
      * from (a back button), [onDismiss] runs when it closes, however that happens. A bottom
-     * sheet that isn't [modal] leaves the document usable (scrolling, tapping), takes at most
-     * half the screen (the document shows what it formats above it) and has a close button
-     * instead; the panels opened from it stay so.
+     * sheet that isn't [modal] leaves the document usable (scrolling, tapping), takes half the
+     * screen (the document shows what it formats above it) and has a close button instead; the
+     * panels opened from it stay so.
      */
     fun show(title: String, content: View, onBack: (() -> Unit)? = null, modal: Boolean = true, onDismiss: () -> Unit): Panel {
         // Nested: in a bottom sheet, scrolling back up scrolls the panel before it moves the sheet
@@ -170,13 +170,15 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
         val frame = openFrame ?: FrameLayout(context).also { sheet.setContentView(it) }
         lateinit var panel: SheetPanel
         frame.removeAllViews()
+        // Not modal: half the screen whatever the content, so closing a section doesn't move it
+        val half = context.resources.displayMetrics.heightPixels / 2
         frame.addView(LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             addView(header(title, onBack, if (modal) null else ({ panel.dismiss() })))
-            addView(content)
-        })
+            if (modal) addView(content) else addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, if (modal) ViewGroup.LayoutParams.WRAP_CONTENT else half))
         setModal(sheet, modal)
-        sheet.behavior.maxHeight = if (modal) -1 else context.resources.displayMetrics.heightPixels / 2
+        sheet.behavior.maxHeight = if (modal) -1 else half
         if (!modal) {
             sheet.behavior.skipCollapsed = true
             sheet.behavior.state = BottomSheetBehavior.STATE_EXPANDED

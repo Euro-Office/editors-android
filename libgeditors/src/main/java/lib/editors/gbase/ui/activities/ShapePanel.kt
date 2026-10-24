@@ -4,9 +4,14 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.DashPathEffect
 import android.graphics.Paint
+import android.graphics.RectF
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.GridLayout
 import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.appcompat.widget.TooltipCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -18,6 +23,7 @@ import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.OutlineDash
+import lib.editors.base.engine.ShapeShadow
 import lib.editors.base.engine.ShapeTextDirection
 import lib.editors.gbase.R
 import lib.editors.resources.R as Resources
@@ -25,7 +31,8 @@ import lib.editors.resources.R as Resources
 /**
  * The selected pictures, shapes and charts, as the first section of the format panels
  * ([FormatPanel], [CellFormatPanel]): a chart's type, style, titles, elements and data; their
- * fill and outline, the current ones marked; their text's direction; arranging and grouping.
+ * fill, its opacity and outline, the current ones marked; their shadow and text's direction;
+ * arranging and grouping.
  * The format panel shows their text's settings below.
  */
 internal class ShapePanel(
@@ -103,6 +110,17 @@ internal class ShapePanel(
             rows += colorPicker.Row(Resources.string.editors_shape_fill, Resources.string.editors_color_none, back) { color -> edit { setShapeFill(color) } }
                 .also { addView(it.view); it.mark(colors.fill) }
             if (chooseFill != null) action(Resources.string.editors_fill_more) { chooseFill.invoke(back) }
+            caption(Resources.string.editors_shape_opacity)
+            fun opacity(percent: Int) {
+                colors = colors.copy(opacity = percent.coerceIn(0, 100))
+                updaters.forEach { it(colors) }
+                edit { setShapeOpacity(colors.opacity) }
+            }
+            stepper(Resources.string.editors_shape_opacity, { context.getString(Resources.string.editors_fill_percent, it.opacity) }, {
+                opacity((colors.opacity + OPACITY_STEP - 1) / OPACITY_STEP * OPACITY_STEP - OPACITY_STEP)
+            }, {
+                opacity(colors.opacity / OPACITY_STEP * OPACITY_STEP + OPACITY_STEP)
+            })
             // The outline: its color ("none" without one), size and dash; each keeps the others
             fun outline(color: String?, widthMm: Double, dash: OutlineDash) {
                 colors = colors.copy(outline = color, outlineWidthMm = widthMm, outlineDash = dash)
@@ -128,6 +146,17 @@ internal class ShapePanel(
             action(Resources.string.editors_shape_border_type, { context.getString(DASHES.getValue(it.outlineDash)) }) {
                 chooseDash(colors.outlineDash, back) { dash ->
                     outline(colors.outline?.ifEmpty { null } ?: DEFAULT_OUTLINE_COLOR, width(), dash)
+                }
+            }
+
+            // Shadows: not of charts (sdkjs gives them none)
+            if (colors.shadow != null) {
+                action(Resources.string.editors_shape_shadow, { shadow -> shadow.shadow?.let { context.getString(SHADOWS.getValue(it)) }.orEmpty() }) {
+                    chooseShadow(colors.shadow, back) { shadow ->
+                        colors = colors.copy(shadow = shadow)
+                        updaters.forEach { it(colors) }
+                        edit { setShapeShadow(shadow) }
+                    }
                 }
             }
 
@@ -179,6 +208,69 @@ internal class ShapePanel(
         panels.show(context.getString(Resources.string.editors_shape_border_type), list, back) {}
     }
 
+    // The shadows by pictures of them (where they fall, as a 3 x 3 grid) and "none", the current
+    // one marked; a tap takes one and goes [back]
+    private fun chooseShadow(current: ShapeShadow?, back: () -> Unit, onShadow: (ShapeShadow) -> Unit) {
+        fun choose(shadow: ShapeShadow) {
+            onShadow(shadow)
+            back()
+        }
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
+            addView(TextView(context).apply {
+                setText(Resources.string.editors_shadow_none)
+                textSize = 15f
+                gravity = Gravity.CENTER_VERTICAL
+                minHeight = dp(48)
+                setPaddingRelative(dp(8), 0, 0, 0)
+                isSelected = current == ShapeShadow.NONE
+                Accessibility.toggle(this)
+                setBackgroundResource(R.drawable.editor_tool_background)
+                setOnClickListener { choose(ShapeShadow.NONE) }
+            })
+            addView(GridLayout(context).apply {
+                columnCount = 3
+                for (shadow in SHADOW_GRID) {
+                    addView(ShadowView(context, shadow).apply {
+                        contentDescription = context.getString(SHADOWS.getValue(shadow))
+                        TooltipCompat.setTooltipText(this, contentDescription)
+                        isSelected = shadow == current
+                        Accessibility.toggle(this)
+                        setBackgroundResource(R.drawable.editor_tool_background)
+                        setOnClickListener { choose(shadow) }
+                    }, GridLayout.LayoutParams().apply {
+                        width = dp(72)
+                        height = dp(72)
+                    })
+                }
+            })
+        }
+        panels.show(context.getString(Resources.string.editors_shape_shadow), content, back) {}
+    }
+
+    // A square with its shadow falling to a side (or around it, centered)
+    private class ShadowView(context: Context, shadow: ShapeShadow) : View(context) {
+        private val density = context.resources.displayMetrics.density
+        private val shape = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ContextCompat.getColor(context, Resources.color.editors_accent) }
+        private val shade = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ContextCompat.getColor(context, Resources.color.editors_icon); alpha = 110 }
+        private val offset = SHADOW_OFFSETS.getValue(shadow)
+        private val box = RectF()
+
+        override fun onDraw(canvas: Canvas) {
+            val size = 28 * density
+            val left = (width - size) / 2f
+            val top = (height - size) / 2f
+            val step = 5 * density
+            // Centered: a little larger all around
+            val spread = if (offset.first == 0 && offset.second == 0) 3 * density else 0f
+            box.set(left + offset.first * step - spread, top + offset.second * step - spread, left + size + offset.first * step + spread, top + size + offset.second * step + spread)
+            canvas.drawRect(box, shade)
+            box.set(left, top, left + size, top + size)
+            canvas.drawRect(box, shape)
+        }
+    }
+
     // A dash as a line across the view, its pattern in multiples of the line's width (OOXML's)
     private class DashView(context: Context, dash: OutlineDash) : View(context) {
         private val lineWidth = 3 * context.resources.displayMetrics.density
@@ -202,6 +294,27 @@ internal class ShapePanel(
         const val MM_PER_POINT = 25.4 / 72
         const val DEFAULT_OUTLINE_POINTS = 0.75
         const val DEFAULT_OUTLINE_COLOR = "000000"
+        const val OPACITY_STEP = 10
+        val SHADOWS = linkedMapOf(
+            ShapeShadow.NONE to Resources.string.editors_shadow_none,
+            ShapeShadow.TOP_LEFT to Resources.string.editors_shadow_top_left,
+            ShapeShadow.TOP to Resources.string.editors_shadow_top,
+            ShapeShadow.TOP_RIGHT to Resources.string.editors_shadow_top_right,
+            ShapeShadow.LEFT to Resources.string.editors_shadow_left,
+            ShapeShadow.CENTER to Resources.string.editors_shadow_center,
+            ShapeShadow.RIGHT to Resources.string.editors_shadow_right,
+            ShapeShadow.BOTTOM_LEFT to Resources.string.editors_shadow_bottom_left,
+            ShapeShadow.BOTTOM to Resources.string.editors_shadow_bottom,
+            ShapeShadow.BOTTOM_RIGHT to Resources.string.editors_shadow_bottom_right,
+            ShapeShadow.CUSTOM to Resources.string.editors_shadow_custom
+        )
+        val SHADOW_GRID = SHADOWS.keys.filter { it != ShapeShadow.NONE && it != ShapeShadow.CUSTOM }
+        // Where each falls: -1, 0 or 1 to the right and down
+        val SHADOW_OFFSETS = mapOf(
+            ShapeShadow.TOP_LEFT to (-1 to -1), ShapeShadow.TOP to (0 to -1), ShapeShadow.TOP_RIGHT to (1 to -1),
+            ShapeShadow.LEFT to (-1 to 0), ShapeShadow.CENTER to (0 to 0), ShapeShadow.RIGHT to (1 to 0),
+            ShapeShadow.BOTTOM_LEFT to (-1 to 1), ShapeShadow.BOTTOM to (0 to 1), ShapeShadow.BOTTOM_RIGHT to (1 to 1)
+        )
         // The sizes web-apps offers, and a few in between
         val OUTLINE_POINTS = listOf(0.25, 0.5, 0.75, 1.0, 1.5, 2.25, 3.0, 4.5, 6.0, 8.0, 10.0, 12.0)
         val DASHES = linkedMapOf(
