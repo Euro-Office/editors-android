@@ -139,6 +139,8 @@ data class TextFormat(
     /** Text documents: all caps, small caps. */
     val caps: Boolean = false,
     val smallCaps: Boolean = false,
+    /** Text documents: the paragraph's background color ("RRGGBB", "" for none). */
+    val shading: String = "",
     /** As the toolbar has them ([ToolbarState]; not in the engine's format). */
     val bold: Boolean = false,
     val italic: Boolean = false,
@@ -180,6 +182,68 @@ data class DocumentStructure(
 )
 
 /** Page size, orientation and margins of the current section, in mm, and its columns. */
+/** Text documents: footnotes' or endnotes' settings, as web-apps' note settings have them. */
+data class NoteSettings(
+    val position: NotePosition,
+    val format: NoteFormat,
+    /** The first note's number. */
+    val start: Int,
+    val restart: NoteRestart
+)
+
+/** Where notes go: footnotes at the page's bottom or below the text, endnotes at a section's or the document's end. */
+enum class NotePosition(val key: String) {
+    PAGE_BOTTOM("pageBottom"), BENEATH_TEXT("beneathText"), SECTION_END("sectEnd"), DOCUMENT_END("docEnd");
+
+    companion object {
+        val FOOTNOTES = listOf(PAGE_BOTTOM, BENEATH_TEXT)
+        val ENDNOTES = listOf(SECTION_END, DOCUMENT_END)
+    }
+}
+
+/** Notes' numbers: 1, 2, 3; a, b, c; A, B, C; i, ii, iii; I, II, III. */
+enum class NoteFormat(val key: String) {
+    DECIMAL("decimal"), LOWER_LETTER("lowerLetter"), UPPER_LETTER("upperLetter"), LOWER_ROMAN("lowerRoman"), UPPER_ROMAN("upperRoman");
+
+    /** The [number]th (from 1) as this format writes it. */
+    fun format(number: Int): String = when (this) {
+        DECIMAL -> number.toString()
+        LOWER_LETTER -> letters(number)
+        UPPER_LETTER -> letters(number).uppercase()
+        LOWER_ROMAN -> roman(number).lowercase()
+        UPPER_ROMAN -> roman(number)
+    }
+
+    private companion object {
+        // a ... z, then aa ... zz, as Word counts
+        fun letters(number: Int): String {
+            if (number < 1) return number.toString()
+            val letter = 'a' + (number - 1) % 26
+            return letter.toString().repeat((number - 1) / 26 + 1)
+        }
+
+        fun roman(number: Int): String {
+            if (number < 1) return number.toString()
+            var rest = number
+            val result = StringBuilder()
+            for ((value, digits) in listOf(1000 to "M", 900 to "CM", 500 to "D", 400 to "CD", 100 to "C", 90 to "XC",
+                50 to "L", 40 to "XL", 10 to "X", 9 to "IX", 5 to "V", 4 to "IV", 1 to "I")) {
+                while (rest >= value) {
+                    result.append(digits)
+                    rest -= value
+                }
+            }
+            return result.toString()
+        }
+    }
+}
+
+/** When notes' numbers start again: never, in each section, on each page (footnotes). */
+enum class NoteRestart(val key: String) { CONTINUOUS("continuous"), EACH_SECTION("eachSect"), EACH_PAGE("eachPage") }
+
+/** Footnotes to endnotes, endnotes to footnotes, or both swapped. */
+enum class NoteConversion(val key: String) { TO_ENDNOTES("toEndnotes"), TO_FOOTNOTES("toFootnotes"), SWAP("swap") }
+
 data class PageSetup(
     val width: Double, val height: Double, val landscape: Boolean,
     val left: Double, val top: Double, val right: Double, val bottom: Double,
@@ -644,7 +708,8 @@ class EditorState(
             paragraphOptions = ParagraphOption.entries.filter { json.optBoolean(it.key) }.toSet(),
             firstLine = json.optDouble("FirstLine", 0.0),
             caps = json.optBoolean("Caps"),
-            smallCaps = json.optBoolean("SmallCaps")
+            smallCaps = json.optBoolean("SmallCaps"),
+            shading = json.optString("Shading")
         )
 
 

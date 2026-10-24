@@ -119,6 +119,8 @@
     <string name="editors_cells_show_sheets">Show hidden sheets</string>
     <string name="editors_cells_number_format">Number format</string>
     <string name="editors_cells_cell_style">Cell style</string>
+    <!-- A paragraph's background color -->
+    <string name="editors_format_paragraph_background">Background color</string>
     <string name="editors_cell_style_good">Good</string>
     <string name="editors_cell_style_bad">Bad</string>
     <string name="editors_cell_style_neutral">Neutral</string>
@@ -199,6 +201,29 @@
     <string name="editors_doc_close">Close</string>
     <string name="editors_doc_footnote">Footnote</string>
     <string name="editors_doc_endnote">Endnote</string>
+    <string name="editors_notes_insert_footnote">Insert footnote</string>
+    <string name="editors_notes_insert_endnote">Insert endnote</string>
+    <string name="editors_notes_footnote_settings">Footnote settings</string>
+    <string name="editors_notes_endnote_settings">Endnote settings</string>
+    <!-- Where footnotes or endnotes go -->
+    <string name="editors_notes_location">Location</string>
+    <string name="editors_notes_page_bottom">Bottom of page</string>
+    <string name="editors_notes_below_text">Below text</string>
+    <string name="editors_notes_section_end">End of section</string>
+    <string name="editors_notes_document_end">End of document</string>
+    <string name="editors_notes_format">Format</string>
+    <string name="editors_notes_numbering_format">Numbering format</string>
+    <string name="editors_notes_start_at">Start at</string>
+    <string name="editors_notes_numbering">Numbering</string>
+    <string name="editors_notes_continuous">Continuous</string>
+    <string name="editors_notes_restart_section">Restart each section</string>
+    <string name="editors_notes_restart_page">Restart each page</string>
+    <string name="editors_notes_convert">Convert</string>
+    <string name="editors_notes_to_endnotes">Convert all footnotes to endnotes</string>
+    <string name="editors_notes_to_footnotes">Convert all endnotes to footnotes</string>
+    <string name="editors_notes_swap">Swap footnotes and endnotes</string>
+    <string name="editors_notes_remove_footnotes">Delete all footnotes</string>
+    <string name="editors_notes_remove_endnotes">Delete all endnotes</string>
     <string name="editors_doc_note">Note</string>
     <string name="editors_doc_toc">Table of contents</string>
     <string name="editors_doc_toc_insert">Insert</string>

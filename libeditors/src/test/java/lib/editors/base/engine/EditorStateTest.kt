@@ -133,6 +133,20 @@ class EditorStateTest {
         assertNull(ThemeColors.parse("""{"theme": [], "standard": []}""").hexOf("theme:3"))
     }
 
+    @Test
+    fun `writes note numbers in their formats`() {
+        assertEquals("12", NoteFormat.DECIMAL.format(12))
+        assertEquals("c", NoteFormat.LOWER_LETTER.format(3))
+        assertEquals("AA", NoteFormat.UPPER_LETTER.format(27))
+        assertEquals("xiv", NoteFormat.LOWER_ROMAN.format(14))
+        assertEquals("MCMXCIX", NoteFormat.UPPER_ROMAN.format(1999))
+    }
+
+    @Test
+    fun `reads the paragraph's background color`() {
+        assertEquals("FFCC00", EditorState.parse(state(""", "format": {"Shading": "FFCC00"}""")).format.shading)
+    }
+
     @Test(expected = org.json.JSONException::class)
     fun `fails for something that isn't a state`() {
         EditorState.parse("undefined")

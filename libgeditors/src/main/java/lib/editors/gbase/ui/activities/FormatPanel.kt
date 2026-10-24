@@ -51,7 +51,9 @@ internal class FormatPanel(
     private val withNumberingRestart: Boolean = false,
     /** All caps and small caps (documents and presentations). */
     private val withCaps: Boolean = false,
-    private val withAdvanced: Boolean = false
+    private val withAdvanced: Boolean = false,
+    /** Text documents: the paragraphs' background color. */
+    private val withShading: Boolean = false
 ) : PanelBuilder<TextFormat>(context) {
 
     /**
@@ -319,6 +321,13 @@ internal class FormatPanel(
             }
             addView(numbering)
             updaters += { numbering.isVisible = it.list == 1 }
+        }
+        if (withShading) {
+            caption(Resources.string.editors_format_paragraph_background)
+            val shading = colorRow(Resources.string.editors_format_paragraph_background, Resources.string.editors_color_none) { color ->
+                edit { setParagraphShading(color) }
+            }
+            updaters += { shading.mark(it.shading) }
         }
         action(Resources.string.editors_format_spacing, ::lineSpacingText) {
             openSettings(Resources.string.editors_format_spacing) { spacingSettings() }

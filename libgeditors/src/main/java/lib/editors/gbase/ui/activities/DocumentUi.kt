@@ -44,6 +44,7 @@ internal class DocumentUi(
 ) {
 
     private val density = context.resources.displayMetrics.density
+    private val notesPanel by lazy { NotesPanel(context, scope, document, panels, edit) }
     private var structure = DocumentStructure()
 
     /** Changes are always tracked (reviewing): recording can't be turned off. */
@@ -117,8 +118,18 @@ internal class DocumentUi(
             item(sub, Resources.string.editors_doc_page_number_header) { edit { insertPageNumber(1, 0) } }
             item(sub, Resources.string.editors_doc_page_number_here) { edit { insertPageNumber(-1, 0) } }
         }
-        item(menu, Resources.string.editors_doc_footnote, Resources.drawable.ic_editor_footnote) { type { addNote(endnote = false) } }
-        item(menu, Resources.string.editors_doc_endnote, Resources.drawable.ic_editor_footnote) { type { addNote(endnote = true) } }
+        // Each with its settings
+        for (endnote in listOf(false, true)) {
+            menu.addSubMenu(if (endnote) Resources.string.editors_doc_endnote else Resources.string.editors_doc_footnote)
+                .setIcon(Resources.drawable.ic_editor_footnote).let { sub ->
+                    item(sub, if (endnote) Resources.string.editors_notes_insert_endnote else Resources.string.editors_notes_insert_footnote) {
+                        type { addNote(endnote) }
+                    }
+                    item(sub, if (endnote) Resources.string.editors_notes_endnote_settings else Resources.string.editors_notes_footnote_settings) {
+                        notesPanel.show(endnote)
+                    }
+                }
+        }
         menu.addSubMenu(Resources.string.editors_doc_toc).setIcon(Resources.drawable.ic_editor_table_contents).let { sub ->
             item(sub, Resources.string.editors_doc_toc_insert) { edit { addTableOfContents() } }
             item(sub, Resources.string.editors_doc_toc_update) { edit { updateTableOfContents() } }

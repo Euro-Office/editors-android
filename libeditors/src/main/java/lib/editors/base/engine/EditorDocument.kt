@@ -211,6 +211,9 @@ interface EditorDocument : PagedDocument {
 
     fun clearFormatting(): EditorState = command("eoEngine.clearFormatting()")
 
+    /** Text documents: the paragraphs' background color, as "RRGGBB" or "theme:N"; null for none. */
+    fun setParagraphShading(color: String?): EditorState = command("eoEngine.setParagraphShading(${JSONObject.quote(color.orEmpty())})")
+
     /**
      * Lists: [type] 0 bullets, 1 numbers; [subtype] for bullets 1 dot, 2 circle, 3 square; for
      * numbers 1 "1.", 2 "1)", 3 "I.", 4 "A.", 5 "a)", 6 "a.", 7 "i."; -1 removes the list.
@@ -750,6 +753,30 @@ interface EditorDocument : PagedDocument {
     fun setMobileView(
         on: Boolean, widthMm: Double = 0.0, heightMm: Double = 0.0, scale: Double = 1.0, page: Int = -1, xMm: Double = 0.0, yMm: Double = 0.0
     ): EditorState = command("eoEngine.setMobileView($on, $widthMm, $heightMm, $scale, $page, $xMm, $yMm)")
+
+    /** Text documents: footnotes' or ([endnote]) endnotes' settings. */
+    fun noteSettings(endnote: Boolean): NoteSettings {
+        val json = JSONObject(execute("eoEngine.getNoteSettings($endnote)"))
+        return NoteSettings(
+            NotePosition.entries.first { it.key == json.getString("pos") },
+            NoteFormat.entries.firstOrNull { it.key == json.getString("format") } ?: NoteFormat.DECIMAL,
+            json.optInt("start", 1),
+            NoteRestart.entries.firstOrNull { it.key == json.getString("restart") } ?: NoteRestart.CONTINUOUS
+        )
+    }
+
+    /** Sets footnotes' or ([endnote]) endnotes' settings, for the whole document. */
+    fun setNoteSettings(endnote: Boolean, settings: NoteSettings): EditorState {
+        val json = JSONObject().put("pos", settings.position.key).put("format", settings.format.key)
+            .put("start", settings.start).put("restart", settings.restart.key)
+        return command("eoEngine.setNoteSettings($endnote, $json)")
+    }
+
+    /** Converts all footnotes, all endnotes, or both. */
+    fun convertNotes(conversion: NoteConversion): EditorState = command("eoEngine.convertNotes(\"${conversion.key}\")")
+
+    /** Removes all footnotes, all endnotes, or both. */
+    fun removeNotes(footnotes: Boolean, endnotes: Boolean): EditorState = command("eoEngine.removeNotes($footnotes, $endnotes)")
 
     /** Back to the text from a footnote or endnote. */
     fun endNoteEditing(): EditorState = command("eoEngine.endNoteEditing()")

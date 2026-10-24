@@ -1131,7 +1131,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             chooseList = if (editorsType == EditorsType.DOCS || editorsType == EditorsType.PRESENTATION) ::chooseListPreset else null,
             withNumberingRestart = editorsType == EditorsType.DOCS,
             withCaps = editorsType == EditorsType.DOCS || editorsType == EditorsType.PRESENTATION,
-            withAdvanced = editorsType == EditorsType.DOCS
+            withAdvanced = editorsType == EditorsType.DOCS,
+            withShading = editorsType == EditorsType.DOCS
         )
     }
 
