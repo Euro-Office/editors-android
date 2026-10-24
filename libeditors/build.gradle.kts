@@ -113,7 +113,9 @@ val copyEngineAssets by tasks.registering(Copy::class) {
             "liberation/LiberationMono-*.ttf", // Courier New
             "crosextra/Carlito-*.ttf", // Calibri
             "caladea/*.ttf", // Cambria
-            "opensans/*.ttf"
+            "opensans/*.ttf",
+            // Symbol's and Wingdings' characters (bullets): sdkjs and core draw them with its glyphs
+            "openoffice/opens___.ttf"
         )
         into("bundled-fonts")
     }
@@ -150,7 +152,8 @@ val editorsLicenses by tasks.registering {
             Triple("Liberation fonts", "SIL Open Font License 1.1", "https://github.com/liberationfonts/liberation-fonts/blob/main/LICENSE"),
             Triple("Carlito", "SIL Open Font License 1.1", "https://github.com/googlefonts/carlito/blob/main/OFL.txt"),
             Triple("Caladea", "SIL Open Font License 1.1", "https://github.com/huertatipografica/Caladea/blob/master/OFL.txt"),
-            Triple("Open Sans", "Apache License 2.0", "https://www.apache.org/licenses/LICENSE-2.0")
+            Triple("Open Sans", "Apache License 2.0", "https://www.apache.org/licenses/LICENSE-2.0"),
+            Triple("OpenSymbol", "SIL Open Font License 1.0", "https://scripts.sil.org/OFL")
         )
         fun list(items: List<Triple<String, String, String>>) = items.distinctBy { it.first }.joinToString("\n") { (name, licence, url) ->
             "<li><b>${escape(name)}</b>: <a href=\"${escape(url)}\">${escape(licence)}</a></li>"
