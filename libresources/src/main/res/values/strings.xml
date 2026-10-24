@@ -248,6 +248,7 @@
     <string name="editors_slides_direction">Direction</string>
     <string name="editors_slides_duration">Duration</string>
     <string name="editors_slides_apply_all">Apply to all slides</string>
+    <string name="editors_slides_applied_all">Applied to all slides</string>
     <string name="editors_slides_effect_none">None</string>
     <string name="editors_slides_effect_fade">Fade</string>
     <string name="editors_slides_effect_push">Push</string>

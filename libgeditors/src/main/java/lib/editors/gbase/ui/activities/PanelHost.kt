@@ -40,6 +40,11 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
 
     private var current: Panel? = null
 
+    // Where the panels shown since one opened were scrolled to, by their titles: a panel shown
+    // again (built anew, or back from one opened from it) keeps its place
+    private val scrolled = mutableMapOf<String, Int>()
+    private var shownScroll: Pair<String, NestedScrollView>? = null
+
     private val isSide get() = sidePane != null && context.resources.getBoolean(R.bool.editor_side_panels)
     private val density = context.resources.displayMetrics.density
 
@@ -57,6 +62,9 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
     fun show(title: String, content: View, onBack: (() -> Unit)? = null, modal: Boolean = true, onDismiss: () -> Unit): Panel {
         // Nested: in a bottom sheet, scrolling back up scrolls the panel before it moves the sheet
         val scroll = NestedScrollView(context).apply { addView(content) }
+        shownScroll?.let { (shownTitle, shown) -> scrolled[shownTitle] = shown.scrollY }
+        shownScroll = title to scroll
+        scrolled[title]?.let { y -> scroll.post { scroll.scrollTo(0, y) } }
         val sheet = (current as? SheetPanel)?.takeIf { !isSide && it.sheet.isShowing }
         if (sheet != null) {
             // In the sheet that is open: no closing and opening again
@@ -188,12 +196,18 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
             val shown = current as? SheetPanel
             if (shown?.sheet === sheet) {
                 current = null
+                forgetScrolling()
                 shown.onDismiss()
             }
         }
         if (open == null) sheet.show()
         current = panel
         return panel
+    }
+
+    private fun forgetScrolling() {
+        scrolled.clear()
+        shownScroll = null
     }
 
     // Not modal: no dimming, and touches beside the sheet go to the document (they would close it)
@@ -229,6 +243,7 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
             override fun dismiss() {
                 if (current !== this) return
                 current = null
+                forgetScrolling()
                 pane.removeAllViews()
                 pane.isVisible = false
                 onDismiss()

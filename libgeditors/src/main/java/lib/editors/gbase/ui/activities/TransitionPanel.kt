@@ -8,6 +8,7 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.widget.TooltipCompat
 import androidx.core.view.isVisible
 import lib.editors.base.engine.EditorDocument
@@ -138,6 +139,8 @@ internal class TransitionPanel(
             setSlideAdvance(transition.onClick, transition.advanceAfter, transition.afterMs, all)
         }
         onChanged()
+        // The slides don't show it
+        if (all) Toast.makeText(context, Resources.string.editors_slides_applied_all, Toast.LENGTH_SHORT).show()
     }
 
     private fun seconds(ms: Int): String {

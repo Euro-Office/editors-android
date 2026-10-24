@@ -267,6 +267,51 @@ internal abstract class PanelBuilder<F>(protected val context: Context) {
         addView(body)
     }
 
+    // Settings of one of several parts: [tabs] on a frame around the [selected] one's settings,
+    // so it shows which part they change
+    protected fun LinearLayout.tabbed(tabs: List<String>, selected: Int, onTab: (Int) -> Unit, build: LinearLayout.() -> Unit) {
+        val accent = ContextCompat.getColor(context, Resources.color.editors_accent)
+        val line = ContextCompat.getColor(context, Resources.color.editors_sheet_header_line)
+        val frame = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = outline(dp(12))
+        }
+        frame.addView(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            tabs.forEachIndexed { index, tab ->
+                val isOn = index == selected
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setBackgroundResource(R.drawable.editor_tool_background)
+                    addView(TextView(context).apply {
+                        text = tab
+                        gravity = Gravity.CENTER
+                        textSize = 14f
+                        minHeight = dp(44)
+                        setTextColor(if (isOn) accent else ContextCompat.getColor(context, Resources.color.editors_icon))
+                        if (isOn) setTypeface(typeface, Typeface.BOLD)
+                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                    // The chosen one's mark, over the line under the tabs
+                    addView(View(context).apply { setBackgroundColor(if (isOn) accent else line) },
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(if (isOn) 3 else 1)).apply { topMargin = dp(if (isOn) 0 else 2) })
+                    contentDescription = tab
+                    isSelected = isOn
+                    Accessibility.toggle(this)
+                    setOnClickListener { if (!isOn) onTab(index) }
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            }
+        })
+        frame.addView(LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPaddingRelative(dp(12), dp(4), dp(12), dp(12))
+            build()
+        })
+        addView(frame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12)
+            bottomMargin = dp(8)
+        })
+    }
+
     // Outlined, and marked while pressed as the tools are
     private fun framed() = LayerDrawable(arrayOf(outline(dp(12)), ContextCompat.getDrawable(context, R.drawable.editor_tool_background)))
 

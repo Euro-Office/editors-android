@@ -106,41 +106,39 @@ internal class ShapePanel(
                 }
             }
 
-            // Charts: which part fills, outlines and opacity go to (the panel anew with its colors)
-            val part = colors.chartPart
-            if (part != null) {
-                scrollRow {
-                    for ((value, label) in CHART_PARTS) {
-                        choice(context.getString(label), { it.chartPart == value }) {
-                            if (value != part) {
-                                edit { setChartPart(value) }
-                                back()
-                            }
-                        }
-                    }
+            // The current ones marked; tapping one marks it
+            fun LinearLayout.fillAndOutline() {
+                caption(Resources.string.editors_shape_fill)
+                rows += colorPicker.Row(Resources.string.editors_shape_fill, Resources.string.editors_color_none, back) { color -> edit { setShapeFill(color) } }
+                    .also { addView(it.view); it.mark(colors.fill) }
+                if (chooseFill != null) action(Resources.string.editors_fill_more) { chooseFill.invoke(back) }
+                caption(Resources.string.editors_shape_opacity)
+                fun opacity(percent: Int) {
+                    colors = colors.copy(opacity = percent.coerceIn(0, 100))
+                    updaters.forEach { it(colors) }
+                    edit { setShapeOpacity(colors.opacity) }
+                }
+                stepper(Resources.string.editors_shape_opacity, { context.getString(Resources.string.editors_fill_percent, it.opacity) }, {
+                    opacity((colors.opacity + OPACITY_STEP - 1) / OPACITY_STEP * OPACITY_STEP - OPACITY_STEP)
+                }, {
+                    opacity(colors.opacity / OPACITY_STEP * OPACITY_STEP + OPACITY_STEP)
+                })
+                // The outline in its own panel, with what it is now
+                action(Resources.string.editors_shape_outline, ::outlineText) {
+                    outline = colors
+                    showOutline(back)
                 }
             }
 
-            // The current ones marked; tapping one marks it
-            caption(Resources.string.editors_shape_fill)
-            rows += colorPicker.Row(Resources.string.editors_shape_fill, Resources.string.editors_color_none, back) { color -> edit { setShapeFill(color) } }
-                .also { addView(it.view); it.mark(colors.fill) }
-            if (chooseFill != null) action(Resources.string.editors_fill_more) { chooseFill.invoke(back) }
-            caption(Resources.string.editors_shape_opacity)
-            fun opacity(percent: Int) {
-                colors = colors.copy(opacity = percent.coerceIn(0, 100))
-                updaters.forEach { it(colors) }
-                edit { setShapeOpacity(colors.opacity) }
-            }
-            stepper(Resources.string.editors_shape_opacity, { context.getString(Resources.string.editors_fill_percent, it.opacity) }, {
-                opacity((colors.opacity + OPACITY_STEP - 1) / OPACITY_STEP * OPACITY_STEP - OPACITY_STEP)
-            }, {
-                opacity(colors.opacity / OPACITY_STEP * OPACITY_STEP + OPACITY_STEP)
-            })
-            // The outline in its own panel, with what it is now
-            action(Resources.string.editors_shape_outline, ::outlineText) {
-                outline = colors
-                showOutline(back)
+            // Charts: the part they go to, a tab each (the panel anew with its colors)
+            val part = colors.chartPart
+            if (part != null) {
+                tabbed(CHART_PARTS.map { context.getString(it.second) }, CHART_PARTS.indexOfFirst { it.first == part }, { index ->
+                    edit { setChartPart(CHART_PARTS[index].first) }
+                    back()
+                }) { fillAndOutline() }
+            } else {
+                fillAndOutline()
             }
 
             // Shadows: not of charts (sdkjs gives them none)
