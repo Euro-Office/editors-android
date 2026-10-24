@@ -1238,7 +1238,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private val shapePanel by lazy {
         ShapePanel(
             this, lifecycleScope, { document }, { command -> edit(command = command) }, chartUi,
-            ChartSettingsPanel(this, { command -> edit(command = command) }, panels, previewPicker), colorPicker,
+            ChartSettingsPanel(this, { command -> edit(command = command) }, panels, previewPicker), colorPicker, panels,
             chart = { drawingUi.chart },
             withGroups = editorsType != EditorsType.PDF,
             chooseFill = if (editorsType == EditorsType.PDF) null else { back -> fillPanel.show(FillTarget.SHAPE, back) }

@@ -301,6 +301,16 @@
     <string name="editors_format_keep_lines">Keep lines together</string>
     <string name="editors_format_keep_next">Keep with next</string>
     <string name="editors_format_suppress_line_numbers">Suppress line numbers</string>
+    <string name="editors_shape_outline_size">Size</string>
+    <string name="editors_shape_border_type">Border type</string>
+    <string name="editors_dash_solid">Solid</string>
+    <string name="editors_dash_round_dot">Round dot</string>
+    <string name="editors_dash_square_dot">Square dot</string>
+    <string name="editors_dash_dash">Dash</string>
+    <string name="editors_dash_dash_dot">Dash dot</string>
+    <string name="editors_dash_long_dash">Long dash</string>
+    <string name="editors_dash_long_dash_dot">Long dash dot</string>
+    <string name="editors_dash_long_dash_dot_dot">Long dash dot dot</string>
     <string name="editors_expanded">Expanded</string>
     <string name="editors_collapsed">Collapsed</string>
     <string name="editors_format_spacing">Spacing</string>

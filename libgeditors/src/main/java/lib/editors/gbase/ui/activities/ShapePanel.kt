@@ -1,7 +1,13 @@
 package lib.editors.gbase.ui.activities
 
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.DashPathEffect
+import android.graphics.Paint
+import android.view.View
+import android.view.ViewGroup
 import android.widget.LinearLayout
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -11,7 +17,9 @@ import lib.editors.base.engine.DrawingOrder
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
+import lib.editors.base.engine.OutlineDash
 import lib.editors.base.engine.ShapeTextDirection
+import lib.editors.gbase.R
 import lib.editors.resources.R as Resources
 
 /**
@@ -28,6 +36,8 @@ internal class ShapePanel(
     private val chartUi: ChartUi,
     private val chartSettings: ChartSettingsPanel,
     private val colorPicker: ColorPicker,
+    /** Where the dashes to choose from open. */
+    private val panels: PanelHost,
     /** The selected chart (null for other drawings), after the commands so far. */
     private val chart: () -> ChartState?,
     /** Grouping and ungrouping (not in PDFs). */
@@ -93,9 +103,33 @@ internal class ShapePanel(
             rows += colorPicker.Row(Resources.string.editors_shape_fill, Resources.string.editors_color_none, back) { color -> edit { setShapeFill(color) } }
                 .also { addView(it.view); it.mark(colors.fill) }
             if (chooseFill != null) action(Resources.string.editors_fill_more) { chooseFill.invoke(back) }
+            // The outline: its color ("none" without one), size and dash; each keeps the others
+            fun outline(color: String?, widthMm: Double, dash: OutlineDash) {
+                colors = colors.copy(outline = color, outlineWidthMm = widthMm, outlineDash = dash)
+                updaters.forEach { it(colors) }
+                edit { setShapeOutline(color, widthMm, dash) }
+            }
+            fun width() = colors.outlineWidthMm?.takeIf { it > 0 } ?: DEFAULT_OUTLINE_POINTS * MM_PER_POINT
             caption(Resources.string.editors_shape_outline)
-            rows += colorPicker.Row(Resources.string.editors_shape_outline, Resources.string.editors_color_none, back) { color -> edit { setShapeOutline(color) } }
-                .also { addView(it.view); it.mark(colors.outline) }
+            val outlineRow = colorPicker.Row(Resources.string.editors_shape_outline, Resources.string.editors_color_none, back) { color ->
+                outline(color, width(), colors.outlineDash)
+            }.also { addView(it.view); it.mark(colors.outline) }
+            rows += outlineRow
+            caption(Resources.string.editors_shape_outline_size)
+            stepper(Resources.string.editors_shape_outline_size, { context.getString(Resources.string.editors_format_points_value, trimPoints(width() / MM_PER_POINT)) }, {
+                val points = OUTLINE_POINTS.lastOrNull { it < width() / MM_PER_POINT - 0.01 } ?: OUTLINE_POINTS.first()
+                outline(colors.outline?.ifEmpty { null } ?: DEFAULT_OUTLINE_COLOR, points * MM_PER_POINT, colors.outlineDash)
+                outlineRow.mark(colors.outline)
+            }, {
+                val points = OUTLINE_POINTS.firstOrNull { it > width() / MM_PER_POINT + 0.01 } ?: OUTLINE_POINTS.last()
+                outline(colors.outline?.ifEmpty { null } ?: DEFAULT_OUTLINE_COLOR, points * MM_PER_POINT, colors.outlineDash)
+                outlineRow.mark(colors.outline)
+            })
+            action(Resources.string.editors_shape_border_type, { context.getString(DASHES.getValue(it.outlineDash)) }) {
+                chooseDash(colors.outlineDash, back) { dash ->
+                    outline(colors.outline?.ifEmpty { null } ?: DEFAULT_OUTLINE_COLOR, width(), dash)
+                }
+            }
 
             // The shapes' text: horizontal or rotated
             if (selected.hasText) {
@@ -124,7 +158,71 @@ internal class ShapePanel(
         updaters.forEach { it(colors) }
     }
 
+    // The dashes by pictures of them, the current one marked; a tap takes one and goes [back]
+    private fun chooseDash(current: OutlineDash, back: () -> Unit, onDash: (OutlineDash) -> Unit) {
+        val list = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
+            for ((dash, name) in DASHES) {
+                addView(DashView(context, dash).apply {
+                    contentDescription = context.getString(name)
+                    isSelected = dash == current
+                    Accessibility.toggle(this)
+                    setBackgroundResource(R.drawable.editor_tool_background)
+                    setOnClickListener {
+                        onDash(dash)
+                        back()
+                    }
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+            }
+        }
+        panels.show(context.getString(Resources.string.editors_shape_border_type), list, back) {}
+    }
+
+    // A dash as a line across the view, its pattern in multiples of the line's width (OOXML's)
+    private class DashView(context: Context, dash: OutlineDash) : View(context) {
+        private val lineWidth = 3 * context.resources.displayMetrics.density
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = lineWidth
+            color = ContextCompat.getColor(context, Resources.color.editors_icon)
+            DASH_PATTERNS[dash]?.let { pattern -> pathEffect = DashPathEffect(pattern.map { it * lineWidth }.toFloatArray(), 0f) }
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val margin = 16 * resources.displayMetrics.density
+            canvas.drawLine(margin, height / 2f, width - margin, height / 2f, paint)
+        }
+    }
+
+    private fun trimPoints(value: Double): String =
+        if (value == Math.floor(value)) value.toInt().toString() else "%.2f".format(value).trimEnd('0').trimEnd('.')
+
     private companion object {
+        const val MM_PER_POINT = 25.4 / 72
+        const val DEFAULT_OUTLINE_POINTS = 0.75
+        const val DEFAULT_OUTLINE_COLOR = "000000"
+        // The sizes web-apps offers, and a few in between
+        val OUTLINE_POINTS = listOf(0.25, 0.5, 0.75, 1.0, 1.5, 2.25, 3.0, 4.5, 6.0, 8.0, 10.0, 12.0)
+        val DASHES = linkedMapOf(
+            OutlineDash.SOLID to Resources.string.editors_dash_solid,
+            OutlineDash.SYS_DOT to Resources.string.editors_dash_round_dot,
+            OutlineDash.SYS_DASH to Resources.string.editors_dash_square_dot,
+            OutlineDash.DASH to Resources.string.editors_dash_dash,
+            OutlineDash.DASH_DOT to Resources.string.editors_dash_dash_dot,
+            OutlineDash.LONG_DASH to Resources.string.editors_dash_long_dash,
+            OutlineDash.LONG_DASH_DOT to Resources.string.editors_dash_long_dash_dot,
+            OutlineDash.LONG_DASH_DOT_DOT to Resources.string.editors_dash_long_dash_dot_dot
+        )
+        val DASH_PATTERNS = mapOf(
+            OutlineDash.SYS_DOT to listOf(1f, 1f),
+            OutlineDash.SYS_DASH to listOf(3f, 1f),
+            OutlineDash.DASH to listOf(4f, 3f),
+            OutlineDash.DASH_DOT to listOf(4f, 3f, 1f, 3f),
+            OutlineDash.LONG_DASH to listOf(8f, 3f),
+            OutlineDash.LONG_DASH_DOT to listOf(8f, 3f, 1f, 3f),
+            OutlineDash.LONG_DASH_DOT_DOT to listOf(8f, 3f, 1f, 3f, 1f, 3f)
+        )
         val TEXT_DIRECTIONS = listOf(
             Resources.string.editors_text_horizontal to ShapeTextDirection.HORIZONTAL,
             Resources.string.editors_text_rotate_up to ShapeTextDirection.ROTATED_UP,

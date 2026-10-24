@@ -70,8 +70,8 @@ interface EditorDocument : PagedDocument {
     fun setShapeFill(color: String?): EditorState = command("eoEngine.setShapeFill(${JSONObject.quote(color.orEmpty())})")
 
     /** Outline of the selected shapes, "RRGGBB" or a theme color (see [ThemeColors]; [color] null for none), [widthMm] wide. */
-    fun setShapeOutline(color: String?, widthMm: Double = 0.75): EditorState =
-        command("eoEngine.setShapeOutline(${JSONObject.quote(color.orEmpty())}, $widthMm)")
+    fun setShapeOutline(color: String?, widthMm: Double = 0.75, dash: OutlineDash = OutlineDash.SOLID): EditorState =
+        command("eoEngine.setShapeOutline(${JSONObject.quote(color.orEmpty())}, $widthMm, ${dash.value})")
 
     /** The direction of the selected shapes' text. */
     fun setTextDirection(direction: ShapeTextDirection): EditorState = command("eoEngine.setTextVert(${direction.value})")
@@ -562,7 +562,11 @@ interface EditorDocument : PagedDocument {
         val root = JSONObject(json)
         fun color(name: String) = if (root.isNull(name)) null else root.optString(name)
         val vert = if (root.isNull("vert")) null else root.optInt("vert")
-        return DrawingColors(color("fill"), color("outline"), ShapeTextDirection.entries.firstOrNull { it.value == vert })
+        return DrawingColors(
+            color("fill"), color("outline"), ShapeTextDirection.entries.firstOrNull { it.value == vert },
+            outlineWidthMm = if (root.isNull("outlineWidth")) null else root.optDouble("outlineWidth"),
+            outlineDash = OutlineDash.entries.firstOrNull { it.value == root.optInt("outlineDash", OutlineDash.SOLID.value) } ?: OutlineDash.SOLID
+        )
     }
 
     /** The selected chart's data (documents and presentations), or null. */

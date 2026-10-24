@@ -279,8 +279,16 @@ data class DrawingColors(
     val fill: String?,
     val outline: String?,
     /** The direction of a shape's text; null for drawings without text (pictures, charts). */
-    val textDirection: ShapeTextDirection? = null
+    val textDirection: ShapeTextDirection? = null,
+    /** The outline's width in mm (null: not given) and dash. */
+    val outlineWidthMm: Double? = null,
+    val outlineDash: OutlineDash = OutlineDash.SOLID
 )
+
+/** Outlines' dashes as web-apps offers them; [value] is Asc.c_oDashType. */
+enum class OutlineDash(val value: Int) {
+    SOLID(6), SYS_DOT(10), SYS_DASH(7), DASH(0), DASH_DOT(1), LONG_DASH(3), LONG_DASH_DOT(4), LONG_DASH_DOT_DOT(5)
+}
 
 /** A chart's data: a value per category ([categories]) for each series ([series]); null for none. */
 data class ChartData(val series: List<String>, val categories: List<String>, val values: List<List<Double?>>)
