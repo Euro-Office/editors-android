@@ -1107,11 +1107,11 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             withHighlights = editorsType != EditorsType.PDF,
             panels = panels,
             colorPicker = colorPicker,
-            loadShapeColors = { onLoaded -> read({ drawingColors() }, onLoaded) },
             slide = if (editorsType != EditorsType.PRESENTATION) null else FormatPanel.SlideSettings(
                 loadBackground = { onLoaded -> read({ slideBackground() }, onLoaded) },
                 chooseLayout = { back -> slidesUi?.chooseLayout(forNewSlide = false, onBack = back) },
-                chooseDesign = ::chooseDesign
+                chooseDesign = ::chooseDesign,
+                chooseTransition = { slidesUi?.chooseTransition() }
             ),
             chooseTableStyle = if (isSpreadsheet || editorsType == EditorsType.PDF) null else {
                 { back ->
@@ -1360,7 +1360,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         if (isSpreadsheet) findViewById<SheetView>(R.id.sheetView).drawingActions = formatAction else documentView.drawingActions = formatAction
     }
 
-    private fun formatText() = if (isSpreadsheet) cellFormatPanel.show() else formatPanel.show()
+    // The text's or cells' formatting; for a shape's text, back to the shape's panel
+    private fun formatText(onBack: (() -> Unit)? = null) = if (isSpreadsheet) cellFormatPanel.show() else formatPanel.show(onBack)
 
     // The format button formats what is selected: pictures, shapes and charts while some are,
     // otherwise text or cells. Its picture tells which, and it pulses when it changes to them.

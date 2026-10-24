@@ -6,7 +6,6 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.view.isVisible
-import lib.editors.base.engine.DrawingColors
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.FillTarget
@@ -16,10 +15,11 @@ import lib.editors.resources.R as Resources
 
 /**
  * The formatting panel: font, size, styles, colors and paragraph settings of the text at the
- * cursor or the selection, in a panel (see [PanelHost]); the fill and outline of selected
- * pictures and shapes; in presentations without a selected one, the slide's background and
- * layout; with the cursor in a table, the table's rows, columns, cells and style. It shows the
- * current formatting (see [update]) and sends changes through [edit].
+ * cursor or the selection, in a panel (see [PanelHost]); in presentations without a selected
+ * picture or shape, the slide's background, design, layout and transition; with the cursor in a
+ * table, the table's rows, columns, cells and style. Selected shapes have their own panel
+ * ([ShapePanel]), which opens this one for their text. It shows the current formatting (see
+ * [update]) and sends changes through [edit].
  */
 internal class FormatPanel(
     context: Context,
@@ -33,13 +33,11 @@ internal class FormatPanel(
     private val withHighlights: Boolean,
     private val panels: PanelHost,
     private val colorPicker: ColorPicker,
-    /** The fill and outline of the selected drawing (on its thread). */
-    private val loadShapeColors: (onLoaded: (DrawingColors?) -> Unit) -> Unit,
     /** Presentations: the slide's settings. */
     private val slide: SlideSettings? = null,
     /** Documents and presentations: the table's style (pictures of the styles, back to this panel); null without tables. */
     private val chooseTableStyle: ((onBack: () -> Unit) -> Unit)? = null,
-    /** All kinds of fills (see [FillPanel]) of shapes and slide backgrounds; null without them. */
+    /** All kinds of fills (see [FillPanel]) of slide backgrounds; null without them. */
     private val chooseFill: ((target: FillTarget, onBack: () -> Unit) -> Unit)? = null,
     /** List presets by their pictures; null without them. */
     private val chooseList: ((kind: ListKind, onBack: () -> Unit) -> Unit)? = null,
@@ -47,14 +45,20 @@ internal class FormatPanel(
     private val withMultilevelLists: Boolean = false
 ) : PanelBuilder<TextFormat>(context) {
 
-    /** The current slide's background color (null: another kind), its layout and the design (back to this panel). */
+    /**
+     * The current slide's background color (null: another kind), its layout and the design (back
+     * to this panel), its transition.
+     */
     class SlideSettings(
         val loadBackground: (onLoaded: (String?) -> Unit) -> Unit,
         val chooseLayout: (onBack: () -> Unit) -> Unit,
-        val chooseDesign: (onBack: () -> Unit) -> Unit
+        val chooseDesign: (onBack: () -> Unit) -> Unit,
+        val chooseTransition: () -> Unit
     )
 
     private var dialog: PanelHost.Panel? = null
+    // The panel this one was opened from (a shape's, for its text)
+    private var back: (() -> Unit)? = null
     private var format = TextFormat()
     private var fonts: List<String> = emptyList()
     private var documentFonts: List<String> = emptyList()
@@ -68,15 +72,20 @@ internal class FormatPanel(
     // Text at the cursor or selected (not only a slide)
     private var hasText = true
     private val textSections = mutableListOf<View>()
-    private var shapeSection: View? = null
     private var slideSection: View? = null
     private var tableSection: View? = null
     private var inTable = false
-    private var markFill: (String?) -> Unit = {}
-    private var markOutline: (String?) -> Unit = {}
+    private var markBackground: (String?) -> Unit = {}
     private val colorRows = mutableListOf<ColorPicker.Row>()
 
-    fun show() {
+    /** Shows the panel; with [onBack] (the panel it was opened from) the text's settings only. */
+    fun show(onBack: (() -> Unit)? = null) {
+        back = onBack
+        open()
+    }
+
+    // Again after the panels opened from it
+    private fun open() {
         load { loadedFonts, loadedDocumentFonts, loadedStyles ->
             fonts = loadedFonts
             documentFonts = loadedDocumentFonts
@@ -87,9 +96,10 @@ internal class FormatPanel(
         textSections.clear()
         colorRows.clear()
         val content = content()
-        dialog = panels.show(context.getString(Resources.string.editors_format), content) { dialog = null }
+        val title = if (back != null) Resources.string.editors_format_text else Resources.string.editors_format
+        dialog = panels.show(context.getString(title), content, back) { dialog = null }
         update(format, drawingSelected, hasText, inTable)
-        loadColors()
+        loadBackground()
         // The theme's colors with the current color scheme
         colorPicker.load { colors -> colorRows.forEach { it.setColors(colors) } }
     }
@@ -110,40 +120,19 @@ internal class FormatPanel(
             updaters.forEach { it(newFormat) }
             textOnly.forEach { it.isVisible = !drawing }
             textSections.forEach { it.isVisible = drawing || text }
-            shapeSection?.isVisible = drawing
             slideSection?.isVisible = !drawing
-            if (drawingChanged) loadColors()
+            if (drawingChanged) loadBackground()
         }
     }
 
-    // The current fill and outline, or background
-    private fun loadColors() {
-        if (drawingSelected) {
-            loadShapeColors { colors ->
-                markFill(colors?.fill)
-                markOutline(colors?.outline)
-            }
-        } else {
-            slide?.loadBackground { markFill(it) }
-        }
+    // The current slide's background
+    private fun loadBackground() {
+        if (!drawingSelected) slide?.loadBackground { markBackground(it) }
     }
 
     private fun content(): View = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
-
-        // A selected picture or shape
-        shapeSection = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            heading(Resources.string.editors_shape)
-            caption(Resources.string.editors_shape_fill)
-            val fill = colorRow(Resources.string.editors_shape_fill, Resources.string.editors_color_none) { color -> edit { setShapeFill(color) } }
-            if (chooseFill != null) action(Resources.string.editors_fill_more) { chooseFill.invoke(FillTarget.SHAPE, ::show) }
-            caption(Resources.string.editors_shape_outline)
-            val outline = colorRow(Resources.string.editors_shape_outline, Resources.string.editors_color_none) { color -> edit { setShapeOutline(color) } }
-            markFill = fill::mark
-            markOutline = outline::mark
-        }.also { addView(it) }
 
         // The slide, in presentations when no picture or shape is selected
         if (slide != null) {
@@ -152,12 +141,11 @@ internal class FormatPanel(
                 heading(Resources.string.editors_slide)
                 caption(Resources.string.editors_slide_background)
                 val background = colorRow(Resources.string.editors_slide_background, none = null) { color -> color?.let { edit { setSlideBackground(it) } } }
-                if (chooseFill != null) action(Resources.string.editors_fill_more) { chooseFill.invoke(FillTarget.SLIDE, ::show) }
-                action(Resources.string.editors_slide_design) { slide.chooseDesign(::show) }
-                action(Resources.string.editors_slides_layout) { slide.chooseLayout(::show) }
-                // Marked as the background, while no shape is selected
-                val markShape = markFill
-                markFill = { color -> if (drawingSelected) markShape(color) else background.mark(color) }
+                if (chooseFill != null) action(Resources.string.editors_fill_more) { chooseFill.invoke(FillTarget.SLIDE, ::open) }
+                action(Resources.string.editors_slide_design) { slide.chooseDesign(::open) }
+                action(Resources.string.editors_slides_layout) { slide.chooseLayout(::open) }
+                action(Resources.string.editors_slides_transition) { slide.chooseTransition() }
+                markBackground = background::mark
             }.also { addView(it) }
         }
 
@@ -188,7 +176,7 @@ internal class FormatPanel(
                 icon(Resources.drawable.ic_editor_table_delete_column, Resources.string.editors_doc_delete_column) { table("deleteColumn") }
             }
         }
-        action(Resources.string.editors_table_style) { chooseStyle(::show) }
+        action(Resources.string.editors_table_style) { chooseStyle(::open) }
         scrollRow {
             button(context.getString(Resources.string.editors_doc_merge_cells)) { table("merge") }
             button(context.getString(Resources.string.editors_doc_split_cell)) { table("split") }
@@ -227,13 +215,11 @@ internal class FormatPanel(
         val textColor = colorRow(Resources.string.editors_format_color, Resources.string.editors_color_automatic) { color -> edit { setTextColor(color) } }
         updaters += { textColor.mark(it.color) }
         if (withHighlights) {
-            val highlights = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                caption(Resources.string.editors_format_highlight)
-                colors(HIGHLIGHTS, { it.highlight }) { color -> edit { setHighlight(color) } }
+            textOnly += action(Resources.string.editors_format_highlight, { if (it.highlight.isEmpty()) "" else Accessibility.colorName(context, it.highlight) }) {
+                openSettings(Resources.string.editors_format_highlight) {
+                    colors(HIGHLIGHTS, { it.highlight }) { color -> edit { setHighlight(color) } }
+                }
             }
-            addView(highlights)
-            textOnly += highlights
         }
 
         if (!withParagraphs) return
@@ -266,13 +252,26 @@ internal class FormatPanel(
                 icon(Resources.drawable.ic_editor_indent_more, Resources.string.editors_format_indent_more) { edit { indent(true) } }
             }
         }
-        if (chooseList != null) {
-            action(Resources.string.editors_list_bullets) { chooseList.invoke(ListKind.BULLETS, ::show) }
-            action(Resources.string.editors_list_numbering) { chooseList.invoke(ListKind.NUMBERS, ::show) }
-            if (withMultilevelLists) action(Resources.string.editors_list_multilevel) { chooseList.invoke(ListKind.MULTILEVEL, ::show) }
+        if (chooseList != null) action(Resources.string.editors_format_lists, ::listText) { openLists() }
+        action(Resources.string.editors_format_spacing, ::lineSpacingText) {
+            openSettings(Resources.string.editors_format_spacing) { spacingSettings() }
         }
+        action(Resources.string.editors_format_direction, { context.getString(if (it.rtl) Resources.string.editors_format_rtl else Resources.string.editors_format_ltr) }) {
+            panels.choose(
+                context.getString(Resources.string.editors_format_direction),
+                listOf(context.getString(Resources.string.editors_format_ltr), context.getString(Resources.string.editors_format_rtl)),
+                if (format.rtl) 1 else 0, onBack = ::open
+            ) { index -> edit { setRtl(index == 1) } }
+        }
+    }
+
+    // The list presets by kind; in a numbered list, the numbering restarted or continued
+    private fun openLists(): Unit = openSettings(Resources.string.editors_format_lists) {
+        val choose = chooseList ?: return@openSettings
+        action(Resources.string.editors_list_bullets) { choose(ListKind.BULLETS, ::openLists) }
+        action(Resources.string.editors_list_numbering) { choose(ListKind.NUMBERS, ::openLists) }
         if (withMultilevelLists) {
-            // In a numbered list
+            action(Resources.string.editors_list_multilevel) { choose(ListKind.MULTILEVEL, ::openLists) }
             val numbering = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
             numbering.scrollRow {
                 button(context.getString(Resources.string.editors_list_restart)) { edit { restartNumbering() } }
@@ -281,13 +280,17 @@ internal class FormatPanel(
             addView(numbering)
             updaters += { numbering.isVisible = it.list == 1 }
         }
-        caption(Resources.string.editors_format_direction)
-        scrollRow {
-            choice(context.getString(Resources.string.editors_format_ltr), { !it.rtl }) { edit { setRtl(false) } }
-            choice(context.getString(Resources.string.editors_format_rtl), { it.rtl }) { edit { setRtl(true) } }
-        }
+    }
 
-        // Line spacing: a multiple of the line, or at least or exactly a height in points
+    private fun listText(format: TextFormat) = when (format.list) {
+        0 -> context.getString(Resources.string.editors_list_bullets)
+        1 -> context.getString(Resources.string.editors_list_numbering)
+        else -> context.getString(Resources.string.editors_list_none)
+    }
+
+    // Line spacing: a multiple of the line, or at least or exactly a height in points; the space
+    // before and after paragraphs
+    private fun LinearLayout.spacingSettings() {
         caption(Resources.string.editors_format_line_spacing)
         scrollRow {
             choice(context.getString(Resources.string.editors_format_line_multiple), { it.lineRule == LINE_MULTIPLE }) {
@@ -310,6 +313,24 @@ internal class FormatPanel(
         stepper(Resources.string.editors_format_space_before, { pointsText(it.spacingBefore) }, { stepSpacing(before = true, up = false) }, { stepSpacing(before = true, up = true) })
         caption(Resources.string.editors_format_space_after)
         stepper(Resources.string.editors_format_space_after, { pointsText(it.spacingAfter) }, { stepSpacing(before = false, up = false) }, { stepSpacing(before = false, up = true) })
+    }
+
+    // Settings of the text in the panel's place ([build]), back to the panel; they show the
+    // current formatting as the panel does
+    private fun openSettings(title: Int, build: LinearLayout.() -> Unit) {
+        updaters.clear()
+        textOnly.clear()
+        textSections.clear()
+        colorRows.clear()
+        slideSection = null
+        tableSection = null
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
+            build()
+        }
+        dialog = panels.show(context.getString(title), content, ::open) { dialog = null }
+        updaters.forEach { it(format) }
     }
 
     private fun lineSpacingText(format: TextFormat) =
@@ -345,13 +366,13 @@ internal class FormatPanel(
     }
 
     // In the panel's place, then back to it
-    private fun chooseFont() = fontChooser.choose(fonts, documentFonts, format.fontName, ::show) { name -> edit { setFontName(name) } }
+    private fun chooseFont() = fontChooser.choose(fonts, documentFonts, format.fontName, ::open) { name -> edit { setFontName(name) } }
 
     private fun chooseStyle() {
         val names = styles.takeIf { it.isNotEmpty() } ?: return
         panels.choose(
             context.getString(Resources.string.editors_format_style), names.map { EditorTranslations.styleName(context, it) },
-            names.indexOf(format.style), onBack = ::show, searchHint = context.getString(Resources.string.editors_format_style_find)
+            names.indexOf(format.style), onBack = ::open, searchHint = context.getString(Resources.string.editors_format_style_find)
         ) { index -> edit { setStyle(names[index]) } }
     }
 
@@ -360,7 +381,7 @@ internal class FormatPanel(
 
     // A row of colors, all of them in the panel's place (see ColorPicker)
     private fun LinearLayout.colorRow(title: Int, none: Int?, onColor: (String?) -> Unit): ColorPicker.Row =
-        colorPicker.Row(title, none, ::show, onColor).also {
+        colorPicker.Row(title, none, ::open, onColor).also {
             addView(it.view)
             colorRows += it
         }

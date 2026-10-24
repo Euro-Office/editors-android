@@ -211,7 +211,7 @@ internal class SlidesUi(
         }
     }
 
-    private fun chooseTransition() {
+    fun chooseTransition() {
         TransitionDialog(context, edit) { reload(null) }.show(slides.getOrNull(currentSlide)?.transition)
     }
 

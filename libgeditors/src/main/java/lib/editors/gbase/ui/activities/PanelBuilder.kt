@@ -155,17 +155,41 @@ internal abstract class PanelBuilder<F>(protected val context: Context) {
             })
         }
 
-    // A row that opens more settings in their own panel (pictures of table styles, ...)
-    protected fun LinearLayout.action(text: Int, onClick: () -> Unit): TextView =
-        TextView(context).apply {
-            setText(text)
-            gravity = Gravity.CENTER_VERTICAL or Gravity.START
-            textSize = 15f
-            minHeight = dp(48)
+    // A row that opens more settings in their own panel (pictures of table styles, ...), with
+    // what is set now ([value] of the format, none if empty)
+    protected fun LinearLayout.action(text: Int, value: ((F) -> String)? = null, onClick: () -> Unit): View =
+        LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(48)
             setPaddingRelative(dp(14), 0, dp(8), 0)
             background = framed()
-            setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, ContextCompat.getDrawable(context, Resources.drawable.ic_editor_chevron_right), null)
             setOnClickListener { onClick() }
+            val label = context.getString(text)
+            addView(TextView(context).apply {
+                this.text = label
+                textSize = 15f
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            contentDescription = label
+            if (value != null) {
+                val current = TextView(context).apply {
+                    textSize = 14f
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                    maxWidth = dp(160)
+                    setTextColor(ContextCompat.getColor(context, Resources.color.editors_icon))
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }.also { addView(it) }
+                updaters += {
+                    current.text = value(it)
+                    contentDescription = if (current.text.isEmpty()) label else label + ", " + current.text
+                }
+            }
+            addView(ImageView(context).apply {
+                setImageResource(Resources.drawable.ic_editor_chevron_right)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginStart = dp(4) })
         }.also {
             addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(4)

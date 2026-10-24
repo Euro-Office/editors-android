@@ -39,8 +39,8 @@ internal class ShapePanel(
     private val chartSettings: ChartSettingsPanel,
     private val panels: PanelHost,
     private val colorPicker: ColorPicker,
-    /** The text's settings (of the selected shapes' text). */
-    private val formatText: () -> Unit = {},
+    /** The settings of the selected shapes' text, back to this panel. */
+    private val formatText: (onBack: () -> Unit) -> Unit = {},
     /** Grouping and ungrouping (not in PDFs). */
     private val withGroups: Boolean = true,
     /** All kinds of fills (see [FillPanel]), back to this panel; null without them. */
@@ -106,7 +106,7 @@ internal class ShapePanel(
 
         // The shapes' text: font, paragraph, ... (charts have their titles)
         if (chart == null) {
-            action(context.getString(Resources.string.editors_shape_text)) { formatText() }
+            action(context.getString(Resources.string.editors_shape_text)) { formatText(back) }
         }
 
         // The current ones marked; tapping one marks it
