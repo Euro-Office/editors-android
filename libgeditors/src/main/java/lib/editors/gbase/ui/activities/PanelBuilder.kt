@@ -98,6 +98,22 @@ internal abstract class PanelBuilder<F>(protected val context: Context) {
         })
     }
 
+    // A value ([value] of the format) between buttons that lower and raise it, named [name] to TalkBack
+    protected fun LinearLayout.stepper(name: Int, value: (F) -> String, onLess: () -> Unit, onMore: () -> Unit) = row {
+        val label = context.getString(name)
+        button("−", onLess).contentDescription = label + ", " + context.getString(Resources.string.editors_format_less)
+        val text = TextView(context).apply {
+            gravity = Gravity.CENTER
+            textSize = 15f
+            minWidth = dp(72)
+        }.also { addView(it) }
+        updaters += {
+            text.text = value(it)
+            text.contentDescription = label + " " + text.text
+        }
+        button("+", onMore).contentDescription = label + ", " + context.getString(Resources.string.editors_format_more)
+    }
+
     // An icon button; with isOn, a toggle marked while its format is on. Its name is said and
     // shown on a long press.
     protected fun LinearLayout.icon(icon: Int, name: Int, isOn: ((F) -> Boolean)? = null, onClick: () -> Unit): ImageView =

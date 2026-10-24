@@ -61,7 +61,11 @@ data class CellFormat(
     val wrap: Boolean = false,
     val merged: Boolean = false,
     val verticalAlign: Int = 0,
-    val border: Boolean = false
+    val border: Boolean = false,
+    /** The text's angle (see [EditorDocument.setTextAngle]). */
+    val angle: Int = 0,
+    /** Right to left. */
+    val rtl: Boolean = false
 )
 
 /**
@@ -118,7 +122,9 @@ data class TextFormat(
     val spacingBefore: Double = 0.0,
     val spacingAfter: Double = 0.0,
     val list: Int = -1,
-    val style: String = ""
+    val style: String = "",
+    /** The paragraph is right to left. */
+    val rtl: Boolean = false
 )
 
 /** Find and replace: the number of matches, the current one (0-based, -1 for none) and, after replace all, how many were replaced (-1 otherwise). */
@@ -253,7 +259,12 @@ data class ChartAxis(
 data class Preview(val id: String, val name: String, val widthMm: Double, val heightMm: Double)
 
 /** The fill and outline of a selected drawing as "RRGGBB": "" for none, null for other fills (pictures, gradients). */
-data class DrawingColors(val fill: String?, val outline: String?)
+data class DrawingColors(
+    val fill: String?,
+    val outline: String?,
+    /** The direction of a shape's text; null for drawings without text (pictures, charts). */
+    val textDirection: ShapeTextDirection? = null
+)
 
 /** A chart's data: a value per category ([categories]) for each series ([series]); null for none. */
 data class ChartData(val series: List<String>, val categories: List<String>, val values: List<List<Double?>>)
@@ -571,7 +582,8 @@ class EditorState(
             spacingBefore = json.optDouble("SpacingBefore", 0.0),
             spacingAfter = json.optDouble("SpacingAfter", 0.0),
             list = json.optInt("List", -1),
-            style = json.optString("Style")
+            style = json.optString("Style"),
+            rtl = json.optBoolean("Rtl")
         )
 
 
@@ -615,7 +627,8 @@ class EditorState(
                     CellFormat(
                         it.optString("numFormat", "General"), it.optInt("numFormatType"), it.optString("fontName"),
                         it.optDouble("fontSize", 0.0), it.optBoolean("strikeout"), it.optString("color"), it.optString("fill"),
-                        it.optBoolean("wrap"), it.optBoolean("merged"), it.optInt("verticalAlign"), it.optBoolean("border")
+                        it.optBoolean("wrap"), it.optBoolean("merged"), it.optInt("verticalAlign"), it.optBoolean("border"),
+                        it.optInt("angle"), it.optBoolean("rtl")
                     )
                 } ?: CellFormat()
             )

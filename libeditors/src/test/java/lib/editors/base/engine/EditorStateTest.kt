@@ -101,6 +101,16 @@ class EditorStateTest {
     }
 
     @Test
+    fun `parses paragraph spacing and direction`() {
+        val format = EditorState.parse(state(""", "format": {"LineRule": 2, "Line": 8.5, "SpacingBefore": -1, "Rtl": true}""")).format
+        assertEquals(2, format.lineRule)
+        assertEquals(8.5, format.line, 0.0)
+        assertEquals(-1.0, format.spacingBefore, 0.0)
+        assertTrue(format.rtl)
+        assertFalse(EditorState.parse(state(""", "format": {}""")).format.rtl)
+    }
+
+    @Test
     fun `parses theme colors and resolves them`() {
         val theme = (0 until 60).map { "%06X".format(it) }
         val json = """{"theme": [${theme.joinToString { "\"$it\"" }}], "standard": ["C00000", "FF0000"]}"""

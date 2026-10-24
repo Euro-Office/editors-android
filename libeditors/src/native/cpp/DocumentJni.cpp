@@ -82,6 +82,13 @@ extern "C"
 		return FromHandle(handle)->Save(ToWide(env, path), ToWide(env, extension));
 	}
 
+	// The password to save with from now on ("" for none)
+	JNIEXPORT void JNICALL
+	Java_lib_editors_base_engine_NativeEngine_nativeSetPassword(JNIEnv* env, jobject, jlong handle, jstring password)
+	{
+		FromHandle(handle)->SetPassword(ToWide(env, password));
+	}
+
 	// UTF-8 bytes (NewStringUTF would need "modified" UTF-8)
 	JNIEXPORT jbyteArray JNICALL
 	Java_lib_editors_base_engine_NativeEngine_nativeExecute(JNIEnv* env, jobject, jlong handle, jstring script)

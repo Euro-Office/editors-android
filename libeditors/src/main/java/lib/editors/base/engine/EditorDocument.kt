@@ -19,6 +19,13 @@ interface EditorDocument : PagedDocument {
      */
     fun save(path: String, extension: String): Int
 
+    /**
+     * The password to save the document with from now on ("" for none): files of Office (docx,
+     * xlsx, pptx, ...) and ODF formats are encrypted with it. The document counts as modified
+     * until it is saved.
+     */
+    fun setPassword(password: String)
+
     /** Runs JavaScript in sdkjs and returns its result if it is a string. */
     fun execute(script: String): String
 
@@ -65,6 +72,9 @@ interface EditorDocument : PagedDocument {
     /** Outline of the selected shapes, "RRGGBB" or a theme color (see [ThemeColors]; [color] null for none), [widthMm] wide. */
     fun setShapeOutline(color: String?, widthMm: Double = 0.75): EditorState =
         command("eoEngine.setShapeOutline(${JSONObject.quote(color.orEmpty())}, $widthMm)")
+
+    /** The direction of the selected shapes' text. */
+    fun setTextDirection(direction: ShapeTextDirection): EditorState = command("eoEngine.setTextVert(${direction.value})")
 
     /** Z-order of the selected pictures and shapes. */
     fun arrange(order: DrawingOrder): EditorState = command("eoEngine.arrange(${order.value})")
@@ -184,6 +194,9 @@ interface EditorDocument : PagedDocument {
     fun setParagraphSpacing(beforeMm: Double, afterMm: Double): EditorState =
         command("eoEngine.setParagraphSpacing($beforeMm, $afterMm)")
 
+    /** The paragraphs' (spreadsheets: the cells') direction: right to left or left to right. */
+    fun setRtl(rtl: Boolean): EditorState = command("eoEngine.setRtl($rtl)")
+
     /** Text documents: applies a paragraph style by name (see [styles]). */
     fun setStyle(name: String): EditorState = asyncCommand("eoEngine.setStyle(${JSONObject.quote(name)})")
 
@@ -192,6 +205,12 @@ interface EditorDocument : PagedDocument {
 
     /** A cell fill, "RRGGBB" or a theme color (see [ThemeColors]); null for none. */
     fun setCellFill(color: String?): EditorState = command("eoEngine.setCellFill(${JSONObject.quote(color.orEmpty())})")
+
+    /**
+     * The cells' text angle in degrees: 0 horizontal, 45 and -45 tilted up and down, 90 rotated
+     * up, -90 rotated down, [VERTICAL_TEXT_ANGLE] stacked letters.
+     */
+    fun setTextAngle(angle: Int): EditorState = command("eoEngine.setTextAngle($angle)")
 
     /** A number format code: "General", "0.00", "0.00%", "#,##0.00 €", "dd.mm.yyyy", "@" (text). */
     fun setNumberFormat(format: String): EditorState = command("eoEngine.setNumberFormat(${JSONObject.quote(format)})")
@@ -503,7 +522,8 @@ interface EditorDocument : PagedDocument {
         if (json == "null") return null
         val root = JSONObject(json)
         fun color(name: String) = if (root.isNull(name)) null else root.optString(name)
-        return DrawingColors(color("fill"), color("outline"))
+        val vert = if (root.isNull("vert")) null else root.optInt("vert")
+        return DrawingColors(color("fill"), color("outline"), ShapeTextDirection.entries.firstOrNull { it.value == vert })
     }
 
     /** The selected chart's data (documents and presentations), or null. */
@@ -867,5 +887,11 @@ val WRITABLE_FORMATS = setOf(
 
 /** Z-order changes, with sdkjs' values (c_oAscDrawingLayerType). */
 enum class DrawingOrder(val value: Int) { TO_FRONT(0), FORWARD(1), TO_BACK(2), BACKWARD(3) }
+
+/** The direction of a shape's text (AscFormat.nVertTT*). */
+enum class ShapeTextDirection(val value: Int) { HORIZONTAL(1), ROTATED_DOWN(3), ROTATED_UP(4) }
+
+/** [EditorDocument.setTextAngle]'s angle for letters stacked from top to bottom. */
+const val VERTICAL_TEXT_ANGLE = 255
 
 enum class TouchAction(val value: Int) { DOWN(0), MOVE(1), UP(2) }

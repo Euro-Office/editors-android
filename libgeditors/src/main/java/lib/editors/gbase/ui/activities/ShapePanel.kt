@@ -21,6 +21,7 @@ import lib.editors.base.engine.DrawingOrder
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
+import lib.editors.base.engine.ShapeTextDirection
 import lib.editors.gbase.R
 import lib.editors.resources.R as Resources
 
@@ -114,6 +115,27 @@ internal class ShapePanel(
         rows += colorPicker.Row(Resources.string.editors_shape_outline, Resources.string.editors_color_none, back) { color -> edit { setShapeOutline(color) } }
             .also { addView(it.view); it.mark(colors.outline) }
 
+        // The shapes' text: horizontal or rotated, the current one marked
+        val direction = colors.textDirection
+        if (chart == null && direction != null) {
+            heading(Resources.string.editors_text_orientation)
+            addView(HorizontalScrollView(context).apply {
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    val buttons = mutableListOf<TextView>()
+                    TEXT_DIRECTIONS.forEachIndexed { index, (label, value) ->
+                        buttons += button(label) {
+                            buttons.forEachIndexed { i, button -> button.isSelected = i == index }
+                            edit { setTextDirection(value) }
+                        }.also {
+                            Accessibility.toggle(it)
+                            it.isSelected = value == direction
+                        }
+                    }
+                })
+            })
+        }
+
         heading(Resources.string.editors_shape_arrange)
         addView(HorizontalScrollView(context).apply {
             addView(LinearLayout(context).apply {
@@ -176,8 +198,8 @@ internal class ShapePanel(
         })
     }
 
-    private fun LinearLayout.button(text: Int, onClick: () -> Unit) {
-        addView(TextView(context).apply {
+    private fun LinearLayout.button(text: Int, onClick: () -> Unit): TextView =
+        TextView(context).apply {
             setText(text)
             gravity = Gravity.CENTER
             textSize = 15f
@@ -185,8 +207,15 @@ internal class ShapePanel(
             setPaddingRelative(dp(12), 0, dp(12), 0)
             setBackgroundResource(R.drawable.editor_tool_background)
             setOnClickListener { onClick() }
-        })
-    }
+        }.also { addView(it) }
 
     private fun dp(value: Int) = (value * density).toInt()
+
+    private companion object {
+        val TEXT_DIRECTIONS = listOf(
+            Resources.string.editors_text_horizontal to ShapeTextDirection.HORIZONTAL,
+            Resources.string.editors_text_rotate_up to ShapeTextDirection.ROTATED_UP,
+            Resources.string.editors_text_rotate_down to ShapeTextDirection.ROTATED_DOWN
+        )
+    }
 }

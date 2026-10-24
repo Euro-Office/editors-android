@@ -7,6 +7,8 @@
     <color name="editors_icon_disabled">#4D000000</color>
     <color name="editors_coediting_warning">#B3261E</color>
     <color name="editors_coediting_reconnecting">#7A5900</color>
+    <!-- Messages about wrong input (Material's error colors) -->
+    <color name="editors_error">#B3261E</color>
     <color name="editors_tool_selected">#290082C9</color>
     <color name="editors_tool_pressed">#1F000000</color>
     <!-- Bars around the document: the top bar and the toolbar -->

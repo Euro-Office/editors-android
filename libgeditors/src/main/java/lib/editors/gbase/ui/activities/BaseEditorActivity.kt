@@ -21,6 +21,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
 import android.content.ClipData
@@ -31,6 +32,7 @@ import android.widget.Toast
 import androidx.activity.addCallback
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -40,6 +42,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
+import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -140,6 +143,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // The document the app passed, and the format edits are saved in (its extension)
     private var documentUri: Uri? = null
     private var extension = ""
+    // The password the document is saved with ("" for none): the one it was opened with, or a new one
+    private var documentPassword = ""
     private var modified = false
     private var saving = false
     // A slice of the layout of later pages is queued (see EditorDocument.tick)
@@ -281,6 +286,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             updateResult()
             extension = file.extension.lowercase()
             baseName = file.nameWithoutExtension
+            documentPassword = password
             progress.isVisible = false
             if (isSpreadsheet) {
                 val sheetView = findViewById<SheetView>(R.id.sheetView)
@@ -726,6 +732,60 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 DrawingFileResult.Failed -> finish()
             }
         }
+    }
+
+    // A new password, typed twice: the document is saved with it from now on
+    private fun askNewPassword() {
+        fun field(hint: Int) = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            isSingleLine = true
+            setHint(hint)
+        }
+        val password = field(Resources.string.editors_password_new)
+        val repeated = field(Resources.string.editors_password_repeat)
+        val mismatch = TextView(this).apply {
+            setText(Resources.string.editors_password_mismatch)
+            setTextColor(ContextCompat.getColor(context, Resources.color.editors_error))
+            isVisible = false
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val padding = (20 * resources.displayMetrics.density).toInt()
+            setPaddingRelative(padding, 0, padding, 0)
+            addView(password)
+            addView(repeated)
+            addView(mismatch)
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (documentPassword.isEmpty()) Resources.string.editors_password_protect else Resources.string.editors_password_change)
+            .setMessage(Resources.string.editors_password_new_message)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ -> changePassword(password.text.toString()) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        // OK once both are the same
+        fun check() {
+            val typed = password.text.toString()
+            val matches = typed == repeated.text.toString()
+            mismatch.isVisible = !matches && repeated.text.isNotEmpty()
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.isEnabled = typed.isNotEmpty() && matches
+        }
+        password.doAfterTextChanged { check() }
+        repeated.doAfterTextChanged { check() }
+        dialog.setOnShowListener { check() }
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+        dialog.show()
+        password.requestFocus()
+    }
+
+    // The password to save with ("" for none); the document is modified until it is saved
+    private fun changePassword(password: String) {
+        documentPassword = password
+        edit {
+            setPassword(password)
+            state()
+        }
+        if (password.isEmpty()) toast(getString(Resources.string.editors_password_removed))
     }
 
     private fun askPassword(wrong: Boolean, onPassword: (String) -> Unit) {
@@ -1860,6 +1920,13 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     menu.add(label).setIcon(icon).setOnMenuItemClickListener { action(); true }
                 if (searchBar != null) item(Resources.string.editors_search, Resources.drawable.ic_editor_search) { searchBar?.show() }
                 if (canSave()) item(Resources.string.editors_save, Resources.drawable.ic_editor_save) { saveNow() }.isEnabled = modified
+                if (canSave() && !isPdfEditor && extension in ENCRYPTABLE_FORMATS) {
+                    val label = if (documentPassword.isEmpty()) Resources.string.editors_password_protect else Resources.string.editors_password_change
+                    item(label, Resources.drawable.ic_editor_lock) { askNewPassword() }
+                    if (documentPassword.isNotEmpty()) {
+                        item(Resources.string.editors_password_remove, Resources.drawable.ic_editor_lock_open) { changePassword("") }
+                    }
+                }
                 // Not in co-editing, where the Document Server reads the file
                 val text = textOptions
                 val file = textFile
@@ -2009,6 +2076,11 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         const val FORMAT_PULSE_MS = 150L
         const val MEDIA_PREFIX = "media/"
         const val CO_TICK_BUDGET_MS = 20
+        /** Formats the engine saves encrypted with a password (Office's and ODF). */
+        val ENCRYPTABLE_FORMATS = setOf(
+            "docx", "docm", "dotx", "dotm", "xlsx", "xlsm", "xltx", "xltm", "pptx", "pptm", "ppsx", "ppsm", "potx", "potm",
+            "odt", "ott", "ods", "ots", "odp", "otp"
+        )
         const val MAX_ERROR_CHARS = 2000
         const val SPELL_SLICE_MS = 30
         const val MAX_SUGGESTIONS = 3

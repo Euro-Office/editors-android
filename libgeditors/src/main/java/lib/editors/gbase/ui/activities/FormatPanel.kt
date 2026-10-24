@@ -256,21 +256,67 @@ internal class FormatPanel(
                 icon(Resources.drawable.ic_editor_indent_more, Resources.string.editors_format_indent_more) { edit { indent(true) } }
             }
         }
+        caption(Resources.string.editors_format_direction)
+        scrollRow {
+            choice(context.getString(Resources.string.editors_format_ltr), { !it.rtl }) { edit { setRtl(false) } }
+            choice(context.getString(Resources.string.editors_format_rtl), { it.rtl }) { edit { setRtl(true) } }
+        }
+
+        // Line spacing: a multiple of the line, or at least or exactly a height in points
         caption(Resources.string.editors_format_line_spacing)
         scrollRow {
-            for (value in LINE_SPACINGS) {
-                choice(trimNumber(value), { it.lineRule == 1 && kotlin.math.abs(it.line - value) < 0.01 }) { edit { setLineSpacing(1, value) } }
+            choice(context.getString(Resources.string.editors_format_line_multiple), { it.lineRule == LINE_MULTIPLE }) {
+                if (format.lineRule != LINE_MULTIPLE) edit { setLineSpacing(LINE_MULTIPLE, 1.0) }
             }
-        }
-        caption(Resources.string.editors_format_space_after)
-        scrollRow {
-            for (points in SPACE_AFTER_POINTS) {
-                val mm = points * MM_PER_POINT
-                choice(context.getString(Resources.string.editors_format_points, points), { kotlin.math.abs(it.spacingAfter - mm) < 0.1 }) {
-                    edit { setParagraphSpacing(maxOf(0.0, format.spacingBefore), mm) }
+            for (rule in listOf(LINE_AT_LEAST, LINE_EXACTLY)) {
+                val label = if (rule == LINE_AT_LEAST) Resources.string.editors_format_line_at_least else Resources.string.editors_format_line_exactly
+                choice(context.getString(label), { it.lineRule == rule }) {
+                    if (format.lineRule != rule) edit { setLineSpacing(rule, DEFAULT_LINE_POINTS * MM_PER_POINT) }
                 }
             }
         }
+        stepper(Resources.string.editors_format_line_spacing, ::lineSpacingText, { stepLineSpacing(up = false) }, { stepLineSpacing(up = true) })
+        scrollRow {
+            for (value in LINE_SPACINGS) {
+                choice(trimNumber(value), { it.lineRule == LINE_MULTIPLE && kotlin.math.abs(it.line - value) < 0.01 }) { edit { setLineSpacing(LINE_MULTIPLE, value) } }
+            }
+        }
+        caption(Resources.string.editors_format_space_before)
+        stepper(Resources.string.editors_format_space_before, { pointsText(it.spacingBefore) }, { stepSpacing(before = true, up = false) }, { stepSpacing(before = true, up = true) })
+        caption(Resources.string.editors_format_space_after)
+        stepper(Resources.string.editors_format_space_after, { pointsText(it.spacingAfter) }, { stepSpacing(before = false, up = false) }, { stepSpacing(before = false, up = true) })
+    }
+
+    private fun lineSpacingText(format: TextFormat) =
+        if (format.lineRule == LINE_MULTIPLE) trimNumber(format.line) else pointsText(format.line)
+
+    // To the next step: multiples by a quarter line, heights by a point
+    private fun stepLineSpacing(up: Boolean) {
+        if (format.lineRule == LINE_MULTIPLE) {
+            val value = step(format.line, LINE_STEP, up).coerceIn(LINE_STEP, MAX_LINE_MULTIPLE)
+            edit { setLineSpacing(LINE_MULTIPLE, value) }
+        } else {
+            val points = step(format.line / MM_PER_POINT, 1.0, up).coerceIn(1.0, MAX_POINTS)
+            edit { setLineSpacing(format.lineRule, points * MM_PER_POINT) }
+        }
+    }
+
+    // Space before or after paragraphs, by points (automatic, -1, counts as none)
+    private fun stepSpacing(before: Boolean, up: Boolean) {
+        val current = maxOf(0.0, if (before) format.spacingBefore else format.spacingAfter) / MM_PER_POINT
+        val mm = step(current, 1.0, up).coerceIn(0.0, MAX_POINTS) * MM_PER_POINT
+        val spacingBefore = if (before) mm else maxOf(0.0, format.spacingBefore)
+        val spacingAfter = if (before) maxOf(0.0, format.spacingAfter) else mm
+        edit { setParagraphSpacing(spacingBefore, spacingAfter) }
+    }
+
+    // The next multiple of size above or below value
+    private fun step(value: Double, size: Double, up: Boolean): Double =
+        if (up) (Math.floor(value / size + 1e-6) + 1) * size else (Math.ceil(value / size - 1e-6) - 1) * size
+
+    private fun pointsText(mm: Double): String {
+        val points = Math.round(maxOf(0.0, mm) / MM_PER_POINT * 2) / 2.0
+        return context.getString(Resources.string.editors_format_points_value, trimNumber(points))
     }
 
     // In the panel's place, then back to it
@@ -299,8 +345,19 @@ internal class FormatPanel(
 
     private companion object {
         const val MM_PER_POINT = 25.4 / 72
-        val HIGHLIGHTS = listOf("", "FFFF00", "00FF00", "00FFFF", "FF00FF", "0000FF", "FF0000", "C0C0C0")
-        val LINE_SPACINGS = listOf(1.0, 1.15, 1.5, 2.0)
-        val SPACE_AFTER_POINTS = listOf(0, 6, 12)
+        // Word's highlight colors, as web-apps offers them; "" is none
+        val HIGHLIGHTS = listOf(
+            "", "FFFF00", "00FF00", "00FFFF", "FF00FF", "0000FF", "FF0000", "000080", "008080",
+            "008000", "800080", "800000", "808000", "808080", "C0C0C0", "000000"
+        )
+        // EditorDocument.setLineSpacing's rules
+        const val LINE_AT_LEAST = 0
+        const val LINE_MULTIPLE = 1
+        const val LINE_EXACTLY = 2
+        const val LINE_STEP = 0.25
+        const val MAX_LINE_MULTIPLE = 10.0
+        const val DEFAULT_LINE_POINTS = 12.0
+        const val MAX_POINTS = 1584.0
+        val LINE_SPACINGS = listOf(1.0, 1.15, 1.5, 2.0, 2.5, 3.0)
     }
 }

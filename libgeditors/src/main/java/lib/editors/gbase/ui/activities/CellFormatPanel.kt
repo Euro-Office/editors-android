@@ -9,6 +9,7 @@ import androidx.core.view.isVisible
 import lib.editors.base.engine.CellFormat
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
+import lib.editors.base.engine.VERTICAL_TEXT_ANGLE
 import lib.editors.resources.R as Resources
 
 /**
@@ -122,6 +123,17 @@ internal class CellFormatPanel(
                     icon(Resources.drawable.ic_editor_merge_cells, Resources.string.editors_cells_merge, { it.merged }) { edit { setMerge(!format.merged) } }
                 }
             }
+            caption(Resources.string.editors_text_orientation)
+            scrollRow {
+                for ((label, angle) in TEXT_ANGLES) {
+                    choice(context.getString(label), { it.angle == angle }) { edit { setTextAngle(angle) } }
+                }
+            }
+            caption(Resources.string.editors_format_direction)
+            scrollRow {
+                choice(context.getString(Resources.string.editors_format_ltr), { !it.rtl }) { edit { setRtl(false) } }
+                choice(context.getString(Resources.string.editors_format_rtl), { it.rtl }) { edit { setRtl(true) } }
+            }
         }
     }
 
@@ -165,6 +177,15 @@ internal class CellFormatPanel(
             Triple(Resources.drawable.ic_editor_border_left, Resources.string.editors_cells_borders_left, "left"),
             Triple(Resources.drawable.ic_editor_border_right, Resources.string.editors_cells_borders_right, "right"),
             Triple(Resources.drawable.ic_editor_border_none, Resources.string.editors_cells_borders_none, "none")
+        )
+        // EditorDocument.setTextAngle's angles, as web-apps orders them
+        val TEXT_ANGLES = listOf(
+            Resources.string.editors_text_horizontal to 0,
+            Resources.string.editors_text_angle_up to 45,
+            Resources.string.editors_text_angle_down to -45,
+            Resources.string.editors_text_vertical to VERTICAL_TEXT_ANGLE,
+            Resources.string.editors_text_rotate_up to 90,
+            Resources.string.editors_text_rotate_down to -90
         )
         // Asc.c_oAscVAlign
         val VERTICAL_ALIGNS = listOf(
