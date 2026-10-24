@@ -347,6 +347,9 @@ interface EditorDocument : PagedDocument {
     /** Shows the comment: selects its text, cell or slide. */
     fun gotoComment(id: String): EditorState = command("eoEngine.gotoComment(${JSONObject.quote(id)})")
 
+    /** How a txt or csv file was read (guessed or chosen); null for other files. */
+    val textOptions: TextOptions? get() = TextOptions.parse(execute("JSON.stringify(eoEngine.textOptions || null)"))
+
     // ---------------------------------------------------------------------------------
     // PDFs: sdkjs' PDF editor (pdf.js in editors-android/engine), for PDFs other than forms of
     // the document editor

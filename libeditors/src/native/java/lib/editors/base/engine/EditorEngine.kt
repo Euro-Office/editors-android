@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
 import lib.x2t.X2t
 import java.io.File
+import java.util.Locale
 import java.util.concurrent.Executors
 
 /**
@@ -73,9 +74,10 @@ object EditorEngine {
 
     /**
      * Opens [file] (docx, odt, ...); [password] is for encrypted files, which are saved with
-     * it again. Call on [dispatcher].
+     * it again. Plain text (txt, csv) is read with [text], whose open options the engine
+     * guesses (with the legacy encoding of the user's language). Call on [dispatcher].
      */
-    fun openDocument(context: Context, file: File, password: String = ""): DocumentResult {
+    fun openDocument(context: Context, file: File, password: String = "", text: TextOptions = TextOptions()): DocumentResult {
         if (!initialize(context)) return DocumentResult.Failed
 
         val tempDir = File(context.cacheDir, "editor").apply {
@@ -83,7 +85,9 @@ object EditorEngine {
             mkdirs()
         }
         val handle = NativeEngine.nativeCreateDocument()
-        val result = NativeEngine.nativeOpen(handle, file.absolutePath, tempDir.absolutePath, password)
+        val result = NativeEngine.nativeOpen(
+            handle, file.absolutePath, tempDir.absolutePath, password, text.encoding, text.delimiter, Locale.getDefault().toLanguageTag()
+        )
         if (result != 0) {
             Log.e(TAG, "Can't open ${file.name}: $result")
             NativeEngine.nativeDestroyDocument(handle)

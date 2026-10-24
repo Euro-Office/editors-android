@@ -63,12 +63,16 @@ extern "C"
 		delete FromHandle(handle);
 	}
 
-	// 0, the x2t error code (eo::Document::ERROR_PASSWORD) or -1
+	// 0, the x2t error code (eo::Document::ERROR_PASSWORD) or -1. encoding and delimiter: plain
+	// text's (eo::TextOptions, -1 to guess), language the user's
 	JNIEXPORT jint JNICALL
 	Java_lib_editors_base_engine_NativeEngine_nativeOpen(JNIEnv* env, jobject, jlong handle, jstring path, jstring tempDir,
-	                                                    jstring password)
+	                                                    jstring password, jint encoding, jint delimiter, jstring language)
 	{
-		return FromHandle(handle)->Open(ToWide(env, path), ToWide(env, tempDir), ToWide(env, password));
+		eo::TextOptions text;
+		text.encoding = encoding;
+		text.delimiter = delimiter;
+		return FromHandle(handle)->Open(ToWide(env, path), ToWide(env, tempDir), ToWide(env, password), text, ToWide(env, language));
 	}
 
 	// 0, the x2t error code or -1 for a format the engine can't write

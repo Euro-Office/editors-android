@@ -14,7 +14,7 @@ internal object NativeEngine {
     external fun nativeCreateDocument(): Long
     external fun nativeDestroyDocument(handle: Long)
     /** 0, x2t's error code or -1. */
-    external fun nativeOpen(handle: Long, path: String, tempDir: String, password: String): Int
+    external fun nativeOpen(handle: Long, path: String, tempDir: String, password: String, encoding: Int, delimiter: Int, language: String): Int
     external fun nativeSave(handle: Long, path: String, extension: String): Int
     external fun nativeExecute(handle: Long, script: String): ByteArray
     /** The count of presentation designs, converted once (eo::Document::PrepareThemes). */

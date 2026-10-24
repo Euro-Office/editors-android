@@ -410,6 +410,18 @@
     <string name="editors_link">Link</string>
     <string name="editors_slides">Slides</string>
     <string name="editors_spell_check">Check spelling</string>
+    <string name="editors_text_options">Encoding</string>
+    <string name="editors_text_options_csv">Encoding and delimiter</string>
+    <string name="editors_text_encoding">Encoding</string>
+    <string name="editors_text_delimiter">Delimiter</string>
+    <string name="editors_text_delimiter_comma">Comma</string>
+    <string name="editors_text_delimiter_semicolon">Semicolon</string>
+    <string name="editors_text_delimiter_tab">Tab</string>
+    <string name="editors_text_delimiter_colon">Colon</string>
+    <string name="editors_text_delimiter_space">Space</string>
+    <string name="editors_text_preview">Preview</string>
+    <string name="editors_text_discards">Reopening the file discards your unsaved changes.</string>
+    <string name="editors_text_reopen">Reopen</string>
     <string name="editors_spell_ignore">Ignore</string>
     <string name="editors_spell_add">Add to dictionary</string>
 

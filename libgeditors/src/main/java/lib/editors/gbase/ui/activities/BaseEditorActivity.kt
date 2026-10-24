@@ -68,6 +68,7 @@ import lib.editors.base.engine.PdfMarkup
 import lib.editors.base.engine.PdfMarkupKind
 import lib.editors.base.engine.PagedDocument
 import lib.editors.base.engine.TextBlock
+import lib.editors.base.engine.TextOptions
 import lib.editors.base.engine.TouchAction
 import lib.editors.base.engine.WRITABLE_FORMATS
 import lib.editors.gbase.R
@@ -114,6 +115,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private var baseName = "document"
     private val savedCopies = mutableListOf<Uri>()
     private var documentSaved = false
+    // Plain text (txt, csv): the copy opened and how it was read, to read it differently
+    private var textFile: File? = null
+    private var textOptions: TextOptions? = null
     private var editing = false
 
     // PDF files: the current copy (changes are saved into new copies) and whether it changed
@@ -156,6 +160,11 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         setResult(EditorsContract.RESULT_FAILED_OPEN)
 
         val uri = intent.data
+        // Opened again with other text options (reopenWith): what was saved before still counts
+        documentSaved = intent.getBooleanExtra(EXTRA_REOPEN_SAVED, false)
+        @Suppress("DEPRECATION")
+        intent.getParcelableArrayListExtra<Uri>(EXTRA_REOPEN_COPIES)?.let { savedCopies += it }
+        if (uri != null && (documentSaved || savedCopies.isNotEmpty())) updateResult(uri)
         // PDFs in sdkjs' PDF editor (core's reader if the engine can't open one); XPS and DjVu in core's readers
         if (uri != null && (editorsType in ENGINE_EDITORS || editorsType == EditorsType.PDF) && EditorEngine.isAvailable) {
             showViewer(uri)
@@ -215,24 +224,27 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 openDrawingFile(uri, file, password = "")
                 return@launch
             }
-            openDocument(uri, file, password = "")
+            val text = TextOptions(intent.getIntExtra(EXTRA_TEXT_ENCODING, -1), intent.getIntExtra(EXTRA_TEXT_DELIMITER, -1))
+            openDocument(uri, file, password = "", text)
         }
     }
 
-    // Encrypted files ask for their password and are opened again with it
-    private fun openDocument(uri: Uri, file: File, password: String) {
+    // Encrypted files ask for their password and are opened again with it. Plain text is read
+    // with text (guessed by the engine where it's -1).
+    private fun openDocument(uri: Uri, file: File, password: String, text: TextOptions = TextOptions()) {
         val progress = findViewById<View>(R.id.documentProgress)
         val isEditable = isEditable()
 
         lifecycleScope.launch {
             var needsPassword = false
+            var openedText: TextOptions? = null
             val opened = withContext(EditorEngine.dispatcher) {
                 var start = SystemClock.elapsedRealtime()
                 if (!EditorEngine.initialize(this@BaseEditorActivity)) return@withContext null
                 Log.i(TAG, "engine ready: ${SystemClock.elapsedRealtime() - start} ms")
 
                 start = SystemClock.elapsedRealtime()
-                val document = when (val result = EditorEngine.openDocument(this@BaseEditorActivity, file, password)) {
+                val document = when (val result = EditorEngine.openDocument(this@BaseEditorActivity, file, password, text)) {
                     is DocumentResult.Opened -> result.document
                     DocumentResult.NeedsPassword -> {
                         needsPassword = true
@@ -242,12 +254,13 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 }
                 document.setTranslations(EditorTranslations.sdkjs(this@BaseEditorActivity))
                 isPdfEditor = document.isPdf
+                openedText = document.textOptions
                 val pages = (0 until document.pageCount).map { document.pageSize(it) }
                 Log.i(TAG, "open + layout: ${SystemClock.elapsedRealtime() - start} ms, ${pages.size} pages")
                 Triple(document, pages, document.state())
             }
             if (needsPassword) {
-                askPassword(wrong = password.isNotEmpty()) { openDocument(uri, file, it) }
+                askPassword(wrong = password.isNotEmpty()) { openDocument(uri, file, it, text) }
                 return@launch
             }
             if (opened == null) {
@@ -263,6 +276,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
             document = opened.first
             documentUri = uri
+            textFile = file
+            textOptions = openedText
             updateResult()
             extension = file.extension.lowercase()
             baseName = file.nameWithoutExtension
@@ -365,7 +380,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             }
             // The app may ask to show the document first (EditType.Edit.initialView): editing then starts with a button
             // PDFs: their tools right away (annotations don't change the PDF's content)
-            if (isEditable && (editorConfig != null || !startsInView() || fillsForms() || startsFilling() || isPdfEditor)) {
+            val wasEditing = intent.getBooleanExtra(EXTRA_REOPEN_EDITING, false)
+            if (isEditable && (editorConfig != null || !startsInView() || fillsForms() || startsFilling() || isPdfEditor || wasEditing)) {
                 enableEditing()
             } else if (isEditable) {
                 findViewById<View>(R.id.toolEdit).isVisible = true
@@ -1821,8 +1837,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         return file
     }
 
-    private fun updateResult() {
-        val uri = documentUri ?: return
+    private fun updateResult(uri: Uri? = documentUri) {
+        uri ?: return
         setResult(
             RESULT_OK,
             Intent().setData(uri)
@@ -1842,6 +1858,15 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     menu.add(label).setIcon(icon).setOnMenuItemClickListener { action(); true }
                 if (searchBar != null) item(Resources.string.editors_search, Resources.drawable.ic_editor_search) { searchBar?.show() }
                 if (canSave()) item(Resources.string.editors_save, Resources.drawable.ic_editor_save) { saveNow() }.isEnabled = modified
+                // Not in co-editing, where the Document Server reads the file
+                val text = textOptions
+                val file = textFile
+                if (text != null && file != null && coConnection == null) {
+                    val label = if (text.delimiter >= 0) Resources.string.editors_text_options_csv else Resources.string.editors_text_options
+                    item(label, Resources.drawable.ic_editor_encoding) {
+                        TextOptionsDialog(this@BaseEditorActivity, file, text, discards = modified, onChosen = ::reopenWith).show()
+                    }
+                }
                 if (canUseMobileView()) {
                     item(Resources.string.editors_doc_mobile_view, Resources.drawable.ic_editor_mobile_view) { toggleMobileView() }.apply {
                         isCheckable = true
@@ -1880,6 +1905,28 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // Screen readers: the text of a page
     private suspend fun textBlocks(page: Int): List<TextBlock> = withContext(EditorEngine.dispatcher) {
         (document ?: drawingDocument)?.let { runCatching { it.textBlocks(page) }.getOrNull() }.orEmpty()
+    }
+
+    // Plain text read with other options: the editor starts again on the file with them, and
+    // gives the app its result (FLAG_ACTIVITY_FORWARD_RESULT) with what was saved before
+    private fun reopenWith(text: TextOptions) {
+        val opened = document ?: return
+        document = null
+        lifecycleScope.launch {
+            withContext(EditorEngine.dispatcher) { opened.close() }
+            val restart = Intent(intent)
+                .putExtra(EXTRA_TEXT_ENCODING, text.encoding)
+                .putExtra(EXTRA_TEXT_DELIMITER, text.delimiter)
+                .putExtra(EXTRA_REOPEN_SAVED, documentSaved)
+                .putParcelableArrayListExtra(EXTRA_REOPEN_COPIES, ArrayList(savedCopies))
+                .putExtra(EXTRA_REOPEN_EDITING, editing)
+            // The app starts editors single-top, which would hand this one the intent instead
+            restart.flags = (intent.flags and Intent.FLAG_ACTIVITY_SINGLE_TOP.inv()) or Intent.FLAG_ACTIVITY_FORWARD_RESULT
+            startActivity(restart)
+            finish()
+            @Suppress("DEPRECATION")
+            overridePendingTransition(0, 0)
+        }
     }
 
     private fun copyToCache(uri: Uri): File {
@@ -1965,6 +2012,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         const val MAX_SUGGESTIONS = 3
         const val SPELLING_PREFERENCES = "lib.editors.spelling"
         const val KEY_SPELL_CHECK = "spell_check"
+        // Opening plain text again with other options (reopenWith)
+        const val EXTRA_TEXT_ENCODING = "lib.editors.gbase.TEXT_ENCODING"
+        const val EXTRA_TEXT_DELIMITER = "lib.editors.gbase.TEXT_DELIMITER"
+        const val EXTRA_REOPEN_SAVED = "lib.editors.gbase.REOPEN_SAVED"
+        const val EXTRA_REOPEN_COPIES = "lib.editors.gbase.REOPEN_COPIES"
+        const val EXTRA_REOPEN_EDITING = "lib.editors.gbase.REOPEN_EDITING"
         private val TEXT_TOOLS = listOf(R.id.toolBold, R.id.toolItalic, R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight)
         // Toolbar buttons also when viewing
         private val FILLING_HIDDEN_TOOLS = listOf(

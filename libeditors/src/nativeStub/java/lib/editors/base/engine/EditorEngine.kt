@@ -20,7 +20,7 @@ object EditorEngine {
 
     fun open(context: Context, file: File): EditorDocument? = null
 
-    fun openDocument(context: Context, file: File, password: String = ""): DocumentResult = DocumentResult.Failed
+    fun openDocument(context: Context, file: File, password: String = "", text: TextOptions = TextOptions()): DocumentResult = DocumentResult.Failed
 
     fun openDrawingFile(context: Context, file: File, password: String = ""): DrawingFileResult = DrawingFileResult.Failed
 }
