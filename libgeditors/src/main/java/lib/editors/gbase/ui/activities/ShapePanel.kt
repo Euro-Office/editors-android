@@ -40,6 +40,13 @@ internal class ShapePanel(
     class Selected(val chart: ChartState?, val colors: DrawingColors) {
         /** Shapes have text (pictures and charts don't). */
         val hasText get() = chart == null && colors.textDirection != null
+
+        /** The section's title: chart, shape or picture. */
+        val title get() = when {
+            chart != null -> Resources.string.editors_chart_insert
+            hasText -> Resources.string.editors_shape
+            else -> Resources.string.editors_insert_picture
+        }
     }
 
     /** Reads the selected drawings (on the engine's thread), after the commands before. */
@@ -52,16 +59,15 @@ internal class ShapePanel(
     }
 
     /**
-     * Adds the section for [selected] to [container]; the settings opened from it go [back] to
-     * the format panel. Its color rows go to [rows] (for the theme's colors).
+     * Adds the section for [selected] to [container] (under the format panel's heading, see
+     * [Selected.title]); the settings opened from it go [back] to the format panel. Its color
+     * rows go to [rows] (for the theme's colors).
      */
     fun addTo(container: LinearLayout, selected: Selected, back: () -> Unit, rows: MutableList<ColorPicker.Row>) {
         updaters.clear()
         var colors = selected.colors
         val chart = selected.chart
         container.apply {
-            heading(if (chart != null) Resources.string.editors_chart_insert else Resources.string.editors_shape)
-
             // Charts' own settings first
             if (chart != null) {
                 val type = InsertCatalog.CHARTS.flatMap { it.items }.firstOrNull { it.value == chart.type }

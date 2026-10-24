@@ -41,8 +41,6 @@ internal class CellFormatPanel(
     // The drawings the panel shows (null: none); without text, the panel has no text settings
     private var shown: ShapePanel.Selected? = null
     private var textSection: View? = null
-    // Below selected drawings the text's settings open on a tap (closed at first)
-    private var drawingTextExpanded = false
     private val cellsOnly = mutableListOf<View>()
     private val colorRows = mutableListOf<ColorPicker.Row>()
 
@@ -60,6 +58,8 @@ internal class CellFormatPanel(
         updaters.clear()
         cellsOnly.clear()
         colorRows.clear()
+        // Open: the drawings' section, or the text's
+        openSections(drawings?.title ?: Resources.string.editors_format_text)
         val content = content(drawings)
         dialog = panels.show(context.getString(Resources.string.editors_format), content, modal = false) { dialog = null }
         update(format, drawingSelected)
@@ -88,10 +88,10 @@ internal class CellFormatPanel(
         setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
 
         // The selected pictures, shapes or charts
-        if (drawings != null) shapes?.addTo(this, drawings, ::show, colorRows)
+        val shapes = shapes
+        if (drawings != null && shapes != null) section(drawings.title) { shapes.addTo(this, drawings, ::show, colorRows) }
 
-        cellSection {
-            heading(Resources.string.editors_cells_number_format)
+        cellsOnly += section(Resources.string.editors_cells_number_format) {
             scrollRow {
                 for ((label, type, icon) in NUMBER_FORMATS) {
                     choice(context.getString(label), { it.numFormatType == type }, icon) { edit { setNumberFormatType(type) } }
@@ -105,21 +105,11 @@ internal class CellFormatPanel(
             }
         }
 
-        // The cells' text, or the shapes' (opening on a tap)
-        textSection = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            if (drawings != null) {
-                expandable(Resources.string.editors_format_text, drawingTextExpanded, { drawingTextExpanded = it }) { textSettings() }
-            } else {
-                heading(Resources.string.editors_format_text)
-                textSettings()
-            }
-        }.also { addView(it) }
-        cellSection {
+        // The cells' text, or the shapes'
+        textSection = section(Resources.string.editors_format_text) { textSettings() }
+        cellsOnly += section(Resources.string.editors_cells_cells) {
             caption(Resources.string.editors_cells_fill_color)
             colorRow(Resources.string.editors_cells_fill_color, Resources.string.editors_color_none, { it.fill }) { color -> edit { setCellFill(color) } }
-
-            heading(Resources.string.editors_cells_cells)
             caption(Resources.string.editors_cells_borders)
             scrollRow {
                 group {
@@ -182,16 +172,6 @@ internal class CellFormatPanel(
         addView(row.view)
         colorRows += row
         updaters += { row.mark(current(it)) }
-    }
-
-    // Settings of cells only, hidden while a drawing is selected
-    private fun LinearLayout.cellSection(build: LinearLayout.() -> Unit) {
-        val section = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            build()
-        }
-        addView(section)
-        cellsOnly += section
     }
 
     private companion object {

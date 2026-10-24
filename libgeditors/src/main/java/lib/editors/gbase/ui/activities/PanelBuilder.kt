@@ -23,7 +23,7 @@ import lib.editors.gbase.R
 import lib.editors.resources.R as Resources
 
 /**
- * The views of the format panels ([FormatPanel], [CellFormatPanel]): headings, rows of buttons,
+ * The views of the format panels ([FormatPanel], [CellFormatPanel]): sections, rows of buttons,
  * groups of icon buttons (as web-apps' toolbar groups them), choices and color swatches. What
  * shows the current format [F] adds itself to [updaters].
  */
@@ -33,15 +33,6 @@ internal abstract class PanelBuilder<F>(protected val context: Context) {
     protected val updaters = mutableListOf<(F) -> Unit>()
 
     protected fun dp(value: Int) = (value * density).toInt()
-
-    protected fun LinearLayout.heading(text: Int) {
-        addView(TextView(context).apply {
-            setText(text)
-            textSize = 16f
-            setTypeface(typeface, Typeface.BOLD)
-            setPaddingRelative(0, dp(16), 0, dp(4))
-        })
-    }
 
     protected fun LinearLayout.caption(text: Int) {
         addView(TextView(context).apply {
@@ -217,6 +208,25 @@ internal abstract class PanelBuilder<F>(protected val context: Context) {
             setOnClickListener { onChange(isChecked) }
             updaters += { isChecked = isOn(it) }
         }.also { addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
+
+    // The panel's sections by their titles: which are open. The main one ([openSections]) is
+    // open; while it stays the main one, the others stay as they were opened or closed.
+    private val expandedSections = mutableMapOf<Int, Boolean>()
+    private var mainSection = 0
+
+    protected fun openSections(main: Int) {
+        if (main == mainSection) return
+        mainSection = main
+        expandedSections.clear()
+        expandedSections[main] = true
+    }
+
+    // A section of the panel under its [title] that opens and closes (see openSections)
+    protected fun LinearLayout.section(title: Int, build: LinearLayout.() -> Unit): View =
+        LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            expandable(title, expandedSections[title] == true, { expandedSections[title] = it }, build)
+        }.also { addView(it) }
 
     // A section under a heading that opens and closes it ([expanded] at first, [onToggle] after)
     protected fun LinearLayout.expandable(title: Int, expanded: Boolean, onToggle: (Boolean) -> Unit, build: LinearLayout.() -> Unit) {

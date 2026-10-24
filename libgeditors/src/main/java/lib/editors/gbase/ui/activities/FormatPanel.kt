@@ -77,13 +77,15 @@ internal class FormatPanel(
     // Text at the cursor or selected (not only a slide)
     private var hasText = true
     private val textSections = mutableListOf<View>()
+    private var paragraphSection: View? = null
     private var slideSection: View? = null
     private var tableSection: View? = null
     private var inTable = false
     private var markBackground: (String?) -> Unit = {}
     private val colorRows = mutableListOf<ColorPicker.Row>()
-    // Below selected drawings the text's settings open on a tap (closed at first)
-    private var drawingTextExpanded = false
+    // The panel shows its sections (not settings opened in its place), the main one open
+    private var showsSections = false
+    private var shownMain = 0
 
     fun show() = open()
 
@@ -100,8 +102,11 @@ internal class FormatPanel(
     private fun build(drawings: ShapePanel.Selected?) {
         shown = drawings
         clearViews()
+        shownMain = mainSection()
+        openSections(shownMain)
         val content = content(drawings)
         dialog = panels.show(context.getString(Resources.string.editors_format), content, modal = false) { dialog = null }
+        showsSections = true
         update(format, drawingSelected, hasText, inTable)
         loadBackground()
         // The theme's colors with the current color scheme
@@ -113,8 +118,17 @@ internal class FormatPanel(
         textOnly.clear()
         textSections.clear()
         colorRows.clear()
+        paragraphSection = null
         slideSection = null
         tableSection = null
+    }
+
+    // What the panel is mostly for: the selected drawings, the table at the cursor, the slide
+    // (nothing selected on it) or the text
+    private fun mainSection(): Int = shown?.title ?: when {
+        inTable && chooseTableStyle != null -> Resources.string.editors_doc_table_menu
+        slide != null && !drawingSelected && !hasText -> Resources.string.editors_slide
+        else -> Resources.string.editors_format_text
     }
 
     /**
@@ -129,8 +143,8 @@ internal class FormatPanel(
         hasText = text
         inTable = table
         if (dialog == null) return
-        // Its section came or went
-        if (drawingChanged && shapes != null) {
+        // The drawings' section came or went, or another one is the main one: the panel anew
+        if (drawingChanged && shapes != null || showsSections && shown == null && mainSection() != shownMain) {
             open()
             return
         }
@@ -138,6 +152,7 @@ internal class FormatPanel(
         updaters.forEach { it(newFormat) }
         textOnly.forEach { it.isVisible = !drawing }
         textSections.forEach { it.isVisible = shown?.hasText ?: (drawing || text) }
+        paragraphSection?.isVisible = !drawing && text
         slideSection?.isVisible = !drawing
         if (drawingChanged) loadBackground()
     }
@@ -152,13 +167,12 @@ internal class FormatPanel(
         setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
 
         // The selected pictures, shapes or charts
-        if (drawings != null) shapes?.addTo(this, drawings, ::open, colorRows)
+        val shapes = shapes
+        if (drawings != null && shapes != null) section(drawings.title) { shapes.addTo(this, drawings, ::open, colorRows) }
 
         // The slide, in presentations when no picture or shape is selected
         if (slide != null) {
-            slideSection = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                heading(Resources.string.editors_slide)
+            slideSection = section(Resources.string.editors_slide) {
                 caption(Resources.string.editors_slide_background)
                 val background = colorRow(Resources.string.editors_slide_background, none = null) { color -> color?.let { edit { setSlideBackground(it) } } }
                 if (chooseFill != null) action(Resources.string.editors_fill_more) { chooseFill.invoke(FillTarget.SLIDE, ::open) }
@@ -166,27 +180,17 @@ internal class FormatPanel(
                 action(Resources.string.editors_slides_layout) { slide.chooseLayout(::open) }
                 action(Resources.string.editors_slides_transition) { slide.chooseTransition(::open) }
                 markBackground = background::mark
-            }.also { addView(it) }
+            }
         }
 
         // The table at the cursor: what one opens the panel for there, so first
-        if (chooseTableStyle != null) tableSection = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            tableSettings(chooseTableStyle)
-        }.also { addView(it) }
+        if (chooseTableStyle != null) tableSection = section(Resources.string.editors_doc_table_menu) { tableSettings(chooseTableStyle) }
 
-        val text = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        addView(text)
-        textSections += text
-        if (drawings != null) {
-            text.expandable(Resources.string.editors_format_text, drawingTextExpanded, { drawingTextExpanded = it }) { textSettings(withHeading = false) }
-        } else {
-            text.textSettings()
-        }
+        textSections += section(Resources.string.editors_format_text) { textSettings() }
+        if (withParagraphs) paragraphSection = section(Resources.string.editors_format_paragraph) { paragraphSettings() }
     }
 
     private fun LinearLayout.tableSettings(chooseStyle: (onBack: () -> Unit) -> Unit) {
-        heading(Resources.string.editors_doc_table_menu)
         fun table(name: String) = edit { tableAction(name) }
         scrollRow {
             group {
@@ -208,8 +212,7 @@ internal class FormatPanel(
         }
     }
 
-    private fun LinearLayout.textSettings(withHeading: Boolean = true) {
-        if (withHeading) heading(Resources.string.editors_format_text)
+    private fun LinearLayout.textSettings() {
         row {
             selector(Resources.string.editors_format_font, { it.fontName.ifEmpty { "—" } }) { chooseFont() }
             // Not without a size (text of different sizes)
@@ -245,18 +248,11 @@ internal class FormatPanel(
                 }
             }
         }
-
-        if (!withParagraphs) return
-        val paragraphs = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        addView(paragraphs)
-        textOnly += paragraphs
-        paragraphs.paragraphSettings()
     }
 
     // The style; lists (each with its styles beside it), indents and the direction in one row;
     // the spacing in its own panel
     private fun LinearLayout.paragraphSettings() {
-        heading(Resources.string.editors_format_paragraph)
         if (chooseStyle != null) {
             row {
                 selector(Resources.string.editors_format_style, { it.style.ifEmpty { "—" }.let { name -> EditorTranslations.styleName(context, name) } }) {
@@ -359,6 +355,7 @@ internal class FormatPanel(
     // current formatting as the panel does
     private fun openSettings(title: Int, build: LinearLayout.() -> Unit) {
         clearViews()
+        showsSections = false
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
