@@ -229,6 +229,13 @@ interface EditorDocument : PagedDocument {
     /** The paragraphs' (spreadsheets: the cells') direction: right to left or left to right. */
     fun setRtl(rtl: Boolean): EditorState = command("eoEngine.setRtl($rtl)")
 
+    /** Text documents: turns an advanced paragraph setting on or off. */
+    fun setParagraphOption(option: ParagraphOption, on: Boolean): EditorState =
+        command("eoEngine.setParagraphOption(${JSONObject.quote(option.command)}, $on)")
+
+    /** Text documents: the first line's indent in mm (negative: hanging). */
+    fun setFirstLineIndent(mm: Double): EditorState = command("eoEngine.setFirstLineIndent($mm)")
+
     /** Text documents: applies a paragraph style by name (see [styles]). */
     fun setStyle(name: String): EditorState = asyncCommand("eoEngine.setStyle(${JSONObject.quote(name)})")
 

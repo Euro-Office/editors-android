@@ -11,6 +11,7 @@ import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.FillTarget
 import lib.editors.base.engine.ListKind
+import lib.editors.base.engine.ParagraphOption
 import lib.editors.base.engine.TextFormat
 import lib.editors.resources.R as Resources
 
@@ -45,8 +46,9 @@ internal class FormatPanel(
     private val chooseFill: ((target: FillTarget, onBack: () -> Unit) -> Unit)? = null,
     /** List presets by their pictures; null without them. */
     private val chooseList: ((kind: ListKind, onBack: () -> Unit) -> Unit)? = null,
-    /** Text documents: numbering restarted or continued. */
-    private val withNumberingRestart: Boolean = false
+    /** Text documents: numbering restarted or continued, the advanced paragraph settings. */
+    private val withNumberingRestart: Boolean = false,
+    private val withAdvanced: Boolean = false
 ) : PanelBuilder<TextFormat>(context) {
 
     /**
@@ -80,6 +82,8 @@ internal class FormatPanel(
     private var inTable = false
     private var markBackground: (String?) -> Unit = {}
     private val colorRows = mutableListOf<ColorPicker.Row>()
+    // Below selected drawings the text's settings open on a tap (closed at first)
+    private var drawingTextExpanded = false
 
     fun show() = open()
 
@@ -174,7 +178,11 @@ internal class FormatPanel(
         val text = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         addView(text)
         textSections += text
-        text.textSettings()
+        if (drawings != null) {
+            text.expandable(Resources.string.editors_format_text, drawingTextExpanded, { drawingTextExpanded = it }) { textSettings(withHeading = false) }
+        } else {
+            text.textSettings()
+        }
     }
 
     private fun LinearLayout.tableSettings(chooseStyle: (onBack: () -> Unit) -> Unit) {
@@ -200,8 +208,8 @@ internal class FormatPanel(
         }
     }
 
-    private fun LinearLayout.textSettings() {
-        heading(Resources.string.editors_format_text)
+    private fun LinearLayout.textSettings(withHeading: Boolean = true) {
+        if (withHeading) heading(Resources.string.editors_format_text)
         row {
             selector(Resources.string.editors_format_font, { it.fontName.ifEmpty { "—" } }) { chooseFont() }
             // Not without a size (text of different sizes)
@@ -291,6 +299,29 @@ internal class FormatPanel(
         action(Resources.string.editors_format_spacing, ::lineSpacingText) {
             openSettings(Resources.string.editors_format_spacing) { spacingSettings() }
         }
+        if (withAdvanced) {
+            action(Resources.string.editors_format_advanced) {
+                openSettings(Resources.string.editors_format_advanced) { advancedSettings() }
+            }
+        }
+    }
+
+    // Text documents: the first line's indent and what keeps paragraphs together, as web-apps
+    // offers them
+    private fun LinearLayout.advancedSettings() {
+        caption(Resources.string.editors_format_first_line)
+        stepper(Resources.string.editors_format_first_line, { centimeters(it.firstLine) }, { stepFirstLine(up = false) }, { stepFirstLine(up = true) })
+        for ((option, label) in PARAGRAPH_OPTIONS) {
+            switchRow(label, { option in it.paragraphOptions }) { on -> edit { setParagraphOption(option, on) } }
+        }
+    }
+
+    private fun centimeters(mm: Double) = context.getString(Resources.string.editors_format_cm_value, trimNumber(Math.round(mm * 10) / 100.0))
+
+    // By a quarter centimeter, hanging (negative) too
+    private fun stepFirstLine(up: Boolean) {
+        val mm = step(format.firstLine, INDENT_STEP_MM, up).coerceIn(-MAX_INDENT_MM, MAX_INDENT_MM)
+        edit { setFirstLineIndent(mm) }
     }
 
     // A narrow button beside a list's that opens its styles
@@ -361,7 +392,7 @@ internal class FormatPanel(
     }
 
     // The next multiple of size above or below value. sdkjs keeps heights in its own units, so
-    // a value comes back a little off (13 points as 12.99): up to 1 % of a step counts as on it.
+    // a value comes back a little off (12 points as 11.95): up to a tenth of a step counts as on it.
     private fun step(value: Double, size: Double, up: Boolean): Double =
         if (up) (Math.floor(value / size + STEP_TOLERANCE) + 1) * size else (Math.ceil(value / size - STEP_TOLERANCE) - 1) * size
 
@@ -401,6 +432,16 @@ internal class FormatPanel(
         const val MAX_LINE_MULTIPLE = 10.0
         const val DEFAULT_LINE_POINTS = 12.0
         const val MAX_POINTS = 1584.0
-        const val STEP_TOLERANCE = 0.01
+        const val STEP_TOLERANCE = 0.1
+        const val INDENT_STEP_MM = 2.5
+        const val MAX_INDENT_MM = 100.0
+        val PARAGRAPH_OPTIONS = listOf(
+            ParagraphOption.CONTEXTUAL_SPACING to Resources.string.editors_format_contextual_spacing,
+            ParagraphOption.PAGE_BREAK_BEFORE to Resources.string.editors_format_page_break_before,
+            ParagraphOption.WIDOW_CONTROL to Resources.string.editors_format_orphan_control,
+            ParagraphOption.KEEP_LINES to Resources.string.editors_format_keep_lines,
+            ParagraphOption.KEEP_NEXT to Resources.string.editors_format_keep_next,
+            ParagraphOption.SUPPRESS_LINE_NUMBERS to Resources.string.editors_format_suppress_line_numbers
+        )
     }
 }

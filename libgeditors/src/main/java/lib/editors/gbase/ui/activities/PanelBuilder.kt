@@ -14,8 +14,11 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.appcompat.widget.SwitchCompat
 import androidx.appcompat.widget.TooltipCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.isVisible
 import lib.editors.gbase.R
 import lib.editors.resources.R as Resources
 
@@ -203,6 +206,56 @@ internal abstract class PanelBuilder<F>(protected val context: Context) {
                 bottomMargin = dp(4)
             })
         }
+
+    // A setting that is on or off ([isOn] of the format), as a switch with its name
+    protected fun LinearLayout.switchRow(text: Int, isOn: (F) -> Boolean, onChange: (Boolean) -> Unit): SwitchCompat =
+        SwitchCompat(context).apply {
+            setText(text)
+            textSize = 15f
+            minHeight = dp(48)
+            // Clicks only: the format's updates set it without changing anything
+            setOnClickListener { onChange(isChecked) }
+            updaters += { isChecked = isOn(it) }
+        }.also { addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
+
+    // A section under a heading that opens and closes it ([expanded] at first, [onToggle] after)
+    protected fun LinearLayout.expandable(title: Int, expanded: Boolean, onToggle: (Boolean) -> Unit, build: LinearLayout.() -> Unit) {
+        val body = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            build()
+            isVisible = expanded
+        }
+        val chevron = ImageView(context).apply {
+            setImageResource(Resources.drawable.ic_editor_chevron_right)
+            rotation = if (expanded) 90f else 0f
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(48)
+            setPaddingRelative(0, dp(8), 0, 0)
+            setBackgroundResource(R.drawable.editor_tool_background)
+            addView(TextView(context).apply {
+                setText(title)
+                textSize = 16f
+                setTypeface(typeface, Typeface.BOLD)
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(chevron, LinearLayout.LayoutParams(dp(24), dp(24)))
+            contentDescription = context.getString(title)
+            fun describe() {
+                ViewCompat.setStateDescription(this, context.getString(if (body.isVisible) Resources.string.editors_expanded else Resources.string.editors_collapsed))
+            }
+            describe()
+            setOnClickListener {
+                body.isVisible = !body.isVisible
+                chevron.rotation = if (body.isVisible) 90f else 0f
+                describe()
+                onToggle(body.isVisible)
+            }
+        })
+        addView(body)
+    }
 
     // Outlined, and marked while pressed as the tools are
     private fun framed() = LayerDrawable(arrayOf(outline(dp(12)), ContextCompat.getDrawable(context, R.drawable.editor_tool_background)))

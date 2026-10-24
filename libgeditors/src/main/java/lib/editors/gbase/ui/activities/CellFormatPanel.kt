@@ -41,6 +41,8 @@ internal class CellFormatPanel(
     // The drawings the panel shows (null: none); without text, the panel has no text settings
     private var shown: ShapePanel.Selected? = null
     private var textSection: View? = null
+    // Below selected drawings the text's settings open on a tap (closed at first)
+    private var drawingTextExpanded = false
     private val cellsOnly = mutableListOf<View>()
     private val colorRows = mutableListOf<ColorPicker.Row>()
 
@@ -103,28 +105,15 @@ internal class CellFormatPanel(
             }
         }
 
-        // The cells' or the shapes' text
+        // The cells' text, or the shapes' (opening on a tap)
         textSection = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            heading(Resources.string.editors_format_text)
-            row {
-                selector(Resources.string.editors_format_font, { it.fontName.ifEmpty { "—" } }) { chooseFont() }
-                // Not without a size (text of different sizes)
-                button("−") { if (format.fontSize > 1) edit { setFontSize(format.fontSize - 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_down)
-                val size = TextView(context).apply { gravity = Gravity.CENTER; minWidth = dp(40) }.also { addView(it) }
-                updaters += {
-                    size.text = if (it.fontSize > 0) it.fontSize.toInt().toString() else "—"
-                    size.contentDescription = context.getString(Resources.string.editors_format_size) + " " + size.text
-                }
-                button("+") { if (format.fontSize > 0) edit { setFontSize(format.fontSize + 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_up)
+            if (drawings != null) {
+                expandable(Resources.string.editors_format_text, drawingTextExpanded, { drawingTextExpanded = it }) { textSettings() }
+            } else {
+                heading(Resources.string.editors_format_text)
+                textSettings()
             }
-            row {
-                group {
-                    icon(Resources.drawable.ic_editor_strikeout, Resources.string.editors_format_strikeout, { it.strikeout }) { edit { setStrikeout(!format.strikeout) } }
-                }
-            }
-            caption(Resources.string.editors_format_color)
-            colorRow(Resources.string.editors_format_color, none = null, { it.color }) { color -> edit { setTextColor(color) } }
         }.also { addView(it) }
         cellSection {
             caption(Resources.string.editors_cells_fill_color)
@@ -161,6 +150,27 @@ internal class CellFormatPanel(
                 choice(context.getString(Resources.string.editors_format_rtl), { it.rtl }) { edit { setRtl(true) } }
             }
         }
+    }
+
+    private fun LinearLayout.textSettings() {
+        row {
+            selector(Resources.string.editors_format_font, { it.fontName.ifEmpty { "—" } }) { chooseFont() }
+            // Not without a size (text of different sizes)
+            button("−") { if (format.fontSize > 1) edit { setFontSize(format.fontSize - 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_down)
+            val size = TextView(context).apply { gravity = Gravity.CENTER; minWidth = dp(40) }.also { addView(it) }
+            updaters += {
+                size.text = if (it.fontSize > 0) it.fontSize.toInt().toString() else "—"
+                size.contentDescription = context.getString(Resources.string.editors_format_size) + " " + size.text
+            }
+            button("+") { if (format.fontSize > 0) edit { setFontSize(format.fontSize + 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_up)
+        }
+        row {
+            group {
+                icon(Resources.drawable.ic_editor_strikeout, Resources.string.editors_format_strikeout, { it.strikeout }) { edit { setStrikeout(!format.strikeout) } }
+            }
+        }
+        caption(Resources.string.editors_format_color)
+        colorRow(Resources.string.editors_format_color, none = null, { it.color }) { color -> edit { setTextColor(color) } }
     }
 
     // In the panel's place, then back to it

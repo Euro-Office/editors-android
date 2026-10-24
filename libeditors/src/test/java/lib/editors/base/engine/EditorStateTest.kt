@@ -111,6 +111,14 @@ class EditorStateTest {
     }
 
     @Test
+    fun `parses advanced paragraph settings`() {
+        val format = EditorState.parse(state(""", "format": {"KeepNext": true, "WidowControl": true, "PageBreakBefore": false, "FirstLine": -6.35}""")).format
+        assertEquals(setOf(ParagraphOption.KEEP_NEXT, ParagraphOption.WIDOW_CONTROL), format.paragraphOptions)
+        assertEquals(-6.35, format.firstLine, 0.0)
+        assertTrue(EditorState.parse(state(""", "format": {}""")).format.paragraphOptions.isEmpty())
+    }
+
+    @Test
     fun `parses theme colors and resolves them`() {
         val theme = (0 until 60).map { "%06X".format(it) }
         val json = """{"theme": [${theme.joinToString { "\"$it\"" }}], "standard": ["C00000", "FF0000"]}"""

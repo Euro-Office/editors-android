@@ -124,8 +124,24 @@ data class TextFormat(
     val list: Int = -1,
     val style: String = "",
     /** The paragraph is right to left. */
-    val rtl: Boolean = false
+    val rtl: Boolean = false,
+    /** Text documents: the advanced settings that are on (see [EditorDocument.setParagraphOption]). */
+    val paragraphOptions: Set<ParagraphOption> = emptySet(),
+    /** Text documents: the first line's indent in mm (negative: hanging). */
+    val firstLine: Double = 0.0
 )
+
+/** Text documents' advanced paragraph settings, as web-apps offers them; [key] is the state's and the engine's. */
+enum class ParagraphOption(val key: String, val command: String) {
+    /** No space between paragraphs of the same style. */
+    CONTEXTUAL_SPACING("ContextualSpacing", "contextualSpacing"),
+    PAGE_BREAK_BEFORE("PageBreakBefore", "pageBreakBefore"),
+    /** Orphan control. */
+    WIDOW_CONTROL("WidowControl", "widowControl"),
+    KEEP_LINES("KeepLines", "keepLines"),
+    KEEP_NEXT("KeepNext", "keepNext"),
+    SUPPRESS_LINE_NUMBERS("SuppressLineNumbers", "suppressLineNumbers")
+}
 
 /** Find and replace: the number of matches, the current one (0-based, -1 for none) and, after replace all, how many were replaced (-1 otherwise). */
 data class SearchState(val count: Int, val current: Int, val replaced: Int)
@@ -583,7 +599,9 @@ class EditorState(
             spacingAfter = json.optDouble("SpacingAfter", 0.0),
             list = json.optInt("List", -1),
             style = json.optString("Style"),
-            rtl = json.optBoolean("Rtl")
+            rtl = json.optBoolean("Rtl"),
+            paragraphOptions = ParagraphOption.entries.filter { json.optBoolean(it.key) }.toSet(),
+            firstLine = json.optDouble("FirstLine", 0.0)
         )
 
 
