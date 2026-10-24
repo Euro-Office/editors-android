@@ -290,7 +290,8 @@
     <string name="editors_list_style">%1$s, style %2$d</string>
     <string name="editors_list_restart">Restart numbering</string>
     <string name="editors_list_continue">Continue numbering</string>
-    <string name="editors_format_lists">Lists</string>
+    <string name="editors_list_bullet_styles">Bullet styles</string>
+    <string name="editors_list_numbering_styles">Numbering styles</string>
     <string name="editors_format_spacing">Spacing</string>
     <string name="editors_fill_more">Fill effects</string>
     <string name="editors_fill_color">Color</string>

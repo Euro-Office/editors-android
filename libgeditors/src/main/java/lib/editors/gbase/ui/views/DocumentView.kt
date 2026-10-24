@@ -604,6 +604,22 @@ class DocumentView @JvmOverloads constructor(
         requestDetails()
     }
 
+    /**
+     * Shows what formatting applies to (the selected drawings, the selection or the cursor) in
+     * the upper half of the view, so that a panel over the lower half doesn't hide it.
+     */
+    fun revealSelection() {
+        val state = editorState ?: return
+        val drawing = state.drawings.firstOrNull { it.page in pageSizes.indices }
+        val area = state.selection.firstOrNull { it.page in pageSizes.indices }
+        val cursor = state.cursor?.takeIf { it.page in pageSizes.indices }
+        when {
+            drawing != null -> reveal(drawing.page, (0 until 4).minOf { drawing.points[2 * it + 1] })
+            area != null -> reveal(area.page, (0 until 4).minOf { area.points[2 * it + 1] })
+            cursor != null -> reveal(cursor.page, min(cursor.y1, cursor.y2))
+        }
+    }
+
     /** Scrolls so that the start of the selection is visible, with some room around it. */
     fun scrollToSelection() {
         val area = editorState?.selection?.firstOrNull { it.page in pageSizes.indices } ?: return

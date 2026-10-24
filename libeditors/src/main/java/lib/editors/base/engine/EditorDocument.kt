@@ -171,6 +171,11 @@ interface EditorDocument : PagedDocument {
     /** Text documents: paragraph style names. */
     fun styles(): List<String> = jsonStrings(execute("eoEngine.getStyles()"))
 
+    /** The names the pictures of the paragraph styles show ([previews] "paragraphStyles"), by style name. */
+    fun setStyleLabels(labels: Map<String, String>) {
+        execute("eoEngine.setStyleLabels(${JSONObject.quote(JSONObject(labels).toString())})")
+    }
+
     fun setFontName(name: String): EditorState = asyncCommand("eoEngine.setFontName(${JSONObject.quote(name)})")
 
     fun setFontSize(points: Double): EditorState = command("eoEngine.setFontSize($points)")

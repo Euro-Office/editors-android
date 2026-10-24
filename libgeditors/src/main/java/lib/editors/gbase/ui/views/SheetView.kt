@@ -475,6 +475,22 @@ class SheetView @JvmOverloads constructor(
         revealCell = true
     }
 
+    /**
+     * Shows what formatting applies to (the selected drawings or the active cell) in the upper
+     * half of the view, so that a panel over the lower half doesn't hide it.
+     */
+    fun revealSelection() {
+        val sheet = state ?: return
+        if (height == 0) return
+        if (drawings.isEmpty()) {
+            revealCell(sheet.col, sheet.row)
+            return
+        }
+        val top = drawings.minOf { frame -> (0 until 4).minOf { viewY(frame.points[2 * it + 1]) } }
+        val area = headerHeight + frozenHeight()
+        if (top < area || top > area + (height - area) / 2f) scrollTo(scrollPosX, scrollPosY + top - (area + (height - area) / 4f))
+    }
+
     private fun revealCell(col: Int, row: Int) {
         if (col >= geometry.colCount || row >= geometry.rowCount) return
         showCell(col, row)

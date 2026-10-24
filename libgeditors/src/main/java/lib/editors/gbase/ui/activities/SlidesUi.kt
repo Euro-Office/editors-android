@@ -45,7 +45,9 @@ internal class SlidesUi(
     /** Thumbnails below each other (beside the slides) instead of next to each other. */
     private val vertical: Boolean = false,
     /** Pictures of the layouts to choose from. */
-    private val previews: PreviewPicker? = null
+    private val previews: PreviewPicker? = null,
+    /** Where the transition's settings open. */
+    private val panels: PanelHost? = null
 ) {
 
     var editable: Boolean = editable
@@ -211,8 +213,11 @@ internal class SlidesUi(
         }
     }
 
-    fun chooseTransition() {
-        TransitionDialog(context, edit) { reload(null) }.show(slides.getOrNull(currentSlide)?.transition)
+    private val transitionPanel by lazy { panels?.let { TransitionPanel(context, it, edit) { reload(null) } } }
+
+    /** The current slide's transition; [onBack] to the panel it was opened from. */
+    fun chooseTransition(onBack: (() -> Unit)? = null) {
+        transitionPanel?.show(slides.getOrNull(currentSlide)?.transition, onBack)
     }
 
     private fun editNotes(index: Int) {

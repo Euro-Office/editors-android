@@ -63,6 +63,7 @@ import lib.editors.base.engine.EditorSpelling
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.FillTarget
 import lib.editors.base.engine.ListKind
+import lib.editors.base.engine.Preview
 import lib.editors.base.engine.Misspelling
 import lib.editors.base.engine.SheetState
 import lib.editors.base.engine.SpellService
@@ -350,7 +351,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     slideAspect = { firstSlide?.let { (it.widthMm / it.heightMm).toFloat() } ?: (16f / 9f) },
                     editable = false,
                     vertical = sideStrips,
-                    previews = previewPicker
+                    previews = previewPicker,
+                    panels = panels
                 )
                 addStrip(ui.strip)
                 slidesUi = ui
@@ -1095,23 +1097,24 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private val formatPanel by lazy {
         FormatPanel(
             this, { command -> edit(command = command) },
-            load = { onLoaded ->
+            loadFonts = { onLoaded ->
                 val document = document ?: return@FormatPanel
                 lifecycleScope.launch {
-                    val lists = withContext(EditorEngine.dispatcher) { Triple(document.fonts(), document.documentFonts(), document.styles()) }
-                    onLoaded(lists.first, lists.second, lists.third)
+                    val lists = withContext(EditorEngine.dispatcher) { document.fonts() to document.documentFonts() }
+                    onLoaded(lists.first, lists.second)
                 }
             },
             withParagraphs = editorsType != EditorsType.CELLS,
-            withStyles = editorsType == EditorsType.DOCS,
             withHighlights = editorsType != EditorsType.PDF,
             panels = panels,
             colorPicker = colorPicker,
+            shapes = shapePanel,
+            chooseStyle = if (editorsType == EditorsType.DOCS) ::chooseParagraphStyle else null,
             slide = if (editorsType != EditorsType.PRESENTATION) null else FormatPanel.SlideSettings(
                 loadBackground = { onLoaded -> read({ slideBackground() }, onLoaded) },
                 chooseLayout = { back -> slidesUi?.chooseLayout(forNewSlide = false, onBack = back) },
                 chooseDesign = ::chooseDesign,
-                chooseTransition = { slidesUi?.chooseTransition() }
+                chooseTransition = { back -> slidesUi?.chooseTransition(back) }
             ),
             chooseTableStyle = if (isSpreadsheet || editorsType == EditorsType.PDF) null else {
                 { back ->
@@ -1122,7 +1125,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             },
             chooseFill = if (editorsType == EditorsType.PDF) null else fillPanel::show,
             chooseList = if (editorsType == EditorsType.DOCS || editorsType == EditorsType.PRESENTATION) ::chooseListPreset else null,
-            withMultilevelLists = editorsType == EditorsType.DOCS
+            withNumberingRestart = editorsType == EditorsType.DOCS
         )
     }
 
@@ -1134,7 +1137,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         }
     }
 
-    // A list preset of the kind by its picture, the current one marked; "None" ends the list
+    // A list preset of the kind by its picture, the current one marked; "None" ends the list.
+    // Documents' numbering has the multilevel lists below its own.
     private fun chooseListPreset(kind: ListKind, onBack: () -> Unit) = read({ listPresets() }) { presets ->
         val title = getString(when (kind) {
             ListKind.BULLETS -> Resources.string.editors_list_bullets
@@ -1153,10 +1157,36 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 onBack()
             }
         }
+        if (kind == ListKind.NUMBERS && editorsType == EditorsType.DOCS) {
+            // Ids "<kind>-<index>", the kind as name
+            val multilevel = getString(Resources.string.editors_list_multilevel)
+            val selected = presets?.get(ListKind.MULTILEVEL)?.takeIf { it >= 0 }?.let { "multilevel-$it" }
+                ?: presets?.get(ListKind.NUMBERS)?.takeIf { it >= 0 }?.let { "numbers-$it" }
+            fun kindOf(preview: Preview) = if (preview.name == ListKind.MULTILEVEL.value) ListKind.MULTILEVEL else ListKind.NUMBERS
+            fun indexOf(preview: Preview) = preview.id.substringAfterLast('-').toInt()
+            previewPicker.show(
+                title, "list-numbering", selected = selected, columnWidthDp = 88, header = none, onBack = onBack,
+                section = { if (kindOf(it) == ListKind.MULTILEVEL) multilevel else null },
+                describe = { getString(Resources.string.editors_list_style, if (kindOf(it) == ListKind.MULTILEVEL) multilevel else title, indexOf(it) + 1) }
+            ) { preview -> edit { setListPreset(kindOf(preview), indexOf(preview)) } }
+            return@read
+        }
         previewPicker.show(
             title, "list-${kind.value}", selected = presets?.get(kind)?.takeIf { it >= 0 }?.toString(), columnWidthDp = 88,
             header = none, onBack = onBack, describe = { getString(Resources.string.editors_list_style, title, it.id.toInt() + 1) }
         ) { preview -> edit { setListPreset(kind, preview.id.toInt()) } }
+    }
+
+    // Text documents: the paragraph style by pictures of the styles (their names in them, in the
+    // app's language), the current one marked
+    private fun chooseParagraphStyle(current: String, onBack: () -> Unit) {
+        val context = this
+        read({ setStyleLabels(styles().associateWith { EditorTranslations.styleName(context, it) }) }) {
+            previewPicker.show(
+                getString(Resources.string.editors_format_style), "paragraphStyles", selected = current, columnWidthDp = 150,
+                onBack = onBack, describe = { EditorTranslations.styleName(context, it.id) }
+            ) { style -> edit { setStyle(style.id) } }
+        }
     }
 
     private val cellFormatPanel by lazy {
@@ -1166,7 +1196,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 val lists = withContext(EditorEngine.dispatcher) { document.fonts() to document.documentFonts() }
                 onLoaded(lists.first, lists.second)
             }
-        }, panels = panels, colorPicker = colorPicker)
+        }, panels = panels, colorPicker = colorPicker, shapes = shapePanel)
     }
 
     private val chartUi by lazy {
@@ -1203,18 +1233,22 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         if (bar != null) root.addView(bar, root.indexOfChild(findViewById(R.id.editorTopBar)) + 1)
     }
 
+    // The selected pictures, shapes and charts: the first section of the format panels
+    private val shapePanel by lazy {
+        ShapePanel(
+            this, lifecycleScope, { document }, { command -> edit(command = command) }, chartUi,
+            ChartSettingsPanel(this, { command -> edit(command = command) }, panels, previewPicker), colorPicker,
+            chart = { drawingUi.chart },
+            withGroups = editorsType != EditorsType.PDF,
+            chooseFill = if (editorsType == EditorsType.PDF) null else { back -> fillPanel.show(FillTarget.SHAPE, back) }
+        )
+    }
+
     private val drawingUi by lazy {
         DrawingUi(
             this, { command -> edit(command = command) },
             { pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, ::takePhoto,
             chartUi,
-            ShapePanel(
-                this, lifecycleScope, { document }, { command -> edit(command = command) }, chartUi,
-                ChartSettingsPanel(this, { command -> edit(command = command) }, panels, previewPicker), panels, colorPicker,
-                formatText = ::formatText,
-                chooseFill = if (editorsType == EditorsType.PDF) null else { back -> fillPanel.show(FillTarget.SHAPE, back) },
-                withGroups = editorsType != EditorsType.PDF
-            ),
             iconPicker,
             // Tables with a style: documents and presentations (spreadsheets' tables are cells)
             tablePicker = previewPicker.takeUnless { isSpreadsheet },
@@ -1354,14 +1388,23 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             getString(Resources.string.editors_doc_delete_row) to { edit { tableAction("deleteRow") } }
         )
         findViewById<View>(R.id.toolFormat).isVisible = true
-        findViewById<View>(R.id.toolFormat).setOnClickListener { if (formatsDrawings) drawingUi.showShapePanel() else formatText() }
+        findViewById<View>(R.id.toolFormat).setOnClickListener { showFormat() }
         // Selected pictures, shapes and charts: "Format" in their menu too
-        val formatAction = listOf(getString(Resources.string.editors_format) to { drawingUi.showShapePanel() })
+        val formatAction = listOf(getString(Resources.string.editors_format) to { showFormat() })
         if (isSpreadsheet) findViewById<SheetView>(R.id.sheetView).drawingActions = formatAction else documentView.drawingActions = formatAction
     }
 
     // The text's or cells' formatting; for a shape's text, back to the shape's panel
-    private fun formatText(onBack: (() -> Unit)? = null) = if (isSpreadsheet) cellFormatPanel.show() else formatPanel.show(onBack)
+    // The format panel: of the selected drawings, text or cells, which the document shows above it
+    private fun showFormat() {
+        if (isSpreadsheet) {
+            findViewById<SheetView>(R.id.sheetView).revealSelection()
+            cellFormatPanel.show()
+        } else {
+            documentView.revealSelection()
+            formatPanel.show()
+        }
+    }
 
     // The format button formats what is selected: pictures, shapes and charts while some are,
     // otherwise text or cells. Its picture tells which, and it pulses when it changes to them.
@@ -1479,8 +1522,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         // one is selected (applyState)
         bindTextTools()
         // Pictures and shapes: fill, outline and order (their menu too); text: its formatting
-        findViewById<View>(R.id.toolFormat).setOnClickListener { if (formatsDrawings) drawingUi.showShapePanel() else formatText() }
-        documentView.drawingActions = listOf(getString(Resources.string.editors_format) to { drawingUi.showShapePanel() })
+        findViewById<View>(R.id.toolFormat).setOnClickListener { showFormat() }
+        documentView.drawingActions = listOf(getString(Resources.string.editors_format) to { showFormat() })
         findViewById<View>(R.id.toolUndo).setOnClickListener { edit { undo() } }
         findViewById<View>(R.id.toolRedo).setOnClickListener { edit { redo() } }
     }

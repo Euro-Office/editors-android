@@ -156,8 +156,8 @@ internal abstract class PanelBuilder<F>(protected val context: Context) {
         }
 
     // A row that opens more settings in their own panel (pictures of table styles, ...), with
-    // what is set now ([value] of the format, none if empty)
-    protected fun LinearLayout.action(text: Int, value: ((F) -> String)? = null, onClick: () -> Unit): View =
+    // what is set now ([value] of the format, none if empty) and its picture
+    protected fun LinearLayout.action(text: Int, value: ((F) -> String)? = null, icon: Int? = null, onClick: () -> Unit): View =
         LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -185,6 +185,13 @@ internal abstract class PanelBuilder<F>(protected val context: Context) {
                     current.text = value(it)
                     contentDescription = if (current.text.isEmpty()) label else label + ", " + current.text
                 }
+            }
+            if (icon != null) {
+                addView(ImageView(context).apply {
+                    setImageResource(icon)
+                    imageTintList = ColorStateList.valueOf(ContextCompat.getColor(context, Resources.color.editors_icon))
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginStart = dp(8) })
             }
             addView(ImageView(context).apply {
                 setImageResource(Resources.drawable.ic_editor_chevron_right)

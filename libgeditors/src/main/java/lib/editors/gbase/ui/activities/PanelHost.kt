@@ -20,6 +20,7 @@ import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.widget.NestedScrollView
 import androidx.core.view.isVisible
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import lib.editors.gbase.R
 import lib.editors.resources.R as Resources
@@ -49,8 +50,9 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
     /**
      * Shows [content] (scrolled) under [title]; [onBack] shows the panel this one was opened
      * from (a back button), [onDismiss] runs when it closes, however that happens. A bottom
-     * sheet that isn't [modal] leaves the document usable (scrolling, tapping) and has a close
-     * button instead.
+     * sheet that isn't [modal] leaves the document usable (scrolling, tapping), takes at most
+     * half the screen (the document shows what it formats above it) and has a close button
+     * instead; the panels opened from it stay so.
      */
     fun show(title: String, content: View, onBack: (() -> Unit)? = null, modal: Boolean = true, onDismiss: () -> Unit): Panel {
         // Nested: in a bottom sheet, scrolling back up scrolls the panel before it moves the sheet
@@ -60,7 +62,7 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
             // In the sheet that is open: no closing and opening again
             current = null
             sheet.onDismiss()
-            return showSheet(sheet.sheet, sheet.frame, title, scroll, onBack, modal, onDismiss)
+            return showSheet(sheet.sheet, sheet.frame, title, scroll, onBack, modal && sheet.modal, onDismiss)
         }
         current?.dismiss()
         val panel = if (isSide) showSide(title, scroll, onBack, onDismiss) else showSheet(null, null, title, scroll, onBack, modal, onDismiss)
@@ -174,7 +176,12 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
             addView(content)
         })
         setModal(sheet, modal)
-        panel = SheetPanel(sheet, frame, onDismiss)
+        sheet.behavior.maxHeight = if (modal) -1 else context.resources.displayMetrics.heightPixels / 2
+        if (!modal) {
+            sheet.behavior.skipCollapsed = true
+            sheet.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        }
+        panel = SheetPanel(sheet, frame, modal, onDismiss)
         sheet.setOnDismissListener {
             val shown = current as? SheetPanel
             if (shown?.sheet === sheet) {
@@ -206,7 +213,7 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
         }
     }
 
-    private inner class SheetPanel(val sheet: BottomSheetDialog, val frame: FrameLayout, val onDismiss: () -> Unit) : Panel {
+    private inner class SheetPanel(val sheet: BottomSheetDialog, val frame: FrameLayout, val modal: Boolean, val onDismiss: () -> Unit) : Panel {
         // A panel that another took the place of has nothing to close
         override fun dismiss() {
             if (current === this) sheet.dismiss()

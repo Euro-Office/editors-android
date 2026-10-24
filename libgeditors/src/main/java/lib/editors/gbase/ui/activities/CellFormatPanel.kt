@@ -14,7 +14,9 @@ import lib.editors.resources.R as Resources
 
 /**
  * Spreadsheets: the format of the selected cells (number format, font, colors, borders, wrap,
- * merge, alignment) in a panel (see [PanelHost]). It shows the active cell's format (see [update]).
+ * merge, alignment) in a panel (see [PanelHost]) that leaves the sheet usable; the selected
+ * pictures, shapes and charts first ([ShapePanel]), then their text's font. It shows the active
+ * cell's format (see [update]).
  */
 internal class CellFormatPanel(
     context: Context,
@@ -22,7 +24,9 @@ internal class CellFormatPanel(
     /** All fonts and the document's, from the engine (on its thread). */
     private val loadFonts: (onLoaded: (fonts: List<String>, documentFonts: List<String>) -> Unit) -> Unit,
     private val panels: PanelHost,
-    private val colorPicker: ColorPicker
+    private val colorPicker: ColorPicker,
+    /** The selected drawings' section. */
+    private val shapes: ShapePanel? = null
 ) : PanelBuilder<CellFormat>(context) {
 
     private var dialog: PanelHost.Panel? = null
@@ -34,6 +38,9 @@ internal class CellFormatPanel(
     // A chart, picture or shape is selected: only its text's font applies to it (sdkjs would
     // apply the cells' settings to the cells under it)
     private var drawingSelected = false
+    // The drawings the panel shows (null: none); without text, the panel has no text settings
+    private var shown: ShapePanel.Selected? = null
+    private var textSection: View? = null
     private val cellsOnly = mutableListOf<View>()
     private val colorRows = mutableListOf<ColorPicker.Row>()
 
@@ -42,11 +49,17 @@ internal class CellFormatPanel(
             fonts = all
             documentFonts = used
         }
+        val shapes = shapes
+        if (drawingSelected && shapes != null) shapes.load(::build) else build(null)
+    }
+
+    private fun build(drawings: ShapePanel.Selected?) {
+        shown = drawings
         updaters.clear()
         cellsOnly.clear()
         colorRows.clear()
-        val content = content()
-        dialog = panels.show(context.getString(Resources.string.editors_format), content) { dialog = null }
+        val content = content(drawings)
+        dialog = panels.show(context.getString(Resources.string.editors_format), content, modal = false) { dialog = null }
         update(format, drawingSelected)
         // The theme's colors with the current color scheme
         colorPicker.load { colors -> colorRows.forEach { it.setColors(colors) } }
@@ -54,17 +67,26 @@ internal class CellFormatPanel(
 
     /** The format of the active cell, or of the selected drawing's text ([drawing]). */
     fun update(newFormat: CellFormat, drawing: Boolean = false) {
+        val drawingChanged = drawing != drawingSelected
         format = newFormat
         drawingSelected = drawing
-        if (dialog != null) {
-            updaters.forEach { it(newFormat) }
-            cellsOnly.forEach { it.isVisible = !drawing }
+        if (dialog == null) return
+        // Its section came or went
+        if (drawingChanged && shapes != null) {
+            show()
+            return
         }
+        updaters.forEach { it(newFormat) }
+        cellsOnly.forEach { it.isVisible = !drawing }
+        textSection?.isVisible = shown?.hasText ?: true
     }
 
-    private fun content(): View = LinearLayout(context).apply {
+    private fun content(drawings: ShapePanel.Selected?): View = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
+
+        // The selected pictures, shapes or charts
+        if (drawings != null) shapes?.addTo(this, drawings, ::show, colorRows)
 
         cellSection {
             heading(Resources.string.editors_cells_number_format)
@@ -81,25 +103,29 @@ internal class CellFormatPanel(
             }
         }
 
-        heading(Resources.string.editors_format_text)
-        row {
-            selector(Resources.string.editors_format_font, { it.fontName.ifEmpty { "—" } }) { chooseFont() }
-            // Not without a size (text of different sizes)
-            button("−") { if (format.fontSize > 1) edit { setFontSize(format.fontSize - 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_down)
-            val size = TextView(context).apply { gravity = Gravity.CENTER; minWidth = dp(40) }.also { addView(it) }
-            updaters += {
-                size.text = if (it.fontSize > 0) it.fontSize.toInt().toString() else "—"
-                size.contentDescription = context.getString(Resources.string.editors_format_size) + " " + size.text
+        // The cells' or the shapes' text
+        textSection = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            heading(Resources.string.editors_format_text)
+            row {
+                selector(Resources.string.editors_format_font, { it.fontName.ifEmpty { "—" } }) { chooseFont() }
+                // Not without a size (text of different sizes)
+                button("−") { if (format.fontSize > 1) edit { setFontSize(format.fontSize - 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_down)
+                val size = TextView(context).apply { gravity = Gravity.CENTER; minWidth = dp(40) }.also { addView(it) }
+                updaters += {
+                    size.text = if (it.fontSize > 0) it.fontSize.toInt().toString() else "—"
+                    size.contentDescription = context.getString(Resources.string.editors_format_size) + " " + size.text
+                }
+                button("+") { if (format.fontSize > 0) edit { setFontSize(format.fontSize + 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_up)
             }
-            button("+") { if (format.fontSize > 0) edit { setFontSize(format.fontSize + 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_up)
-        }
-        row {
-            group {
-                icon(Resources.drawable.ic_editor_strikeout, Resources.string.editors_format_strikeout, { it.strikeout }) { edit { setStrikeout(!format.strikeout) } }
+            row {
+                group {
+                    icon(Resources.drawable.ic_editor_strikeout, Resources.string.editors_format_strikeout, { it.strikeout }) { edit { setStrikeout(!format.strikeout) } }
+                }
             }
-        }
-        caption(Resources.string.editors_format_color)
-        colorRow(Resources.string.editors_format_color, none = null, { it.color }) { color -> edit { setTextColor(color) } }
+            caption(Resources.string.editors_format_color)
+            colorRow(Resources.string.editors_format_color, none = null, { it.color }) { color -> edit { setTextColor(color) } }
+        }.also { addView(it) }
         cellSection {
             caption(Resources.string.editors_cells_fill_color)
             colorRow(Resources.string.editors_cells_fill_color, Resources.string.editors_color_none, { it.fill }) { color -> edit { setCellFill(color) } }

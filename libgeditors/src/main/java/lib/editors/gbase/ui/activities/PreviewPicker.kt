@@ -36,14 +36,14 @@ internal class PreviewPicker(
     /**
      * Shows the previews of [kind] under [title], the one with [selected] id highlighted, their
      * names under them if [withNames] ([describe] says each one to TalkBack); [header] goes above
-     * them (settings for the choice).
+     * them (settings for the choice). Previews of a [section] (null: none) come under its heading.
      * [onPick] gets the chosen one; the panel stays open if [keepOpen], else goes [onBack] to
      * the panel it was opened from, if any.
      */
     fun show(
         title: String, kind: String, selected: String? = null, columnWidthDp: Int = 104, withNames: Boolean = false,
         header: View? = null, keepOpen: Boolean = false, onBack: (() -> Unit)? = null,
-        describe: (Preview) -> String = { it.name }, onPick: (Preview) -> Unit
+        describe: (Preview) -> String = { it.name }, section: (Preview) -> String? = { null }, onPick: (Preview) -> Unit
     ) {
         val document = document() ?: return
         scope.launch {
@@ -54,8 +54,23 @@ internal class PreviewPicker(
             val cell = dp(columnWidthDp)
             val columns = ((panels.width - dp(16)) / cell).coerceAtLeast(2)
             val images = mutableListOf<ImageView>()
-            val grid = GridLayout(context).apply { columnCount = columns }
-            for (preview in previews) {
+            val cells = mutableListOf<View>()
+            val grids = mutableListOf<View>()
+            var grid = GridLayout(context)
+            previews.forEachIndexed { index, preview ->
+                // A section's heading and grid
+                val name = section(preview)
+                if (index == 0 || name != section(previews[index - 1])) {
+                    if (name != null) {
+                        grids += TextView(context).apply {
+                            text = name
+                            textSize = 14f
+                            setPaddingRelative(dp(6), dp(12), 0, dp(4))
+                        }
+                    }
+                    grid = GridLayout(context).apply { columnCount = columns }
+                    grids += grid
+                }
                 val image = ImageView(context).apply {
                     scaleType = ImageView.ScaleType.FIT_CENTER
                     adjustViewBounds = true
@@ -81,20 +96,20 @@ internal class PreviewPicker(
                     }
                     setOnClickListener {
                         when {
-                            keepOpen -> for (i in 0 until grid.childCount) grid.getChildAt(i).isSelected = grid.getChildAt(i) === this
+                            keepOpen -> cells.forEach { it.isSelected = it === this }
                             onBack == null -> panel.dismiss()
                         }
                         onPick(preview)
                         if (!keepOpen) onBack?.invoke()
                     }
                     layoutParams = GridLayout.LayoutParams().apply { width = cell }
-                })
+                }.also { cells += it })
             }
             val content = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 setPaddingRelative(dp(8), 0, dp(8), dp(16))
                 if (header != null) addView(header)
-                addView(grid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                grids.forEach { addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
             }
             panel = panels.show(title, content, onBack) { drawing?.cancel() }
             drawing = scope.launch {

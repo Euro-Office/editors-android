@@ -44,6 +44,8 @@ CHART_TYPES = {
 # Icons of menu items and buttons (ic_editor_<name>): web-apps' mobile icons, under apps/
 MENU_ICONS = {
     "page_break": "common/mobile/resources/icons/android/icon-pagebreak.svg",
+    "text_ltr": "common/mobile/resources/icons/common/icon-text-direction-ltr.svg",
+    "text_rtl": "common/mobile/resources/icons/common/icon-text-direction-rtl.svg",
     "line_break": "common/mobile/resources/icons/android/icon-stringbreak.svg",
     "section_break": "common/mobile/resources/icons/android/icon-sectionbreak.svg",
     "page_number": "common/mobile/resources/icons/android/icon-pagenumber.svg",

@@ -22,9 +22,9 @@ import java.io.File
 import java.util.UUID
 
 /**
- * Inserting pictures and shapes and formatting the selected ones: the toolbar's "Insert" menu
- * and "Shape" panel ([ShapePanel]). Picking and taking pictures needs the activity; it calls back
- * through [pickPicture] and [takePhoto].
+ * Inserting pictures, shapes, charts and tables: the toolbar's "Insert" menu (the selected
+ * ones are formatted in the format panels, see [ShapePanel]). Picking and taking pictures needs
+ * the activity; it calls back through [pickPicture] and [takePhoto].
  */
 internal class DrawingUi(
     private val context: Context,
@@ -32,7 +32,6 @@ internal class DrawingUi(
     private val pickPicture: () -> Unit,
     private val takePhoto: () -> Unit,
     private val chartUi: ChartUi,
-    private val shapePanel: ShapePanel,
     private val picker: IconPicker,
     private val tablePicker: PreviewPicker? = null,
     private val insertTextBox: (() -> Unit)? = null,
@@ -40,7 +39,7 @@ internal class DrawingUi(
     private val moreInsertItems: (Menu) -> Unit = {}
 ) {
 
-    /** The selected chart, for its own settings in the shape panel. */
+    /** The selected chart, for its own settings in the format panel ([ShapePanel]). */
     var chart: ChartState? = null
 
     fun showInsertMenu(anchor: View) {
@@ -70,8 +69,6 @@ internal class DrawingUi(
             }
         }.show()
     }
-
-    fun showShapePanel() = shapePanel.show { chart }
 
     // The table's size above pictures of the styles; a style inserts it
     private fun chooseTable() {
