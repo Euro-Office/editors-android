@@ -7,6 +7,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.view.isVisible
+import lib.editors.base.engine.Alignment
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.FillTarget
@@ -46,8 +47,9 @@ internal class FormatPanel(
     private val chooseFill: ((target: FillTarget, onBack: () -> Unit) -> Unit)? = null,
     /** List presets by their pictures; null without them. */
     private val chooseList: ((kind: ListKind, onBack: () -> Unit) -> Unit)? = null,
-    /** Text documents: numbering restarted or continued, the advanced paragraph settings. */
+    /** Text documents: numbering restarted or continued, the advanced paragraph settings, caps. */
     private val withNumberingRestart: Boolean = false,
+    private val withCaps: Boolean = false,
     private val withAdvanced: Boolean = false
 ) : PanelBuilder<TextFormat>(context) {
 
@@ -225,6 +227,12 @@ internal class FormatPanel(
             button("+") { if (format.fontSize > 0) edit { setFontSize(format.fontSize + 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_up)
         }
         scrollRow {
+            // As in the toolbar
+            group {
+                icon(Resources.drawable.ic_editor_bold, Resources.string.editors_bold, { it.bold }) { edit { setBold(!format.bold) } }
+                icon(Resources.drawable.ic_editor_italic, Resources.string.editors_italic, { it.italic }) { edit { setItalic(!format.italic) } }
+                icon(Resources.drawable.ic_editor_underline, Resources.string.editors_underline, { it.underline }) { edit { setUnderline(!format.underline) } }
+            }
             group {
                 icon(Resources.drawable.ic_editor_strikeout, Resources.string.editors_format_strikeout, { it.strikeout }) { edit { setStrikeout(!format.strikeout) } }
                 icon(Resources.drawable.ic_editor_subscript, Resources.string.editors_format_subscript, { it.baseline == 1 }) {
@@ -238,15 +246,34 @@ internal class FormatPanel(
                 icon(Resources.drawable.ic_editor_clear_format, Resources.string.editors_format_clear) { edit { clearFormatting() } }
             }
         }
+        // The paragraph's alignment, as in the toolbar (not of selected drawings)
+        val alignments = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            scrollRow {
+                group {
+                    for ((alignment, icon, name) in ALIGNMENTS) icon(icon, name, { it.alignment == alignment }) { edit { setAlignment(alignment) } }
+                }
+            }
+        }
+        addView(alignments)
+        textOnly += alignments
+        if (withCaps) {
+            scrollRow {
+                choice(context.getString(Resources.string.editors_format_all_caps), { it.caps }) { edit { setCaps(!format.caps) } }
+                choice(context.getString(Resources.string.editors_format_small_caps), { it.smallCaps }) { edit { setSmallCaps(!format.smallCaps) } }
+            }
+        }
         caption(Resources.string.editors_format_color)
         val textColor = colorRow(Resources.string.editors_format_color, Resources.string.editors_color_automatic) { color -> edit { setTextColor(color) } }
         updaters += { textColor.mark(it.color) }
         if (withHighlights) {
-            textOnly += action(Resources.string.editors_format_highlight, { if (it.highlight.isEmpty()) "" else Accessibility.colorName(context, it.highlight) }) {
-                openSettings(Resources.string.editors_format_highlight) {
-                    colors(HIGHLIGHTS, { it.highlight }) { color -> edit { setHighlight(color) } }
-                }
+            val highlights = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                caption(Resources.string.editors_format_highlight)
+                colors(HIGHLIGHTS, { it.highlight }) { color -> edit { setHighlight(color) } }
             }
+            addView(highlights)
+            textOnly += highlights
         }
     }
 
@@ -430,6 +457,11 @@ internal class FormatPanel(
         const val DEFAULT_LINE_POINTS = 12.0
         const val MAX_POINTS = 1584.0
         const val STEP_TOLERANCE = 0.1
+        val ALIGNMENTS = listOf(
+            Triple(Alignment.LEFT, Resources.drawable.ic_editor_align_left, Resources.string.editors_align_left),
+            Triple(Alignment.CENTER, Resources.drawable.ic_editor_align_center, Resources.string.editors_align_center),
+            Triple(Alignment.RIGHT, Resources.drawable.ic_editor_align_right, Resources.string.editors_align_right)
+        )
         const val INDENT_STEP_MM = 2.5
         const val MAX_INDENT_MM = 100.0
         val PARAGRAPH_OPTIONS = listOf(

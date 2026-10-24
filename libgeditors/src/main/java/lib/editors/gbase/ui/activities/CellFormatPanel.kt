@@ -6,6 +6,7 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.view.isVisible
+import lib.editors.base.engine.Alignment
 import lib.editors.base.engine.CellFormat
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
@@ -154,11 +155,28 @@ internal class CellFormatPanel(
             }
             button("+") { if (format.fontSize > 0) edit { setFontSize(format.fontSize + 1) } }.contentDescription = context.getString(Resources.string.editors_format_size_up)
         }
-        row {
+        scrollRow {
+            // As in the toolbar
+            group {
+                icon(Resources.drawable.ic_editor_bold, Resources.string.editors_bold, { it.bold }) { edit { setBold(!format.bold) } }
+                icon(Resources.drawable.ic_editor_italic, Resources.string.editors_italic, { it.italic }) { edit { setItalic(!format.italic) } }
+                icon(Resources.drawable.ic_editor_underline, Resources.string.editors_underline, { it.underline }) { edit { setUnderline(!format.underline) } }
+            }
             group {
                 icon(Resources.drawable.ic_editor_strikeout, Resources.string.editors_format_strikeout, { it.strikeout }) { edit { setStrikeout(!format.strikeout) } }
             }
         }
+        // The cells' alignment, as in the toolbar (not of selected drawings)
+        val alignments = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            scrollRow {
+                group {
+                    for ((alignment, icon, name) in ALIGNMENTS) icon(icon, name, { it.alignment == alignment }) { edit { setAlignment(alignment) } }
+                }
+            }
+        }
+        addView(alignments)
+        cellsOnly += alignments
         caption(Resources.string.editors_format_color)
         colorRow(Resources.string.editors_format_color, none = null, { it.color }) { color -> edit { setTextColor(color) } }
     }
@@ -175,6 +193,11 @@ internal class CellFormatPanel(
     }
 
     private companion object {
+        val ALIGNMENTS = listOf(
+            Triple(Alignment.LEFT, Resources.drawable.ic_editor_align_left, Resources.string.editors_align_left),
+            Triple(Alignment.CENTER, Resources.drawable.ic_editor_align_center, Resources.string.editors_align_center),
+            Triple(Alignment.RIGHT, Resources.drawable.ic_editor_align_right, Resources.string.editors_align_right)
+        )
         // Asc.c_oAscNumFormatType
         val NUMBER_FORMATS = listOf(
             Triple(Resources.string.editors_cells_format_general, 0, Resources.drawable.ic_editor_format_general),

@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import lib.editors.base.engine.ChartPart
 import lib.editors.base.engine.ChartState
 import lib.editors.base.engine.DrawingColors
 import lib.editors.base.engine.DrawingOrder
@@ -105,6 +106,21 @@ internal class ShapePanel(
                 }
             }
 
+            // Charts: which part fills, outlines and opacity go to (the panel anew with its colors)
+            val part = colors.chartPart
+            if (part != null) {
+                scrollRow {
+                    for ((value, label) in CHART_PARTS) {
+                        choice(context.getString(label), { it.chartPart == value }) {
+                            if (value != part) {
+                                edit { setChartPart(value) }
+                                back()
+                            }
+                        }
+                    }
+                }
+            }
+
             // The current ones marked; tapping one marks it
             caption(Resources.string.editors_shape_fill)
             rows += colorPicker.Row(Resources.string.editors_shape_fill, Resources.string.editors_color_none, back) { color -> edit { setShapeFill(color) } }
@@ -121,32 +137,10 @@ internal class ShapePanel(
             }, {
                 opacity(colors.opacity / OPACITY_STEP * OPACITY_STEP + OPACITY_STEP)
             })
-            // The outline: its color ("none" without one), size and dash; each keeps the others
-            fun outline(color: String?, widthMm: Double, dash: OutlineDash) {
-                colors = colors.copy(outline = color, outlineWidthMm = widthMm, outlineDash = dash)
-                updaters.forEach { it(colors) }
-                edit { setShapeOutline(color, widthMm, dash) }
-            }
-            fun width() = colors.outlineWidthMm?.takeIf { it > 0 } ?: DEFAULT_OUTLINE_POINTS * MM_PER_POINT
-            caption(Resources.string.editors_shape_outline)
-            val outlineRow = colorPicker.Row(Resources.string.editors_shape_outline, Resources.string.editors_color_none, back) { color ->
-                outline(color, width(), colors.outlineDash)
-            }.also { addView(it.view); it.mark(colors.outline) }
-            rows += outlineRow
-            caption(Resources.string.editors_shape_outline_size)
-            stepper(Resources.string.editors_shape_outline_size, { context.getString(Resources.string.editors_format_points_value, trimPoints(width() / MM_PER_POINT)) }, {
-                val points = OUTLINE_POINTS.lastOrNull { it < width() / MM_PER_POINT - 0.01 } ?: OUTLINE_POINTS.first()
-                outline(colors.outline?.ifEmpty { null } ?: DEFAULT_OUTLINE_COLOR, points * MM_PER_POINT, colors.outlineDash)
-                outlineRow.mark(colors.outline)
-            }, {
-                val points = OUTLINE_POINTS.firstOrNull { it > width() / MM_PER_POINT + 0.01 } ?: OUTLINE_POINTS.last()
-                outline(colors.outline?.ifEmpty { null } ?: DEFAULT_OUTLINE_COLOR, points * MM_PER_POINT, colors.outlineDash)
-                outlineRow.mark(colors.outline)
-            })
-            action(Resources.string.editors_shape_border_type, { context.getString(DASHES.getValue(it.outlineDash)) }) {
-                chooseDash(colors.outlineDash, back) { dash ->
-                    outline(colors.outline?.ifEmpty { null } ?: DEFAULT_OUTLINE_COLOR, width(), dash)
-                }
+            // The outline in its own panel, with what it is now
+            action(Resources.string.editors_shape_outline, ::outlineText) {
+                outline = colors
+                showOutline(back)
             }
 
             // Shadows: not of charts (sdkjs gives them none)
@@ -185,6 +179,57 @@ internal class ShapePanel(
             }
         }
         updaters.forEach { it(colors) }
+    }
+
+    // The outline being set in its panel (the drawings' colors, changed there)
+    private var outline = DrawingColors(null, null)
+
+    private fun outlineWidth() = outline.outlineWidthMm?.takeIf { it > 0 } ?: DEFAULT_OUTLINE_POINTS * MM_PER_POINT
+
+    private fun points(mm: Double) = context.getString(Resources.string.editors_format_points_value, trimPoints(mm / MM_PER_POINT))
+
+    // Its color and size, "none" without one
+    private fun outlineText(colors: DrawingColors): String {
+        val color = colors.outline?.ifEmpty { null } ?: return context.getString(Resources.string.editors_color_none)
+        val width = colors.outlineWidthMm?.takeIf { it > 0 } ?: DEFAULT_OUTLINE_POINTS * MM_PER_POINT
+        return Accessibility.colorName(context, color) + ", " + points(width)
+    }
+
+    // The outline's color ("none" without one), size and border type, each keeping the others;
+    // [back] to the format panel
+    private fun showOutline(back: () -> Unit) {
+        updaters.clear()
+        val reopen = { showOutline(back) }
+        fun apply(color: String?, widthMm: Double, dash: OutlineDash) {
+            outline = outline.copy(outline = color, outlineWidthMm = widthMm, outlineDash = dash)
+            updaters.forEach { it(outline) }
+            edit { setShapeOutline(color, widthMm, dash) }
+        }
+        fun colorOrDefault() = outline.outline?.ifEmpty { null } ?: DEFAULT_OUTLINE_COLOR
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
+            caption(Resources.string.editors_shape_outline_color)
+            val colorRow = colorPicker.Row(Resources.string.editors_shape_outline, Resources.string.editors_color_none, reopen) { color ->
+                apply(color, outlineWidth(), outline.outlineDash)
+            }.also { addView(it.view); it.mark(outline.outline) }
+            caption(Resources.string.editors_shape_outline_size)
+            stepper(Resources.string.editors_shape_outline_size, { points(outlineWidth()) }, {
+                val points = OUTLINE_POINTS.lastOrNull { it < outlineWidth() / MM_PER_POINT - 0.01 } ?: OUTLINE_POINTS.first()
+                apply(colorOrDefault(), points * MM_PER_POINT, outline.outlineDash)
+                colorRow.mark(outline.outline)
+            }, {
+                val points = OUTLINE_POINTS.firstOrNull { it > outlineWidth() / MM_PER_POINT + 0.01 } ?: OUTLINE_POINTS.last()
+                apply(colorOrDefault(), points * MM_PER_POINT, outline.outlineDash)
+                colorRow.mark(outline.outline)
+            })
+            action(Resources.string.editors_shape_border_type, { context.getString(DASHES.getValue(it.outlineDash)) }) {
+                chooseDash(outline.outlineDash, reopen) { dash -> apply(colorOrDefault(), outlineWidth(), dash) }
+            }
+            colorPicker.load { loaded -> colorRow.setColors(loaded) }
+        }
+        panels.show(context.getString(Resources.string.editors_shape_outline), content, back, modal = false) {}
+        updaters.forEach { it(outline) }
     }
 
     // The dashes by pictures of them, the current one marked; a tap takes one and goes [back]
@@ -295,6 +340,7 @@ internal class ShapePanel(
         const val DEFAULT_OUTLINE_POINTS = 0.75
         const val DEFAULT_OUTLINE_COLOR = "000000"
         const val OPACITY_STEP = 10
+        val CHART_PARTS = listOf(ChartPart.CHART to Resources.string.editors_chart_area, ChartPart.PLOT_AREA to Resources.string.editors_chart_plot_area)
         val SHADOWS = linkedMapOf(
             ShapeShadow.NONE to Resources.string.editors_shadow_none,
             ShapeShadow.TOP_LEFT to Resources.string.editors_shadow_top_left,

@@ -993,8 +993,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         updateMobileView(state)
         // A link or an entry of the contents was followed; the place kept in mobile view
         state.navigate?.let { documentView.goToPage(it.page, it.yMm.toFloat()) }
-        formatPanel.update(state.format, drawingSelected && !inTable, state.cursor != null || state.selection.isNotEmpty(), inTable)
-        state.sheet?.let { cellFormatPanel.update(it.cellFormat, drawingSelected) }
+        // With what the toolbar shows too (bold, italic, underline, alignment)
+        val textFormat = state.format.copy(bold = toolbar.bold, italic = toolbar.italic, underline = toolbar.underline, alignment = toolbar.alignment)
+        formatPanel.update(textFormat, drawingSelected && !inTable, state.cursor != null || state.selection.isNotEmpty(), inTable)
+        state.sheet?.let {
+            cellFormatPanel.update(it.cellFormat.copy(bold = toolbar.bold, italic = toolbar.italic, underline = toolbar.underline, alignment = toolbar.alignment), drawingSelected)
+        }
         searchBar?.update(state.search)
         slidesUi?.update(state)
         drawingUi.chart = state.chart
@@ -1126,6 +1130,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             chooseFill = if (editorsType == EditorsType.PDF) null else fillPanel::show,
             chooseList = if (editorsType == EditorsType.DOCS || editorsType == EditorsType.PRESENTATION) ::chooseListPreset else null,
             withNumberingRestart = editorsType == EditorsType.DOCS,
+            withCaps = editorsType == EditorsType.DOCS,
             withAdvanced = editorsType == EditorsType.DOCS
         )
     }

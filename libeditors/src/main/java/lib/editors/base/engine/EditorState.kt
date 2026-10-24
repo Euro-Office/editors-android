@@ -65,7 +65,12 @@ data class CellFormat(
     /** The text's angle (see [EditorDocument.setTextAngle]). */
     val angle: Int = 0,
     /** Right to left. */
-    val rtl: Boolean = false
+    val rtl: Boolean = false,
+    /** As the toolbar has them ([ToolbarState]; not in the engine's cell format). */
+    val bold: Boolean = false,
+    val italic: Boolean = false,
+    val underline: Boolean = false,
+    val alignment: Alignment? = null
 )
 
 /**
@@ -128,7 +133,15 @@ data class TextFormat(
     /** Text documents: the advanced settings that are on (see [EditorDocument.setParagraphOption]). */
     val paragraphOptions: Set<ParagraphOption> = emptySet(),
     /** Text documents: the first line's indent in mm (negative: hanging). */
-    val firstLine: Double = 0.0
+    val firstLine: Double = 0.0,
+    /** Text documents: all caps, small caps. */
+    val caps: Boolean = false,
+    val smallCaps: Boolean = false,
+    /** As the toolbar has them ([ToolbarState]; not in the engine's format). */
+    val bold: Boolean = false,
+    val italic: Boolean = false,
+    val underline: Boolean = false,
+    val alignment: Alignment? = null
 )
 
 /** Text documents' advanced paragraph settings, as web-apps offers them; [key] is the state's and the engine's. */
@@ -286,8 +299,13 @@ data class DrawingColors(
     /** The fill's opacity in percent. */
     val opacity: Int = 100,
     /** The outer shadow; null for drawings without shadows (charts). */
-    val shadow: ShapeShadow? = null
+    val shadow: ShapeShadow? = null,
+    /** Charts: the part fills and outlines go to ([EditorDocument.setChartPart]); null for other drawings. */
+    val chartPart: ChartPart? = null
 )
+
+/** The part of a chart its fill, outline and opacity go to. */
+enum class ChartPart(val value: String) { CHART("chart"), PLOT_AREA("plotArea") }
 
 /**
  * Outer shadows as web-apps offers them, by where they fall; [value] is sdkjs' preset (the
@@ -622,7 +640,9 @@ class EditorState(
             style = json.optString("Style"),
             rtl = json.optBoolean("Rtl"),
             paragraphOptions = ParagraphOption.entries.filter { json.optBoolean(it.key) }.toSet(),
-            firstLine = json.optDouble("FirstLine", 0.0)
+            firstLine = json.optDouble("FirstLine", 0.0),
+            caps = json.optBoolean("Caps"),
+            smallCaps = json.optBoolean("SmallCaps")
         )
 
 

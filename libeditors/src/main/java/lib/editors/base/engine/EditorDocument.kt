@@ -73,6 +73,9 @@ interface EditorDocument : PagedDocument {
     fun setShapeOutline(color: String?, widthMm: Double = 0.75, dash: OutlineDash = OutlineDash.SOLID): EditorState =
         command("eoEngine.setShapeOutline(${JSONObject.quote(color.orEmpty())}, $widthMm, ${dash.value})")
 
+    /** Charts: the part the fill, outline and opacity commands go to (the whole chart at first). */
+    fun setChartPart(part: ChartPart): EditorState = command("eoEngine.setChartPart(${JSONObject.quote(part.value)})")
+
     /** The opacity of the selected drawings' fill, in percent. */
     fun setShapeOpacity(percent: Int): EditorState = command("eoEngine.setShapeOpacity($percent)")
 
@@ -187,6 +190,12 @@ interface EditorDocument : PagedDocument {
     fun setFontSize(points: Double): EditorState = command("eoEngine.setFontSize($points)")
 
     fun setStrikeout(value: Boolean): EditorState = command("eoEngine.setStrikeout($value)")
+
+    /** Text documents: all caps. */
+    fun setCaps(value: Boolean): EditorState = command("eoEngine.setCaps($value)")
+
+    /** Text documents: small caps. */
+    fun setSmallCaps(value: Boolean): EditorState = command("eoEngine.setSmallCaps($value)")
 
     /** 0 baseline, 1 subscript, 2 superscript. */
     fun setBaseline(value: Int): EditorState = command("eoEngine.setBaseline($value)")
@@ -573,7 +582,8 @@ interface EditorDocument : PagedDocument {
             outlineWidthMm = if (root.isNull("outlineWidth")) null else root.optDouble("outlineWidth"),
             outlineDash = OutlineDash.entries.firstOrNull { it.value == root.optInt("outlineDash", OutlineDash.SOLID.value) } ?: OutlineDash.SOLID,
             opacity = root.optInt("opacity", 100),
-            shadow = if (root.isNull("shadow")) null else ShapeShadow.entries.firstOrNull { it.value == root.optString("shadow") } ?: ShapeShadow.CUSTOM
+            shadow = if (root.isNull("shadow")) null else ShapeShadow.entries.firstOrNull { it.value == root.optString("shadow") } ?: ShapeShadow.CUSTOM,
+            chartPart = if (root.isNull("chartPart")) null else ChartPart.entries.firstOrNull { it.value == root.optString("chartPart") }
         )
     }
 
