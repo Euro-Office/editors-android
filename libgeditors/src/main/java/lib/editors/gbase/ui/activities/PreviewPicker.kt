@@ -35,13 +35,15 @@ internal class PreviewPicker(
 
     /**
      * Shows the previews of [kind] under [title], the one with [selected] id highlighted, their
-     * names under them if [withNames]; [header] goes above them (settings for the choice).
+     * names under them if [withNames] ([describe] says each one to TalkBack); [header] goes above
+     * them (settings for the choice).
      * [onPick] gets the chosen one; the panel stays open if [keepOpen], else goes [onBack] to
      * the panel it was opened from, if any.
      */
     fun show(
         title: String, kind: String, selected: String? = null, columnWidthDp: Int = 104, withNames: Boolean = false,
-        header: View? = null, keepOpen: Boolean = false, onBack: (() -> Unit)? = null, onPick: (Preview) -> Unit
+        header: View? = null, keepOpen: Boolean = false, onBack: (() -> Unit)? = null,
+        describe: (Preview) -> String = { it.name }, onPick: (Preview) -> Unit
     ) {
         val document = document() ?: return
         scope.launch {
@@ -65,8 +67,8 @@ internal class PreviewPicker(
                     setPadding(dp(6), dp(6), dp(6), dp(6))
                     setBackgroundResource(R.drawable.editor_tool_background)
                     isSelected = preview.id == selected
-                    contentDescription = preview.name
-                    TooltipCompat.setTooltipText(this, preview.name)
+                    contentDescription = describe(preview)
+                    TooltipCompat.setTooltipText(this, contentDescription)
                     addView(image, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, imageHeight(preview, cell - dp(12))))
                     if (withNames) {
                         addView(TextView(context).apply {

@@ -9,15 +9,12 @@ import android.view.Gravity
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
@@ -215,37 +212,7 @@ internal class SlidesUi(
     }
 
     private fun chooseTransition() {
-        val current = slides.getOrNull(currentSlide)?.transition
-        val content = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(24), dp(8), dp(24), 0)
-        }
-        val types = choices(content, Resources.string.editors_slides_effect, TRANSITIONS.map { context.getString(it.first) },
-            TRANSITIONS.indexOfFirst { it.second == (current?.type ?: 0) }, vertical = true)
-        val directions = choices(content, Resources.string.editors_slides_direction, DIRECTIONS.map { context.getString(it.first) },
-            DIRECTIONS.indexOfFirst { it.second == current?.option })
-        val durations = choices(content, Resources.string.editors_slides_duration, DURATIONS.map { "%.1f s".format(it / 1000f) },
-            DURATIONS.indexOf(current?.durationMs ?: 0))
-        val all = CheckBox(context).apply { setText(Resources.string.editors_slides_apply_all) }
-        content.addView(all)
-        AlertDialog.Builder(context)
-            .setTitle(Resources.string.editors_slides_transition)
-            .setView(android.widget.ScrollView(context).apply { addView(content) })
-            .setPositiveButton(android.R.string.ok) { _, _ ->
-                val type = TRANSITIONS.getOrNull(types())?.second ?: 0
-                // Fade, split and zoom have their own options (smoothly, vertical out, in); the others take the direction
-                val option = when (type) {
-                    1 -> 0
-                    4 -> 11
-                    8 -> 17
-                    else -> DIRECTIONS.getOrNull(directions())?.second ?: 2
-                }
-                val duration = DURATIONS.getOrNull(durations()) ?: 1000
-                edit { setTransition(type, option, duration, all.isChecked) }
-                reload(null)
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+        TransitionDialog(context, edit) { reload(null) }.show(slides.getOrNull(currentSlide)?.transition)
     }
 
     private fun editNotes(index: Int) {
@@ -283,43 +250,4 @@ internal class SlidesUi(
     // ---------------------------------------------------------------------------------
 
     private fun dp(value: Int) = (value * density).toInt()
-
-    private fun choices(parent: LinearLayout, title: Int, labels: List<String>, selected: Int, vertical: Boolean = false): () -> Int {
-        parent.addView(TextView(context).apply {
-            setText(title)
-            setPaddingRelative(0, dp(12), 0, dp(4))
-        })
-        val group = RadioGroup(context).apply { orientation = if (vertical) RadioGroup.VERTICAL else RadioGroup.HORIZONTAL }
-        labels.forEachIndexed { index, label ->
-            group.addView(RadioButton(context).apply {
-                id = View.generateViewId()
-                text = label
-                isChecked = index == selected
-            })
-        }
-        parent.addView(if (vertical) group else HorizontalScrollView(context).apply { addView(group) })
-        return { (0 until group.childCount).firstOrNull { (group.getChildAt(it) as RadioButton).isChecked } ?: -1 }
-    }
-
-    private companion object {
-        // Asc.c_oAscSlideTransitionTypes
-        val TRANSITIONS = listOf(
-            Resources.string.editors_slides_effect_none to 0,
-            Resources.string.editors_slides_effect_fade to 1,
-            Resources.string.editors_slides_effect_push to 2,
-            Resources.string.editors_slides_effect_wipe to 3,
-            Resources.string.editors_slides_effect_split to 4,
-            Resources.string.editors_slides_effect_uncover to 5,
-            Resources.string.editors_slides_effect_cover to 6,
-            Resources.string.editors_slides_effect_zoom to 8
-        )
-        // Asc.c_oAscSlideTransitionParams
-        val DIRECTIONS = listOf(
-            Resources.string.editors_slides_from_left to 2,
-            Resources.string.editors_slides_from_top to 3,
-            Resources.string.editors_slides_from_right to 4,
-            Resources.string.editors_slides_from_bottom to 5
-        )
-        val DURATIONS = listOf(500, 1000, 2000)
-    }
 }

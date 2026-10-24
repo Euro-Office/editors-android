@@ -260,6 +260,72 @@
     <string name="editors_slides_from_top">Top</string>
     <string name="editors_slides_from_right">Right</string>
     <string name="editors_slides_from_bottom">Bottom</string>
+    <string name="editors_slides_effect_clock">Clock</string>
+    <string name="editors_slides_option">Option</string>
+    <string name="editors_slides_smoothly">Smoothly</string>
+    <string name="editors_slides_through_black">Through black</string>
+    <string name="editors_slides_from_top_left">Top left</string>
+    <string name="editors_slides_from_top_right">Top right</string>
+    <string name="editors_slides_from_bottom_left">Bottom left</string>
+    <string name="editors_slides_from_bottom_right">Bottom right</string>
+    <string name="editors_slides_vertical_in">Vertical in</string>
+    <string name="editors_slides_vertical_out">Vertical out</string>
+    <string name="editors_slides_horizontal_in">Horizontal in</string>
+    <string name="editors_slides_horizontal_out">Horizontal out</string>
+    <string name="editors_slides_clockwise">Clockwise</string>
+    <string name="editors_slides_counterclockwise">Counterclockwise</string>
+    <string name="editors_slides_wedge">Wedge</string>
+    <string name="editors_slides_zoom_in">Zoom in</string>
+    <string name="editors_slides_zoom_out">Zoom out</string>
+    <string name="editors_slides_zoom_rotate">Zoom and rotate</string>
+    <string name="editors_slides_seconds">%1$s s</string>
+    <string name="editors_slides_start_on_tap">Start on tap</string>
+    <string name="editors_slides_delay">Delay</string>
+    <string name="editors_slides_delay_after">Go on after</string>
+    <string name="editors_list_bullets">Bullets</string>
+    <string name="editors_list_numbering">Numbering</string>
+    <string name="editors_list_multilevel">Multilevel list</string>
+    <string name="editors_list_none">None</string>
+    <!-- A list style's picture to TalkBack, as in "Bullets, style 3" -->
+    <string name="editors_list_style">%1$s, style %2$d</string>
+    <string name="editors_list_restart">Restart numbering</string>
+    <string name="editors_list_continue">Continue numbering</string>
+    <string name="editors_fill_more">Fill effects</string>
+    <string name="editors_fill_color">Color</string>
+    <string name="editors_fill_gradient">Gradient</string>
+    <string name="editors_fill_pattern">Pattern</string>
+    <string name="editors_fill_texture">Texture</string>
+    <string name="editors_fill_picture">Picture</string>
+    <string name="editors_fill_linear">Linear</string>
+    <string name="editors_fill_radial">Radial</string>
+    <string name="editors_fill_angle">Angle</string>
+    <string name="editors_fill_degrees">%1$d°</string>
+    <string name="editors_fill_stops">Gradient stops</string>
+    <!-- A gradient stop's color, to TalkBack: "Stop 2, color" -->
+    <string name="editors_fill_stop">Stop %1$d</string>
+    <string name="editors_fill_stop_position">Position</string>
+    <string name="editors_fill_percent">%1$d %%</string>
+    <string name="editors_fill_add_stop">Add stop</string>
+    <string name="editors_fill_remove_stop">Remove stop</string>
+    <string name="editors_fill_foreground">Foreground color</string>
+    <string name="editors_fill_background">Background color</string>
+    <string name="editors_fill_choose_picture">Choose picture</string>
+    <string name="editors_fill_stretch">Stretch</string>
+    <string name="editors_fill_tile">Tile</string>
+    <!-- web-apps' names of sdkjs' textures, in their order -->
+    <string-array name="editors_fill_textures">
+        <item>Canvas</item>
+        <item>Carton</item>
+        <item>Dark fabric</item>
+        <item>Grain</item>
+        <item>Granite</item>
+        <item>Grey paper</item>
+        <item>Knit</item>
+        <item>Leather</item>
+        <item>Brown paper</item>
+        <item>Papyrus</item>
+        <item>Wood</item>
+    </string-array>
     <string name="editors_chart_insert">Chart</string>
     <string name="editors_chart_type">Chart type</string>
     <string name="editors_chart_data">Chart data</string>

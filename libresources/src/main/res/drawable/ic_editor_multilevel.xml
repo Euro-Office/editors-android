@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ONLYOFFICE web-apps icon "btn-multilevels" (AGPL-3.0) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="@color/editors_icon">
+    <path
+        android:pathData="M10.5 7.5h8m-5 5h5m-3 5h3"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="m5 8 1.5-1.5v4m2 6v-1a1 1 0 1 1 2 0v1m-2 0v2m0-2h2m0 0v2"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

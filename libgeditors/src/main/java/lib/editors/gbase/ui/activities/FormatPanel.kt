@@ -9,6 +9,8 @@ import androidx.core.view.isVisible
 import lib.editors.base.engine.DrawingColors
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
+import lib.editors.base.engine.FillTarget
+import lib.editors.base.engine.ListKind
 import lib.editors.base.engine.TextFormat
 import lib.editors.resources.R as Resources
 
@@ -36,7 +38,13 @@ internal class FormatPanel(
     /** Presentations: the slide's settings. */
     private val slide: SlideSettings? = null,
     /** Documents and presentations: the table's style (pictures of the styles, back to this panel); null without tables. */
-    private val chooseTableStyle: ((onBack: () -> Unit) -> Unit)? = null
+    private val chooseTableStyle: ((onBack: () -> Unit) -> Unit)? = null,
+    /** All kinds of fills (see [FillPanel]) of shapes and slide backgrounds; null without them. */
+    private val chooseFill: ((target: FillTarget, onBack: () -> Unit) -> Unit)? = null,
+    /** List presets by their pictures; null without them. */
+    private val chooseList: ((kind: ListKind, onBack: () -> Unit) -> Unit)? = null,
+    /** Text documents: multilevel lists, and numbering restarted or continued. */
+    private val withMultilevelLists: Boolean = false
 ) : PanelBuilder<TextFormat>(context) {
 
     /** The current slide's background color (null: another kind), its layout and the design (back to this panel). */
@@ -130,6 +138,7 @@ internal class FormatPanel(
             heading(Resources.string.editors_shape)
             caption(Resources.string.editors_shape_fill)
             val fill = colorRow(Resources.string.editors_shape_fill, Resources.string.editors_color_none) { color -> edit { setShapeFill(color) } }
+            if (chooseFill != null) action(Resources.string.editors_fill_more) { chooseFill.invoke(FillTarget.SHAPE, ::show) }
             caption(Resources.string.editors_shape_outline)
             val outline = colorRow(Resources.string.editors_shape_outline, Resources.string.editors_color_none) { color -> edit { setShapeOutline(color) } }
             markFill = fill::mark
@@ -143,6 +152,7 @@ internal class FormatPanel(
                 heading(Resources.string.editors_slide)
                 caption(Resources.string.editors_slide_background)
                 val background = colorRow(Resources.string.editors_slide_background, none = null) { color -> color?.let { edit { setSlideBackground(it) } } }
+                if (chooseFill != null) action(Resources.string.editors_fill_more) { chooseFill.invoke(FillTarget.SLIDE, ::show) }
                 action(Resources.string.editors_slide_design) { slide.chooseDesign(::show) }
                 action(Resources.string.editors_slides_layout) { slide.chooseLayout(::show) }
                 // Marked as the background, while no shape is selected
@@ -255,6 +265,21 @@ internal class FormatPanel(
                 icon(Resources.drawable.ic_editor_indent_less, Resources.string.editors_format_indent_less) { edit { indent(false) } }
                 icon(Resources.drawable.ic_editor_indent_more, Resources.string.editors_format_indent_more) { edit { indent(true) } }
             }
+        }
+        if (chooseList != null) {
+            action(Resources.string.editors_list_bullets) { chooseList.invoke(ListKind.BULLETS, ::show) }
+            action(Resources.string.editors_list_numbering) { chooseList.invoke(ListKind.NUMBERS, ::show) }
+            if (withMultilevelLists) action(Resources.string.editors_list_multilevel) { chooseList.invoke(ListKind.MULTILEVEL, ::show) }
+        }
+        if (withMultilevelLists) {
+            // In a numbered list
+            val numbering = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+            numbering.scrollRow {
+                button(context.getString(Resources.string.editors_list_restart)) { edit { restartNumbering() } }
+                button(context.getString(Resources.string.editors_list_continue)) { edit { continueNumbering() } }
+            }
+            addView(numbering)
+            updaters += { numbering.isVisible = it.list == 1 }
         }
         caption(Resources.string.editors_format_direction)
         scrollRow {

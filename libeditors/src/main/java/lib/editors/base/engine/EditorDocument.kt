@@ -76,6 +76,15 @@ interface EditorDocument : PagedDocument {
     /** The direction of the selected shapes' text. */
     fun setTextDirection(direction: ShapeTextDirection): EditorState = command("eoEngine.setTextVert(${direction.value})")
 
+    /** The fill of the selected shapes or the current slide's background. */
+    fun setFill(target: FillTarget, fill: ShapeFill): EditorState =
+        command("eoEngine.setFill(${JSONObject.quote(target.value)}, ${fill.toJson()})")
+
+    /** The fill of the first selected shape or of the current slide's background; null without one. */
+    fun fill(target: FillTarget): ShapeFill? = ShapeFill.parse(execute("eoEngine.getFill(${JSONObject.quote(target.value)})"))
+
+    fun fillResources(): FillResources = FillResources.parse(execute("eoEngine.getFillResources()"))
+
     /** Z-order of the selected pictures and shapes. */
     fun arrange(order: DrawingOrder): EditorState = command("eoEngine.arrange(${order.value})")
 
@@ -184,6 +193,24 @@ interface EditorDocument : PagedDocument {
      * numbers 1 "1.", 2 "1)", 3 "I.", 4 "A.", 5 "a)", 6 "a.", 7 "i."; -1 removes the list.
      */
     fun setList(type: Int, subtype: Int): EditorState = asyncCommand("eoEngine.setList($type, $subtype)")
+
+    /**
+     * A list preset of [kind] by its index in the previews "list-<kind>" ([previews]); only
+     * documents have [ListKind.MULTILEVEL].
+     */
+    fun setListPreset(kind: ListKind, index: Int): EditorState = asyncCommand("eoEngine.setListPreset(${JSONObject.quote(kind.value)}, $index)")
+
+    /** The list presets of the paragraph at the cursor, by kind: their index, -1 for none of them. */
+    fun listPresets(): Map<ListKind, Int> {
+        val json = JSONObject(execute("eoEngine.getListPresets()"))
+        return ListKind.entries.associateWith { json.optInt(it.value, -1) }
+    }
+
+    /** Text documents: the current list's numbering from 1 again. */
+    fun restartNumbering(): EditorState = command("eoEngine.restartNumbering()")
+
+    /** Text documents: the current list's numbering on from the list before it. */
+    fun continueNumbering(): EditorState = command("eoEngine.continueNumbering()")
 
     fun indent(increase: Boolean): EditorState = command("eoEngine.indent($increase)")
 
@@ -612,6 +639,10 @@ interface EditorDocument : PagedDocument {
     /** The transition of the current slide, or of all slides ([all]); see [SlideTransition]. */
     fun setTransition(type: Int, option: Int, durationMs: Int, all: Boolean): EditorState =
         command("eoEngine.setTransition($type, $option, $durationMs, $all)")
+
+    /** How the current slide (or [all]) goes on in a slideshow: on a tap, and after [afterMs] if [after]. */
+    fun setSlideAdvance(onClick: Boolean, after: Boolean, afterMs: Int, all: Boolean): EditorState =
+        command("eoEngine.setSlideAdvance($onClick, $after, $afterMs, $all)")
 
     // ---------------------------------------------------------------------------------
     // Document structure (documents)

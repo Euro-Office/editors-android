@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.os.SystemClock
 import android.view.Gravity
@@ -32,8 +33,9 @@ import lib.editors.resources.R as Resources
 
 /**
  * A slideshow of the visible slides, full screen: a tap on the right (or a swipe to the left)
- * goes on, on the left back. Transitions are drawn here from the slides' transition settings
- * (fade, push, wipe, split, cover, uncover, zoom; others fade). The presenter view adds the
+ * goes on (unless the slide only goes on after its delay), on the left back. Transitions are
+ * drawn here from the slides' transition settings (fade, push, wipe, split, cover, uncover, clock,
+ * zoom with their options; others fade). The presenter view adds the
  * notes, the next slide and the time. Animations of objects aren't played: slides show their
  * final state.
  */
@@ -156,10 +158,16 @@ internal class Slideshow(
         private var progress = 1f
         private val paint = Paint(Paint.FILTER_BITMAP_FLAG)
         private var animator: ValueAnimator? = null
+        // Reused while drawing transitions
+        private val clipArea = RectF()
+        private val clipShape = Path()
 
         private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapUp(e: MotionEvent): Boolean {
-                go(if (e.x < width / 3f) -1 else 1)
+                val back = e.x < width / 3f
+                // "Start on tap" off: the slide goes on by its delay (swipes still go on)
+                if (!back && slides[order[position]].transition?.onClick == false) return true
+                go(if (back) -1 else 1)
                 return true
             }
 
@@ -226,12 +234,18 @@ internal class Slideshow(
                 return
             }
             val p = progress
-            // The side the new slide comes from: Asc.c_oAscSlideTransitionParams left 2, top 3, right 4, bottom 5
+            // The side or corner the new slide comes from: Asc.c_oAscSlideTransitionParams left 2,
+            // top 3, right 4, bottom 5, top left 6, top right 7, bottom left 8, bottom right 9
             val (fx, fy) = when (t.option) {
                 2 -> -1f to 0f
                 3 -> 0f to -1f
                 4 -> 1f to 0f
-                else -> if (t.type == 2) 0f to 1f else 1f to 0f
+                5 -> 0f to 1f
+                6 -> -1f to -1f
+                7 -> 1f to -1f
+                8 -> -1f to 1f
+                9 -> 1f to 1f
+                else -> 1f to 0f
             }
             val w = area.width()
             val h = area.height()
@@ -251,27 +265,26 @@ internal class Slideshow(
                     draw(canvas, before, area, -fx * p * w, -fy * p * h, 255)
                     draw(canvas, now, area, fx * (1 - p) * w, fy * (1 - p) * h, 255)
                 }
-                // Wipe: the new slide is revealed from its side
+                // Wipe: the new slide is revealed from its side or corner
                 3 -> {
                     draw(canvas, before, area, 0f, 0f, 255)
                     canvas.save()
-                    when {
-                        fx < 0 -> canvas.clipRect(area.left, area.top, area.left + p * w, area.bottom)
-                        fx > 0 -> canvas.clipRect(area.right - p * w, area.top, area.right, area.bottom)
-                        fy < 0 -> canvas.clipRect(area.left, area.top, area.right, area.top + p * h)
-                        else -> canvas.clipRect(area.left, area.bottom - p * h, area.right, area.bottom)
-                    }
+                    canvas.clipPath(wipePath(area, fx, fy, p))
                     draw(canvas, now, area, 0f, 0f, 255)
                     canvas.restore()
                 }
-                // Split: from the middle out
+                // Split: vertical (10 in, 11 out) or horizontal (12 in, 13 out) halves
                 4 -> {
-                    draw(canvas, before, area, 0f, 0f, 255)
-                    canvas.save()
                     val vertical = t.option == 10 || t.option == 11
-                    if (vertical) canvas.clipRect(area.centerX() - p * w / 2, area.top, area.centerX() + p * w / 2, area.bottom)
-                    else canvas.clipRect(area.left, area.centerY() - p * h / 2, area.right, area.centerY() + p * h / 2)
-                    draw(canvas, now, area, 0f, 0f, 255)
+                    val inward = t.option == 10 || t.option == 12
+                    // Out: the new slide from the middle; in: from the sides, the old one in the middle
+                    val band = if (inward) 1 - p else p
+                    val middle = if (vertical) clipArea.apply { set(area.centerX() - band * w / 2, area.top, area.centerX() + band * w / 2, area.bottom) }
+                    else clipArea.apply { set(area.left, area.centerY() - band * h / 2, area.right, area.centerY() + band * h / 2) }
+                    draw(canvas, if (inward) now else before, area, 0f, 0f, 255)
+                    canvas.save()
+                    canvas.clipRect(middle)
+                    draw(canvas, if (inward) before else now, area, 0f, 0f, 255)
                     canvas.restore()
                 }
                 // Uncover: the old slide moves away
@@ -284,12 +297,42 @@ internal class Slideshow(
                     draw(canvas, before, area, 0f, 0f, 255)
                     draw(canvas, now, area, fx * (1 - p) * w, fy * (1 - p) * h, 255)
                 }
-                // Zoom: the new slide grows in
-                8 -> {
+                // Clock: a hand from 12 o'clock reveals the new slide clockwise (14),
+                // counterclockwise (15) or both ways (16, wedge)
+                7 -> {
+                    draw(canvas, before, area, 0f, 0f, 255)
+                    val radius = kotlin.math.hypot(w, h)
+                    val circle = clipArea.apply { set(area.centerX() - radius, area.centerY() - radius, area.centerX() + radius, area.centerY() + radius) }
+                    val wedge = clipShape.apply {
+                        reset()
+                        moveTo(area.centerX(), area.centerY())
+                        when (t.option) {
+                            15 -> arcTo(circle, -90f, -360f * p)
+                            16 -> arcTo(circle, -90f - 180f * p, 360f * p)
+                            else -> arcTo(circle, -90f, 360f * p)
+                        }
+                        close()
+                    }
+                    canvas.save()
+                    canvas.clipPath(wedge)
+                    draw(canvas, now, area, 0f, 0f, 255)
+                    canvas.restore()
+                }
+                // Zoom: the new slide grows in (17), the old one shrinks away (18), or the new one
+                // grows in turning (19)
+                8 -> if (t.option == 18) {
+                    draw(canvas, now, area, 0f, 0f, 255)
+                    val scale = 1f - 0.7f * p
+                    canvas.save()
+                    canvas.scale(scale, scale, area.centerX(), area.centerY())
+                    draw(canvas, before, area, 0f, 0f, ((1 - p) * 255).toInt())
+                    canvas.restore()
+                } else {
                     draw(canvas, before, area, 0f, 0f, 255)
                     val scale = 0.3f + 0.7f * p
                     canvas.save()
                     canvas.scale(scale, scale, area.centerX(), area.centerY())
+                    if (t.option == 19) canvas.rotate(360f * (1 - p), area.centerX(), area.centerY())
                     draw(canvas, now, area, 0f, 0f, (p * 255).toInt())
                     canvas.restore()
                 }
@@ -299,6 +342,36 @@ internal class Slideshow(
                 }
             }
             canvas.restore()
+        }
+
+        // The part of the slide a wipe from side or corner (fx, fy) has revealed at progress p:
+        // behind a line across the wipe's direction, which moves from that side or corner over
+        // the whole slide
+        private fun wipePath(area: RectF, fx: Float, fy: Float, p: Float): Path {
+            val length = kotlin.math.hypot(fx, fy)
+            val dx = -fx / length
+            val dy = -fy / length
+            // Where the wipe starts and how far it goes (to the farthest corner)
+            val startX = if (fx < 0) area.left else if (fx > 0) area.right else area.centerX()
+            val startY = if (fy < 0) area.top else if (fy > 0) area.bottom else area.centerY()
+            val distance = maxOf(
+                maxOf((area.left - startX) * dx + (area.top - startY) * dy, (area.right - startX) * dx + (area.top - startY) * dy),
+                maxOf((area.left - startX) * dx + (area.bottom - startY) * dy, (area.right - startX) * dx + (area.bottom - startY) * dy)
+            )
+            val lineX = startX + dx * distance * p
+            val lineY = startY + dy * distance * p
+            val far = (area.width() + area.height()) * 2
+            // Across the direction (nx, ny), and back towards the start
+            val nx = -dy
+            val ny = dx
+            return clipShape.apply {
+                reset()
+                moveTo(lineX + nx * far, lineY + ny * far)
+                lineTo(lineX - nx * far, lineY - ny * far)
+                lineTo(lineX - nx * far - dx * far, lineY - ny * far - dy * far)
+                lineTo(lineX + nx * far - dx * far, lineY + ny * far - dy * far)
+                close()
+            }
         }
 
         private fun draw(canvas: Canvas, bitmap: Bitmap, area: RectF, dx: Float, dy: Float, alpha: Int) {

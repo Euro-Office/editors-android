@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.util.Log
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.KeyboardShortcutGroup
 import android.view.KeyboardShortcutInfo
@@ -60,6 +61,8 @@ import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorSpelling
 import lib.editors.base.engine.EditorState
+import lib.editors.base.engine.FillTarget
+import lib.editors.base.engine.ListKind
 import lib.editors.base.engine.Misspelling
 import lib.editors.base.engine.SheetState
 import lib.editors.base.engine.SpellService
@@ -136,6 +139,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private var formsUi: FormsUi? = null
     // A picture field waiting for a picture from the gallery
     private var pictureField: FormField? = null
+    // A picture chosen for a fill (FillPanel), not to insert
+    private var pictureFill: ((name: String, width: Int, height: Int) -> Unit)? = null
     private var slidesUi: SlidesUi? = null
     private lateinit var linkBar: View
     private val isSpreadsheet get() = editorsType == EditorsType.CELLS
@@ -1114,8 +1119,44 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                         edit { setTableStyle(style.id) }
                     }
                 }
-            }
+            },
+            chooseFill = if (editorsType == EditorsType.PDF) null else fillPanel::show,
+            chooseList = if (editorsType == EditorsType.DOCS || editorsType == EditorsType.PRESENTATION) ::chooseListPreset else null,
+            withMultilevelLists = editorsType == EditorsType.DOCS
         )
+    }
+
+    // Fills of shapes and slide backgrounds; a picture for one is picked as one to insert is
+    private val fillPanel by lazy {
+        FillPanel(this, lifecycleScope, { document }, { command -> edit(command = command) }, panels, colorPicker) { onPicked ->
+            pictureFill = onPicked
+            pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        }
+    }
+
+    // A list preset of the kind by its picture, the current one marked; "None" ends the list
+    private fun chooseListPreset(kind: ListKind, onBack: () -> Unit) = read({ listPresets() }) { presets ->
+        val title = getString(when (kind) {
+            ListKind.BULLETS -> Resources.string.editors_list_bullets
+            ListKind.NUMBERS -> Resources.string.editors_list_numbering
+            ListKind.MULTILEVEL -> Resources.string.editors_list_multilevel
+        })
+        val none = TextView(this).apply {
+            setText(Resources.string.editors_list_none)
+            textSize = 15f
+            gravity = Gravity.CENTER_VERTICAL
+            minHeight = (48 * resources.displayMetrics.density).toInt()
+            setPaddingRelative((8 * resources.displayMetrics.density).toInt(), 0, 0, 0)
+            setBackgroundResource(R.drawable.editor_tool_background)
+            setOnClickListener {
+                edit { setList(if (kind == ListKind.BULLETS) 0 else 1, -1) }
+                onBack()
+            }
+        }
+        previewPicker.show(
+            title, "list-${kind.value}", selected = presets?.get(kind)?.takeIf { it >= 0 }?.toString(), columnWidthDp = 88,
+            header = none, onBack = onBack, describe = { getString(Resources.string.editors_list_style, title, it.id.toInt() + 1) }
+        ) { preview -> edit { setListPreset(kind, preview.id.toInt()) } }
     }
 
     private val cellFormatPanel by lazy {
@@ -1171,6 +1212,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 this, lifecycleScope, { document }, { command -> edit(command = command) }, chartUi,
                 ChartSettingsPanel(this, { command -> edit(command = command) }, panels, previewPicker), panels, colorPicker,
                 formatText = ::formatText,
+                chooseFill = if (editorsType == EditorsType.PDF) null else { back -> fillPanel.show(FillTarget.SHAPE, back) },
                 withGroups = editorsType != EditorsType.PDF
             ),
             iconPicker,
@@ -1190,7 +1232,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     }
 
     private val pickPicture = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) insertPicture(uri) else pictureField = null
+        if (uri != null) {
+            insertPicture(uri)
+        } else {
+            pictureField = null
+            pictureFill = null
+        }
     }
 
     private val photoFile by lazy { File(cacheDir, "editor-camera/photo.jpg") }
@@ -1238,6 +1285,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             }
             val field = pictureField
             pictureField = null
+            val fill = pictureFill
+            pictureFill = null
             // Co-editing: the picture goes to the Document Server first, for the others and the saved document
             val name = coConnection?.let { connection ->
                 uploadPicture(connection, document, File(directory, picture.first)) ?: run {
@@ -1245,7 +1294,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     return@launch
                 }
             } ?: picture.first
-            if (field != null) {
+            if (fill != null) {
+                fill(name, picture.second, picture.third)
+            } else if (field != null) {
                 edit { setFormPicture(field, name, picture.second, picture.third) }
             } else {
                 edit { insertImage(name, picture.second, picture.third) }

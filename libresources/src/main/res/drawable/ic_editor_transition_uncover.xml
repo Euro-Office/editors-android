@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ONLYOFFICE web-apps icon "btn-transition-uncover" (AGPL-3.0) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="28"
+    android:viewportHeight="28"
+    android:tint="@color/editors_icon">
+    <path
+        android:pathData="M22.75 7a.25.25 0 0 1 .25.25v13.5a.25.25 0 0 1-.25.25h-3.5a.25.25 0 0 1-.25-.25V7.25a.25.25 0 0 1 .25-.25h3.5Z"
+        android:fillColor="@android:color/white" />
+    <path
+        android:pathData="M14.5 14.5h-8m0 0 3-3m-3 3 3 3m8-12h-13a1 1 0 0 0-1 1v15a1 1 0 0 0 1 1h13m0-17h6a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1h-6m0-17v17"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

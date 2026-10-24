@@ -42,7 +42,9 @@ internal class ShapePanel(
     /** The text's settings (of the selected shapes' text). */
     private val formatText: () -> Unit = {},
     /** Grouping and ungrouping (not in PDFs). */
-    private val withGroups: Boolean = true
+    private val withGroups: Boolean = true,
+    /** All kinds of fills (see [FillPanel]), back to this panel; null without them. */
+    private val chooseFill: ((onBack: () -> Unit) -> Unit)? = null
 ) {
 
     private val density = context.resources.displayMetrics.density
@@ -111,6 +113,7 @@ internal class ShapePanel(
         heading(Resources.string.editors_shape_fill)
         rows += colorPicker.Row(Resources.string.editors_shape_fill, Resources.string.editors_color_none, back) { color -> edit { setShapeFill(color) } }
             .also { addView(it.view); it.mark(colors.fill) }
+        if (chooseFill != null) action(context.getString(Resources.string.editors_fill_more)) { chooseFill.invoke(back) }
         heading(Resources.string.editors_shape_outline)
         rows += colorPicker.Row(Resources.string.editors_shape_outline, Resources.string.editors_color_none, back) { color -> edit { setShapeOutline(color) } }
             .also { addView(it.view); it.mark(colors.outline) }
