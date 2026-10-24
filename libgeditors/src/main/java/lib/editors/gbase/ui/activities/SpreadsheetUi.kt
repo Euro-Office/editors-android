@@ -128,6 +128,11 @@ internal class SpreadsheetUi(
                     SheetView.Style.UNDERLINE -> edit { setUnderline(!current.underline) }
                 }
             }
+            // The text of a shape
+            override fun onTextKey(keyCode: Int, shift: Boolean, ctrl: Boolean) = edit { keyDown(keyCode, shift, ctrl) }
+            override fun onCommitText(text: String) = edit { commitText(text) }
+            override fun onComposingText(text: String) = edit { setComposingText(text) }
+            override fun onFinishComposingText() = edit { finishComposingText() }
         }
         cellText.setOnEditorActionListener { _, actionId, event ->
             // Hardware Enter comes as a key down and up (and may follow as an action): only the down counts
@@ -161,7 +166,7 @@ internal class SpreadsheetUi(
         sheet = newSheet
         toolbar = state.toolbar
         entering = false
-        sheetView.setState(newSheet, state.dirtyPages.isNotEmpty(), state.drawings)
+        sheetView.setState(newSheet, state.dirtyPages.isNotEmpty(), state.drawings, state.cursor, state.selection)
         sheetView.foreignSelections = state.coEditing?.selections.orEmpty()
 
         cellName.text = newSheet.name

@@ -1270,8 +1270,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             // Tables with a style: documents and presentations (spreadsheets' tables are cells)
             tablePicker = previewPicker.takeUnless { isSpreadsheet },
             moreInsertItems = { menu -> documentUi?.addInsertItems(menu) },
-            // Text boxes take the typing at once; spreadsheets have none (text goes into cells)
-            insertTextBox = if (isSpreadsheet) null else {
+            // Text boxes take the typing at once (in spreadsheets at the active cell)
+            insertTextBox = if (isSpreadsheet) {
+                { edit { insertTextBox(0, 0.0, 0.0) } }
+            } else {
                 {
                     val (page, x, y) = documentView.visibleCenter() ?: Triple(0, 0.0, 0.0)
                     documentView.restartKeyboardInput()

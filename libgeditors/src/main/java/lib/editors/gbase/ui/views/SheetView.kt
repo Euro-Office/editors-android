@@ -24,8 +24,10 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import lib.editors.base.engine.Cursor
 import lib.editors.base.engine.DrawingFrame
 import lib.editors.base.engine.ForeignSelection
+import lib.editors.base.engine.SelectionArea
 import lib.editors.base.engine.SheetGeometry
 import lib.editors.base.engine.SheetState
 import lib.editors.base.engine.TouchAction
@@ -42,7 +44,8 @@ import kotlin.math.roundToInt
  * Shows a spreadsheet: the cells of the active sheet with column and row headings that stay in
  * place, frozen panes, scrolling and zoom, the selection and a handle to extend it. Headings
  * select whole columns and rows, their borders resize them; a hardware keyboard moves the
- * selection and typing starts editing the active cell. With a mouse, dragging selects cells (or
+ * selection and typing starts editing the active cell, or goes into the text of a shape that has
+ * the cursor. With a mouse, dragging selects cells (or
  * columns and rows on their headings), the right button opens the menu and the wheel scrolls
  * (and zooms with Ctrl).
  *
@@ -83,6 +86,13 @@ class SheetView @JvmOverloads constructor(
         fun onUndo(redo: Boolean)
         /** Ctrl+B, Ctrl+I, Ctrl+U: switches the style of the selected cells. */
         fun onToggleStyle(style: Style)
+        /** Typing into the text of a shape (see [setState]'s cursor): a key, as its web key code. */
+        fun onTextKey(keyCode: Int, shift: Boolean, ctrl: Boolean)
+        /** Text from the keyboard; it replaces the word being composed, if any. */
+        fun onCommitText(text: String)
+        /** The word the keyboard is composing (its suggestions), until it's committed or finished. */
+        fun onComposingText(text: String)
+        fun onFinishComposingText()
     }
 
     enum class Style { BOLD, ITALIC, UNDERLINE }
@@ -152,6 +162,21 @@ class SheetView @JvmOverloads constructor(
             invalidate()
         }
 
+    // The text of a shape taking the typing: its cursor or selection (sheet millimeters), and
+    // whether the cursor blinks on; the word the keyboard composes
+    private var textCursor: Cursor? = null
+    private var textSelection: List<SelectionArea> = emptyList()
+    private val isEditingText get() = textCursor != null || textSelection.isNotEmpty()
+    private var cursorShown = true
+    private var composing = false
+    private val blink = object : Runnable {
+        override fun run() {
+            cursorShown = !cursorShown
+            invalidate()
+            postDelayed(this, BLINK_MS)
+        }
+    }
+
     // Pictures, shapes and charts: the selected ones, what a touch grabbed, whether it's dragged
     private var drawings: List<DrawingFrame> = emptyList()
     private val drawingHandles = DrawingHandles(context)
@@ -219,6 +244,10 @@ class SheetView @JvmOverloads constructor(
     private val foreignNamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textSize = 11 * resources.displayMetrics.scaledDensity
+    }
+    private val textCursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.BLACK
+        strokeWidth = 2 * density
     }
     private val selectionFill = Paint().apply { color = ContextCompat.getColor(context, Resources.color.editors_selection) }
     private val selectionBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -342,12 +371,28 @@ class SheetView @JvmOverloads constructor(
         this.scope = scope
     }
 
-    /** The sheet's state after a command; [changed] if cells may look different. */
-    fun setState(sheet: SheetState, changed: Boolean, selectedDrawings: List<DrawingFrame> = emptyList()) {
+    /**
+     * The sheet's state after a command; [changed] if cells may look different. With a [cursor] or
+     * [selection] in the text of a shape, typing goes there (the keyboard shows).
+     */
+    fun setState(
+        sheet: SheetState, changed: Boolean, selectedDrawings: List<DrawingFrame> = emptyList(),
+        cursor: Cursor? = null, selection: List<SelectionArea> = emptyList()
+    ) {
         val previous = state
         val previousDrawings = drawings
+        val wasEditingText = isEditingText
         state = sheet
         drawings = selectedDrawings
+        textCursor = cursor
+        textSelection = selection
+        if (isEditingText != wasEditingText) {
+            // The keyboard starts anew: for the shape's text, or for cells
+            composing = false
+            context.getSystemService(android.view.inputmethod.InputMethodManager::class.java)?.restartInput(this)
+            if (isEditingText && listener != null) showKeyboard()
+        }
+        restartBlink()
         sheet.geometry?.let { setGeometry(it) }
         if (previous != null && previous.active != sheet.active) {
             // Another sheet: nothing of the old one fits
@@ -365,7 +410,8 @@ class SheetView @JvmOverloads constructor(
         if (sheet.isSingleCell && actionMode != null && previous?.let { it.c1 != sheet.c1 || it.r1 != sheet.r1 } == true) hideActionMenu()
         if (drawingMenuAfterUpdate) {
             drawingMenuAfterUpdate = false
-            if (drawings.isNotEmpty() && listener != null) showActionMenu()
+            // Not over the text being typed
+            if (drawings.isNotEmpty() && listener != null && !isEditingText) showActionMenu()
         } else if (drawings.isNotEmpty() && previousDrawings.isEmpty()) {
             // Selected otherwise (a chart given its cells): the cells' menu is no longer for them
             hideActionMenu()
@@ -388,6 +434,7 @@ class SheetView @JvmOverloads constructor(
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         renderJob?.cancel()
+        removeCallbacks(blink)
         hideActionMenu()
     }
 
@@ -770,6 +817,11 @@ class SheetView @JvmOverloads constructor(
 
     override fun onCreateInputConnection(outAttrs: android.view.inputmethod.EditorInfo): android.view.inputmethod.InputConnection? {
         if (listener == null) return null
+        if (isEditingText) {
+            outAttrs.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            outAttrs.imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI or android.view.inputmethod.EditorInfo.IME_FLAG_NO_FULLSCREEN
+            return TextInputConnection()
+        }
         outAttrs.inputType = android.text.InputType.TYPE_CLASS_TEXT
         outAttrs.imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
         return object : android.view.inputmethod.BaseInputConnection(this, false) {
@@ -788,8 +840,100 @@ class SheetView @JvmOverloads constructor(
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean =
         handleKey(event) || super.onKeyDown(keyCode, event)
 
+    /** Takes the focus and shows the keyboard (for the text of a shape). */
+    fun showKeyboard() {
+        if (!hasWindowFocus()) {
+            viewTreeObserver.addOnWindowFocusChangeListener(object : android.view.ViewTreeObserver.OnWindowFocusChangeListener {
+                override fun onWindowFocusChanged(hasFocus: Boolean) {
+                    if (!hasFocus) return
+                    viewTreeObserver.removeOnWindowFocusChangeListener(this)
+                    showKeyboard()
+                }
+            })
+            return
+        }
+        requestFocus()
+        context.getSystemService(android.view.inputmethod.InputMethodManager::class.java)?.showSoftInput(this, 0)
+    }
+
+    // The keyboard forgets the word it composes: a key ended it in the shape's text
+    private fun restartKeyboardInput() {
+        if (!composing) return
+        composing = false
+        post { context.getSystemService(android.view.inputmethod.InputMethodManager::class.java)?.restartInput(this) }
+    }
+
+    /** The soft keyboard, while the text of a shape takes the typing (as in documents). */
+    private inner class TextInputConnection : android.view.inputmethod.BaseInputConnection(this@SheetView, false) {
+        override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
+            composing = false
+            listener?.onCommitText(text.toString())
+            return true
+        }
+
+        override fun setComposingText(text: CharSequence, newCursorPosition: Int): Boolean {
+            composing = text.isNotEmpty()
+            listener?.onComposingText(text.toString())
+            return true
+        }
+
+        override fun finishComposingText(): Boolean {
+            composing = false
+            listener?.onFinishComposingText()
+            return true
+        }
+
+        override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+            val listener = listener ?: return true
+            repeat(beforeLength) { listener.onTextKey(KEY_BACKSPACE, false, false) }
+            repeat(afterLength) { listener.onTextKey(KEY_DELETE, false, false) }
+            return true
+        }
+
+        override fun sendKeyEvent(event: android.view.KeyEvent): Boolean {
+            if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+                // Keys (Enter) end the word being composed
+                if (event.unicodeChar == 0 || event.keyCode == android.view.KeyEvent.KEYCODE_ENTER) restartKeyboardInput()
+                handleKey(event)
+            }
+            return true
+        }
+
+        override fun performEditorAction(actionCode: Int): Boolean {
+            restartKeyboardInput()
+            listener?.onTextKey(KEY_ENTER, false, false)
+            return true
+        }
+    }
+
+    // Keys for the text of a shape: as in documents; the clipboard's and undo are the app's
+    private fun textKey(listener: SheetListener, event: android.view.KeyEvent): Boolean {
+        hideActionMenu()
+        if (event.isCtrlPressed) {
+            when (event.keyCode) {
+                android.view.KeyEvent.KEYCODE_X -> listener.onCut()
+                android.view.KeyEvent.KEYCODE_C -> listener.onCopy()
+                android.view.KeyEvent.KEYCODE_V -> listener.onPaste()
+                android.view.KeyEvent.KEYCODE_Z -> listener.onUndo(redo = event.isShiftPressed)
+                android.view.KeyEvent.KEYCODE_Y -> listener.onUndo(redo = true)
+            }
+            if (event.keyCode in CLIPBOARD_KEYS - android.view.KeyEvent.KEYCODE_A ||
+                event.keyCode == android.view.KeyEvent.KEYCODE_Z || event.keyCode == android.view.KeyEvent.KEYCODE_Y) return true
+        }
+        val keyCode = webKeyCode(event.keyCode)
+        if (keyCode != null && (event.isCtrlPressed || event.keyCode !in android.view.KeyEvent.KEYCODE_A..android.view.KeyEvent.KEYCODE_Z)) {
+            listener.onTextKey(keyCode, event.isShiftPressed, event.isCtrlPressed)
+            return true
+        }
+        val char = event.unicodeChar
+        if (char == 0) return false
+        listener.onCommitText(String(Character.toChars(char)))
+        return true
+    }
+
     private fun handleKey(event: android.view.KeyEvent): Boolean {
         val listener = listener ?: return false
+        if (isEditingText) return textKey(listener, event)
         val shift = event.isShiftPressed
         when (event.keyCode) {
             android.view.KeyEvent.KEYCODE_DPAD_LEFT -> listener.onMoveSelection(-1, 0, shift)
@@ -1034,6 +1178,7 @@ class SheetView @JvmOverloads constructor(
             drawingHandles.draw(canvas, drawings, toScreen)
         }
         drawEditingText(canvas)
+        drawTextCursor(canvas)
         canvas.restore()
 
         drawHeadings(canvas)
@@ -1056,6 +1201,29 @@ class SheetView @JvmOverloads constructor(
             Region(RectF(headerWidth, top, left, h), 0f, scrollPosY),
             Region(RectF(headerWidth, headerHeight, left, top), 0f, 0f)
         ).filter { it.area.width() > 0 && it.area.height() > 0 }
+    }
+
+    // The cursor or selection in the text of a shape
+    private fun drawTextCursor(canvas: Canvas) {
+        if (listener == null) return
+        for (area in textSelection) {
+            val points = area.points
+            if (points.size < 8) continue
+            val path = Path().apply {
+                moveTo(viewX(points[0]), viewY(points[1]))
+                for (i in 2 until 8 step 2) lineTo(viewX(points[i]), viewY(points[i + 1]))
+                close()
+            }
+            canvas.drawPath(path, selectionFill)
+        }
+        val cursor = textCursor ?: return
+        if (cursorShown) canvas.drawLine(viewX(cursor.x1), viewY(cursor.y1), viewX(cursor.x2), viewY(cursor.y2), textCursorPaint)
+    }
+
+    private fun restartBlink() {
+        removeCallbacks(blink)
+        cursorShown = true
+        if (textCursor != null && listener != null) postDelayed(blink, BLINK_MS)
     }
 
     // The text being edited, over the active cell and as far right as it needs
@@ -1288,6 +1456,7 @@ class SheetView @JvmOverloads constructor(
         const val LEVEL_STEP = 1.4142135623730951
         const val MOVE_INTERVAL_MS = 40L
         const val DOUBLE_CLICK_MS = 400L
+        const val BLINK_MS = 500L
         const val WHEEL_ZOOM_STEP = 0.1f
         const val MENU_FILL = 1
         const val MENU_DELETE = 2
