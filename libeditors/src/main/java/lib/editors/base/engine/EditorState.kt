@@ -53,6 +53,8 @@ data class CellFormat(
     val numFormat: String = "General",
     /** Asc.c_oAscNumFormatType: 0 general, 1 number, 4 currency, 5 date, 8 percent, 10 text, ... */
     val numFormatType: Int = 0,
+    /** The cell style's name ("Normal"). */
+    val style: String = "",
     val fontName: String = "",
     val fontSize: Double = 0.0,
     val strikeout: Boolean = false,
@@ -684,7 +686,7 @@ class EditorState(
                 if (json.isNull("warning") || !json.has("warning")) null else json.getInt("warning"),
                 json.optJSONObject("cellFormat")?.let {
                     CellFormat(
-                        it.optString("numFormat", "General"), it.optInt("numFormatType"), it.optString("fontName"),
+                        it.optString("numFormat", "General"), it.optInt("numFormatType"), it.optString("style"), it.optString("fontName"),
                         it.optDouble("fontSize", 0.0), it.optBoolean("strikeout"), it.optString("color"), it.optString("fill"),
                         it.optBoolean("wrap"), it.optBoolean("merged"), it.optInt("verticalAlign"), it.optBoolean("border"),
                         it.optInt("angle"), it.optBoolean("rtl")

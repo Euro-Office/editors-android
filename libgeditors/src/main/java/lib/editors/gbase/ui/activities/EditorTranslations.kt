@@ -53,4 +53,37 @@ internal object EditorTranslations {
         }
         return context.getString(resource)
     }
+
+    /** The name to show for a cell style: translated for the built-in ones, as it is for others. */
+    fun cellStyleName(context: Context, name: String): String {
+        Regex("([0-9]+)% - Accent([1-6])").matchEntire(name)?.let {
+            return context.getString(Resources.string.editors_cell_style_accent_tint, it.groupValues[1].toInt(), it.groupValues[2].toInt())
+        }
+        Regex("Accent([1-6])").matchEntire(name)?.let { return context.getString(Resources.string.editors_cell_style_accent, it.groupValues[1].toInt()) }
+        if (name.endsWith(" [0]")) {
+            val base = name.removeSuffix(" [0]")
+            val translated = cellStyleName(context, base)
+            return if (translated == base) name else context.getString(Resources.string.editors_cell_style_no_decimals, translated)
+        }
+        val resource = when (name) {
+            "Good" -> Resources.string.editors_cell_style_good
+            "Bad" -> Resources.string.editors_cell_style_bad
+            "Neutral" -> Resources.string.editors_cell_style_neutral
+            "Input" -> Resources.string.editors_cell_style_input
+            "Output" -> Resources.string.editors_cell_style_output
+            "Calculation" -> Resources.string.editors_cell_style_calculation
+            "Check Cell" -> Resources.string.editors_cell_style_check_cell
+            "Explanatory Text" -> Resources.string.editors_cell_style_explanatory_text
+            "Note" -> Resources.string.editors_cell_style_note
+            "Linked Cell" -> Resources.string.editors_cell_style_linked_cell
+            "Warning Text" -> Resources.string.editors_cell_style_warning_text
+            "Total" -> Resources.string.editors_cell_style_total
+            "Comma" -> Resources.string.editors_cell_style_comma
+            "Currency" -> Resources.string.editors_cells_format_currency
+            "Percent" -> Resources.string.editors_cells_format_percent
+            // As paragraph styles: Normal, Title, Heading 1-4
+            else -> return styleName(context, name)
+        }
+        return context.getString(resource)
+    }
 }

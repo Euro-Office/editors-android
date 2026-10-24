@@ -1195,6 +1195,17 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         }
     }
 
+    // Spreadsheets: the cell styles by their pictures
+    private fun chooseCellStyle(current: String, onBack: () -> Unit) {
+        val context = this
+        read({ setStyleLabels(cellStyles().associateWith { EditorTranslations.cellStyleName(context, it) }) }) {
+            previewPicker.show(
+                getString(Resources.string.editors_cells_cell_style), "cellStyles", selected = current, columnWidthDp = 112,
+                onBack = onBack, describe = { EditorTranslations.cellStyleName(context, it.id) }
+            ) { style -> edit { setCellStyle(style.id) } }
+        }
+    }
+
     private val cellFormatPanel by lazy {
         CellFormatPanel(this, { command -> edit(command = command) }, loadFonts = { onLoaded ->
             val document = document ?: return@CellFormatPanel
@@ -1202,7 +1213,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 val lists = withContext(EditorEngine.dispatcher) { document.fonts() to document.documentFonts() }
                 onLoaded(lists.first, lists.second)
             }
-        }, panels = panels, colorPicker = colorPicker, shapes = shapePanel)
+        }, panels = panels, colorPicker = colorPicker, shapes = shapePanel, chooseStyle = ::chooseCellStyle)
     }
 
     private val chartUi by lazy {

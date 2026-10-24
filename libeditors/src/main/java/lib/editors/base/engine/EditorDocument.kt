@@ -180,7 +180,10 @@ interface EditorDocument : PagedDocument {
     /** Text documents: paragraph style names. */
     fun styles(): List<String> = jsonStrings(execute("eoEngine.getStyles()"))
 
-    /** The names the pictures of the paragraph styles show ([previews] "paragraphStyles"), by style name. */
+    /**
+     * The names the pictures of the paragraph styles ([previews] "paragraphStyles") or of the cell
+     * styles ("cellStyles") show, by style name.
+     */
     fun setStyleLabels(labels: Map<String, String>) {
         execute("eoEngine.setStyleLabels(${JSONObject.quote(JSONObject(labels).toString())})")
     }
@@ -273,6 +276,12 @@ interface EditorDocument : PagedDocument {
     fun setNumberFormatType(type: Int): EditorState = command("eoEngine.setNumberFormatType($type)")
 
     fun changeDecimals(more: Boolean): EditorState = command("eoEngine.changeDecimals($more)")
+
+    /** Cell style names, the document's own first (their pictures: [previews] "cellStyles"). */
+    fun cellStyles(): List<String> = jsonStrings(execute("eoEngine.getCellStyles()"))
+
+    /** Applies a cell style by name (see [cellStyles]). */
+    fun setCellStyle(name: String): EditorState = command("eoEngine.setCellStyle(${JSONObject.quote(name)})")
 
     /** Borders of the selected cells: "all", "outer", "bottom" or "none". */
     fun setBorders(kind: String): EditorState = command("eoEngine.setBorders(${JSONObject.quote(kind)})")

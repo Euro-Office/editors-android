@@ -118,6 +118,26 @@
     <string name="editors_cells_delete_sheet_confirm">Delete the sheet \"%1$s\"?</string>
     <string name="editors_cells_show_sheets">Show hidden sheets</string>
     <string name="editors_cells_number_format">Number format</string>
+    <string name="editors_cells_cell_style">Cell style</string>
+    <string name="editors_cell_style_good">Good</string>
+    <string name="editors_cell_style_bad">Bad</string>
+    <string name="editors_cell_style_neutral">Neutral</string>
+    <string name="editors_cell_style_input">Input</string>
+    <string name="editors_cell_style_output">Output</string>
+    <string name="editors_cell_style_calculation">Calculation</string>
+    <string name="editors_cell_style_check_cell">Check Cell</string>
+    <string name="editors_cell_style_explanatory_text">Explanatory Text</string>
+    <string name="editors_cell_style_note">Note</string>
+    <string name="editors_cell_style_linked_cell">Linked Cell</string>
+    <string name="editors_cell_style_warning_text">Warning Text</string>
+    <string name="editors_cell_style_total">Total</string>
+    <string name="editors_cell_style_comma">Comma</string>
+    <!-- A cell style in a theme's accent color, "Accent 1" to "Accent 6" -->
+    <string name="editors_cell_style_accent">Accent %d</string>
+    <!-- A cell style in a lighter accent color: "20% - Accent 1" -->
+    <string name="editors_cell_style_accent_tint">%1$d%% - Accent %2$d</string>
+    <!-- A number style without decimals: "Currency [0]" -->
+    <string name="editors_cell_style_no_decimals">%s [0]</string>
     <string name="editors_cells_fewer_decimals">.0←</string>
     <string name="editors_cells_more_decimals">→.00</string>
     <string name="editors_cells_fill_color">Fill</string>

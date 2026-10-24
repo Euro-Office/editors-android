@@ -27,7 +27,9 @@ internal class CellFormatPanel(
     private val panels: PanelHost,
     private val colorPicker: ColorPicker,
     /** The selected drawings' section. */
-    private val shapes: ShapePanel? = null
+    private val shapes: ShapePanel? = null,
+    /** The cell styles, the current one marked, back to the panel. */
+    private val chooseStyle: ((current: String, onBack: () -> Unit) -> Unit)? = null
 ) : PanelBuilder<CellFormat>(context) {
 
     private var dialog: PanelHost.Panel? = null
@@ -109,6 +111,9 @@ internal class CellFormatPanel(
         // The cells' text, or the shapes'
         textSection = section(Resources.string.editors_format_text) { textSettings() }
         cellsOnly += section(Resources.string.editors_cells_cells) {
+            chooseStyle?.let { choose ->
+                action(Resources.string.editors_cells_cell_style, { EditorTranslations.cellStyleName(context, it.style) }) { choose(format.style, ::show) }
+            }
             caption(Resources.string.editors_cells_fill_color)
             colorRow(Resources.string.editors_cells_fill_color, Resources.string.editors_color_none, { it.fill }) { color -> edit { setCellFill(color) } }
             caption(Resources.string.editors_cells_borders)
