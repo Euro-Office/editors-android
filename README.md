@@ -32,4 +32,13 @@ The insert pickers show web-apps' pictures of chart types and shapes. `tools/web
 tools/web-apps-icons.py <web-apps> <sdkjs>
 ```
 
-The pictures are Ascensio System SIA's, under the [Creative Commons Attribution-ShareAlike 4.0 International](https://creativecommons.org/licenses/by-sa/4.0/) license; the editors' licence page says so.
+The pictures, the names and the menu and format icons it takes are Ascensio System SIA's, under the [Creative Commons Attribution-ShareAlike 4.0 International](https://creativecommons.org/licenses/by-sa/4.0/) license; the editors' licence page says so. `InsertCatalog.kt` notes the web-apps and sdkjs commits they come from.
+
+## Licences
+
+The code is under the AGPL-3.0 ([LICENSE](LICENSE)), but not all icons and pictures are:
+
+- Icons, pictures and names from web-apps (including the SmartArt pictures that `tools/smartart-previews.py` renders) are under CC BY-SA 4.0, and so are our changes to them.
+- Material Design icons are under the Apache License 2.0.
+
+[REUSE.toml](REUSE.toml) gives the licence of each file, with the texts in [LICENSES](LICENSES). Check it with `reuse lint` (e.g. `docker run --rm -v $PWD:/data fsfe/reuse lint`); CI runs it too.

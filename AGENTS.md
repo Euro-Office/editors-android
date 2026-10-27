@@ -28,6 +28,12 @@ Only what is Android's: the JNI binding, Kotlin and Android resources. Anything 
 
 Texts live in `libresources/src/main/res/values/strings.xml` (English). Translations (`values-*/strings.xml`) come from Weblate (see README.md): never edit them by hand. Mark texts that must not be translated with `translatable="false"`.
 
+## Icons and licences
+
+- New icons are [Material Design icons](https://fonts.google.com/icons) (Apache-2.0) or come from web-apps (CC BY-SA 4.0), never from elsewhere without asking.
+- Put the source and licence into a comment in the drawable, as the existing ones do, and add the file to the matching entry of `REUSE.toml`. `reuse lint` must pass.
+- Regenerate web-apps' pictures and names only with `tools/web-apps-icons.py`; don't edit its output by hand.
+
 ## Build
 
 From the MobileEditors checkout:
