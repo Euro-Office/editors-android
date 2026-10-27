@@ -178,11 +178,16 @@ ${list(components)}
 ${list(fonts)}
 </ul>
 <h3>Icons</h3>
-<p>The pictures of chart types and shapes are from <a href="https://github.com/Euro-Office/web-apps">web-apps</a>
-by Ascensio System SIA, under the <a href="https://creativecommons.org/licenses/by-sa/4.0/">Creative Commons
-Attribution-ShareAlike 4.0 International</a> license, converted to Android drawables. Other icons are
-<a href="https://fonts.google.com/icons">Material Design icons</a> by Google, under the
-<a href="https://www.apache.org/licenses/LICENSE-2.0">Apache License 2.0</a>.</p>
+<p>The pictures of chart types and shapes, the icons of the menus, formats, list styles and slide
+transitions and the names of the chart types, shapes and SmartArt layouts are from
+<a href="https://github.com/Euro-Office/web-apps">web-apps</a>, © 2010-2024 Ascensio System SIA, under the
+<a href="https://creativecommons.org/licenses/by-sa/4.0/legalcode">Creative Commons Attribution-ShareAlike 4.0
+International</a> license. The icons were converted to Android drawables. The pictures of the SmartArt layouts
+are drawn by sdkjs from Ascensio System SIA's layouts, under the same license. Our changes are under that
+license, too. They come without warranty, as the license says.</p>
+<p>The other icons are <a href="https://fonts.google.com/icons">Material Design icons</a>, © Google LLC, under the
+<a href="https://www.apache.org/licenses/LICENSE-2.0">Apache License 2.0</a>; its text is on the app's
+<a href="licenses.html">licences page</a>.</p>
 <h3>Dictionaries</h3>
 <p>Spell checking uses the Hunspell dictionaries of <a href="https://github.com/Euro-Office/dictionaries">Euro-Office/dictionaries</a>,
 each under the licence given in its folder there.</p>
