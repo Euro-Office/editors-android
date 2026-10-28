@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The link at the cursor (or tapped in a PDF), with a button that opens it -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/linkBar"
+    android:layout_width="match_parent"
+    android:layout_height="48dp"
+    android:background="?android:attr/colorBackground"
+    android:elevation="2dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="12dp"
+    android:visibility="gone">
+
+    <ImageView
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:importantForAccessibility="no"
+        android:src="@drawable/ic_editor_link" />
+
+    <TextView
+        android:id="@+id/linkText"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:ellipsize="middle"
+        android:paddingHorizontal="12dp"
+        android:singleLine="true"
+        android:textColor="@color/editors_selection_handle" />
+
+    <Button
+        android:id="@+id/linkOpen"
+        style="?android:attr/borderlessButtonStyle"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:text="@string/editors_link_open"
+        android:textColor="@color/editors_selection_handle" />
+
+</LinearLayout>

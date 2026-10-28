@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icon "btn-transition-fade" from web-apps (Ascensio System SIA), Creative Commons Attribution-ShareAlike 4.0 International; converted to an Android drawable -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="28"
+    android:viewportHeight="28"
+    android:tint="@color/editors_icon">
+    <path
+        android:pathData="M20.5 9H8a1 1 0 0 0-1 1v8.5h12.5a1 1 0 0 0 1-1V9Z"
+        android:fillColor="@android:color/white" />
+    <path
+        android:pathData="M22.5 9.5h1a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1v-1m13-14a1 1 0 0 0-1-1h-15a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h15a1 1 0 0 0 1-1v-11Z"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1"
+        android:strokeLineCap="round" />
+</vector>

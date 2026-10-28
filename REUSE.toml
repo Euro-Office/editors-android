@@ -1,0 +1,150 @@
+# SPDX-FileCopyrightText: 2026 Euro-Office contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# Licences of the files, for https://reuse.software (reuse lint). The code is AGPL-3.0; the icons
+# and pictures taken from web-apps are Ascensio System SIA's GUI elements, which web-apps licenses
+# under CC BY-SA 4.0 (see the headers of its sources), and the Material Design icons are Apache-2.0.
+# The editors' licences page (libeditors' editorsLicenses task) says the same in the app.
+
+version = 1
+
+[[annotations]]
+path = "**"
+SPDX-FileCopyrightText = "2026 Euro-Office contributors"
+SPDX-License-Identifier = "AGPL-3.0-only"
+
+# The English texts: our own, with the picker names from web-apps' texts in a CC-BY-SA-4.0 snippet
+[[annotations]]
+path = "libresources/src/main/res/values/strings.xml"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Euro-Office contributors"
+SPDX-License-Identifier = "AGPL-3.0-only"
+
+# Chart type and shape pictures (tools/web-apps-icons.py), SmartArt previews (sdkjs' layouts,
+# rendered by tools/smartart-previews.py) and the web-apps menu and format icons
+[[annotations]]
+path = [
+    "libresources/src/main/res/drawable/editors_*.xml",
+    "libresources/src/main/res/drawable-nodpi/editors_smartart_*.webp",
+    "libresources/src/main/res/drawable/ic_editor_border_all.xml",
+    "libresources/src/main/res/drawable/ic_editor_border_bottom.xml",
+    "libresources/src/main/res/drawable/ic_editor_border_inner.xml",
+    "libresources/src/main/res/drawable/ic_editor_border_left.xml",
+    "libresources/src/main/res/drawable/ic_editor_border_none.xml",
+    "libresources/src/main/res/drawable/ic_editor_border_outer.xml",
+    "libresources/src/main/res/drawable/ic_editor_border_right.xml",
+    "libresources/src/main/res/drawable/ic_editor_border_top.xml",
+    "libresources/src/main/res/drawable/ic_editor_bullets.xml",
+    "libresources/src/main/res/drawable/ic_editor_clear_format.xml",
+    "libresources/src/main/res/drawable/ic_editor_columns_one.xml",
+    "libresources/src/main/res/drawable/ic_editor_columns_three.xml",
+    "libresources/src/main/res/drawable/ic_editor_columns_two.xml",
+    "libresources/src/main/res/drawable/ic_editor_decimals_less.xml",
+    "libresources/src/main/res/drawable/ic_editor_decimals_more.xml",
+    "libresources/src/main/res/drawable/ic_editor_download.xml",
+    "libresources/src/main/res/drawable/ic_editor_export.xml",
+    "libresources/src/main/res/drawable/ic_editor_footnote.xml",
+    "libresources/src/main/res/drawable/ic_editor_format_currency.xml",
+    "libresources/src/main/res/drawable/ic_editor_format_date.xml",
+    "libresources/src/main/res/drawable/ic_editor_format_general.xml",
+    "libresources/src/main/res/drawable/ic_editor_format_number.xml",
+    "libresources/src/main/res/drawable/ic_editor_format_percent.xml",
+    "libresources/src/main/res/drawable/ic_editor_format_text.xml",
+    "libresources/src/main/res/drawable/ic_editor_indent_less.xml",
+    "libresources/src/main/res/drawable/ic_editor_indent_more.xml",
+    "libresources/src/main/res/drawable/ic_editor_info.xml",
+    "libresources/src/main/res/drawable/ic_editor_line_break.xml",
+    "libresources/src/main/res/drawable/ic_editor_line_spacing.xml",
+    "libresources/src/main/res/drawable/ic_editor_merge_cells.xml",
+    "libresources/src/main/res/drawable/ic_editor_mobile_view.xml",
+    "libresources/src/main/res/drawable/ic_editor_multilevel.xml",
+    "libresources/src/main/res/drawable/ic_editor_numbering.xml",
+    "libresources/src/main/res/drawable/ic_editor_page_break.xml",
+    "libresources/src/main/res/drawable/ic_editor_page_landscape.xml",
+    "libresources/src/main/res/drawable/ic_editor_page_number.xml",
+    "libresources/src/main/res/drawable/ic_editor_page_portrait.xml",
+    "libresources/src/main/res/drawable/ic_editor_page_setup.xml",
+    "libresources/src/main/res/drawable/ic_editor_print.xml",
+    "libresources/src/main/res/drawable/ic_editor_review.xml",
+    "libresources/src/main/res/drawable/ic_editor_search.xml",
+    "libresources/src/main/res/drawable/ic_editor_section_break.xml",
+    "libresources/src/main/res/drawable/ic_editor_spellcheck.xml",
+    "libresources/src/main/res/drawable/ic_editor_strikeout.xml",
+    "libresources/src/main/res/drawable/ic_editor_subscript.xml",
+    "libresources/src/main/res/drawable/ic_editor_superscript.xml",
+    "libresources/src/main/res/drawable/ic_editor_table_column_left.xml",
+    "libresources/src/main/res/drawable/ic_editor_table_column_right.xml",
+    "libresources/src/main/res/drawable/ic_editor_table_contents.xml",
+    "libresources/src/main/res/drawable/ic_editor_table_delete_column.xml",
+    "libresources/src/main/res/drawable/ic_editor_table_delete_row.xml",
+    "libresources/src/main/res/drawable/ic_editor_table_row_above.xml",
+    "libresources/src/main/res/drawable/ic_editor_table_row_below.xml",
+    "libresources/src/main/res/drawable/ic_editor_text_ltr.xml",
+    "libresources/src/main/res/drawable/ic_editor_text_rtl.xml",
+    "libresources/src/main/res/drawable/ic_editor_transition_clock.xml",
+    "libresources/src/main/res/drawable/ic_editor_transition_cover.xml",
+    "libresources/src/main/res/drawable/ic_editor_transition_fade.xml",
+    "libresources/src/main/res/drawable/ic_editor_transition_none.xml",
+    "libresources/src/main/res/drawable/ic_editor_transition_push.xml",
+    "libresources/src/main/res/drawable/ic_editor_transition_split.xml",
+    "libresources/src/main/res/drawable/ic_editor_transition_uncover.xml",
+    "libresources/src/main/res/drawable/ic_editor_transition_wipe.xml",
+    "libresources/src/main/res/drawable/ic_editor_transition_zoom.xml",
+    "libresources/src/main/res/drawable/ic_editor_valign_bottom.xml",
+    "libresources/src/main/res/drawable/ic_editor_valign_middle.xml",
+    "libresources/src/main/res/drawable/ic_editor_valign_top.xml",
+    "libresources/src/main/res/drawable/ic_editor_wrap_text.xml"
+]
+SPDX-FileCopyrightText = "2010-2024 Ascensio System SIA"
+SPDX-License-Identifier = "CC-BY-SA-4.0"
+
+# Material Design icons (https://fonts.google.com/icons)
+[[annotations]]
+path = [
+    "libresources/src/main/res/drawable/ic_editor_align_center.xml",
+    "libresources/src/main/res/drawable/ic_editor_align_left.xml",
+    "libresources/src/main/res/drawable/ic_editor_align_right.xml",
+    "libresources/src/main/res/drawable/ic_editor_back.xml",
+    "libresources/src/main/res/drawable/ic_editor_bold.xml",
+    "libresources/src/main/res/drawable/ic_editor_camera.xml",
+    "libresources/src/main/res/drawable/ic_editor_chart.xml",
+    "libresources/src/main/res/drawable/ic_editor_check.xml",
+    "libresources/src/main/res/drawable/ic_editor_chevron_right.xml",
+    "libresources/src/main/res/drawable/ic_editor_close.xml",
+    "libresources/src/main/res/drawable/ic_editor_comment.xml",
+    "libresources/src/main/res/drawable/ic_editor_down.xml",
+    "libresources/src/main/res/drawable/ic_editor_dropdown.xml",
+    "libresources/src/main/res/drawable/ic_editor_edit_text.xml",
+    "libresources/src/main/res/drawable/ic_editor_edit.xml",
+    "libresources/src/main/res/drawable/ic_editor_encoding.xml",
+    "libresources/src/main/res/drawable/ic_editor_file.xml",
+    "libresources/src/main/res/drawable/ic_editor_find_replace.xml",
+    "libresources/src/main/res/drawable/ic_editor_format.xml",
+    "libresources/src/main/res/drawable/ic_editor_image.xml",
+    "libresources/src/main/res/drawable/ic_editor_insert.xml",
+    "libresources/src/main/res/drawable/ic_editor_italic.xml",
+    "libresources/src/main/res/drawable/ic_editor_link.xml",
+    "libresources/src/main/res/drawable/ic_editor_lock_open.xml",
+    "libresources/src/main/res/drawable/ic_editor_lock.xml",
+    "libresources/src/main/res/drawable/ic_editor_more.xml",
+    "libresources/src/main/res/drawable/ic_editor_outline.xml",
+    "libresources/src/main/res/drawable/ic_editor_pages.xml",
+    "libresources/src/main/res/drawable/ic_editor_palette.xml",
+    "libresources/src/main/res/drawable/ic_editor_pen.xml",
+    "libresources/src/main/res/drawable/ic_editor_people.xml",
+    "libresources/src/main/res/drawable/ic_editor_redo.xml",
+    "libresources/src/main/res/drawable/ic_editor_save.xml",
+    "libresources/src/main/res/drawable/ic_editor_shapes.xml",
+    "libresources/src/main/res/drawable/ic_editor_shape.xml",
+    "libresources/src/main/res/drawable/ic_editor_sign.xml",
+    "libresources/src/main/res/drawable/ic_editor_slide_add.xml",
+    "libresources/src/main/res/drawable/ic_editor_slideshow.xml",
+    "libresources/src/main/res/drawable/ic_editor_smartart.xml",
+    "libresources/src/main/res/drawable/ic_editor_table.xml",
+    "libresources/src/main/res/drawable/ic_editor_text_box.xml",
+    "libresources/src/main/res/drawable/ic_editor_underline.xml",
+    "libresources/src/main/res/drawable/ic_editor_undo.xml",
+    "libresources/src/main/res/drawable/ic_editor_up.xml"
+]
+SPDX-FileCopyrightText = "Google LLC"
+SPDX-License-Identifier = "Apache-2.0"

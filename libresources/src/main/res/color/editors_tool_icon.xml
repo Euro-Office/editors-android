@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Toolbar icons: the accent while on (bold, a pen), dimmed while they don't apply -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/editors_icon_disabled" android:state_enabled="false" />
+    <item android:color="@color/editors_accent" android:state_selected="true" />
+    <item android:color="@color/editors_icon" />
+</selector>

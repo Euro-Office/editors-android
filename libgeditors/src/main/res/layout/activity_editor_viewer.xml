@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/editorRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/editors_bar"
+    android:orientation="vertical">
+
+    <include layout="@layout/editor_top_bar" />
+
+    <!-- Large screens: strips of slides or pages on the start side, panels on the end side -->
+    <LinearLayout
+        android:id="@+id/editorContent"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal">
+
+        <FrameLayout
+            android:id="@+id/editorStartPane"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1">
+
+            <lib.editors.gbase.ui.views.DocumentView
+                android:id="@+id/documentView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <ProgressBar
+                android:id="@+id/documentProgress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center" />
+
+        </FrameLayout>
+
+        <LinearLayout
+            android:id="@+id/editorSidePane"
+            android:layout_width="@dimen/editor_side_pane_width"
+            android:layout_height="match_parent"
+            android:background="?android:attr/colorBackground"
+            android:elevation="4dp"
+            android:orientation="vertical"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+    <include layout="@layout/editor_toolbar" />
+
+</LinearLayout>

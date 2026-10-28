@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="editor_side_pane_width">360dp</dimen>
+    <!-- Panels open beside the document (instead of from the bottom) on screens at least this wide -->
+    <bool name="editor_side_panels">false</bool>
+</resources>
