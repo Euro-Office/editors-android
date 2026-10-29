@@ -1,6 +1,7 @@
 package lib.editors.base.engine
 
 import android.util.Log
+import lib.toolkit.base.managers.utils.EditorDictionaries
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -67,6 +68,12 @@ class Dictionaries(runtimeDir: File, private val downloadDir: File) {
         if (commit == null || commit != index?.commit) return null
         return File(downloaded, "$name.aff") to File(downloaded, "$name.dic")
     }
+
+    /** The dictionaries there are, installed or not, with their language (their first LCID). */
+    fun all(): Map<String, Int> = index?.languages.orEmpty().filterValues { it.isNotEmpty() }.mapValues { it.value.first() }
+
+    /** The installed dictionaries. */
+    fun installed(): List<String> = index?.languages?.keys.orEmpty().filter { files(it) != null }
 
     /** The languages (LCIDs) of the installed dictionaries. */
     fun installedLanguages(): List<Int> =
@@ -186,12 +193,10 @@ object EditorSpelling {
     private var service: SpellService? = null
 
     fun dictionaries(context: android.content.Context): Dictionaries = dictionaries ?: synchronized(this) {
-        dictionaries ?: Dictionaries(
-            EditorEngine.runtimeDir(context), File(context.filesDir, "editors/dictionaries")
-        ).also { dictionaries = it }
+        dictionaries ?: Dictionaries(EditorEngine.runtimeDir(context), EditorDictionaries.of(context).dir).also { dictionaries = it }
     }
 
     /** Call on the engine's thread ([EditorEngine.dispatcher]). */
     fun service(context: android.content.Context): SpellService = service
-        ?: SpellService(dictionaries(context), File(context.filesDir, "editors/dictionaries/user-words.txt")).also { service = it }
+        ?: SpellService(dictionaries(context), File(EditorDictionaries.of(context).dir, "user-words.txt")).also { service = it }
 }

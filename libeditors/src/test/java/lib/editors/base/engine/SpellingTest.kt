@@ -1,5 +1,6 @@
 package lib.editors.base.engine
 
+import lib.toolkit.base.managers.utils.EditorDictionaries
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -62,6 +63,21 @@ class SpellingTest {
         download("fr_FR", "older")
         assertEquals(setOf(1033, 1031), dictionaries.installedLanguages().toSet())
         assertNull(dictionaries.files("fr_FR"))
+    }
+
+    @Test
+    fun `lists the dictionaries with their languages`() {
+        assertEquals(mapOf("en_US" to 1033, "de_DE" to 1031, "de_AT" to 3079, "fr_FR" to 1036), dictionaries.all())
+        download("fr_FR", "abc")
+        assertEquals(setOf("en_US", "fr_FR"), dictionaries.installed().toSet())
+    }
+
+    @Test
+    fun `names languages by tag or dictionary`() {
+        assertEquals("German (Germany)", EditorDictionaries.languageName("de-DE", Locale.ENGLISH))
+        assertEquals("German (Austria)", EditorDictionaries.languageName("de_AT", Locale.ENGLISH))
+        assertEquals("Allemand (Allemagne)", EditorDictionaries.languageName("de_DE", Locale.FRENCH))
+        assertEquals("Serbian (Latin, Serbia)", EditorDictionaries.languageName("sr_Latn_RS", Locale.ENGLISH))
     }
 
     private class FakeSpeller(private val words: Set<String>) : Speller {
