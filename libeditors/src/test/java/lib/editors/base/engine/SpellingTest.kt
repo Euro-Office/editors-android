@@ -3,13 +3,21 @@ package lib.editors.base.engine
 import lib.toolkit.base.managers.utils.EditorDictionaries
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.net.InetAddress
+import java.net.ServerSocket
 import java.util.Locale
+import java.util.Random
+import java.util.zip.GZIPOutputStream
+import kotlin.concurrent.thread
 
 class SpellingTest {
 
@@ -78,6 +86,59 @@ class SpellingTest {
         assertEquals("German (Austria)", EditorDictionaries.languageName("de_AT", Locale.ENGLISH))
         assertEquals("Allemand (Allemagne)", EditorDictionaries.languageName("de_DE", Locale.FRENCH))
         assertEquals("Serbian (Latin, Serbia)", EditorDictionaries.languageName("sr_Latn_RS", Locale.ENGLISH))
+    }
+
+    // An HTTP server for [files] (gzipped, by path), one request at a time
+    private fun serve(files: Map<String, String>): ServerSocket {
+        val server = ServerSocket(0, 50, InetAddress.getLoopbackAddress())
+        thread(isDaemon = true) {
+            while (true) {
+                val socket = runCatching { server.accept() }.getOrNull() ?: break
+                socket.use {
+                    val request = it.getInputStream().bufferedReader()
+                    val path = request.readLine().split(" ")[1]
+                    while (!request.readLine().isNullOrEmpty()) Unit
+                    val output = it.getOutputStream()
+                    val text = files[path]
+                    if (text == null) {
+                        output.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
+                    } else {
+                        val gzipped = ByteArrayOutputStream().also { out -> GZIPOutputStream(out).use { gzip -> gzip.write(text.toByteArray()) } }.toByteArray()
+                        output.write("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: ${gzipped.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                        output.write(gzipped)
+                    }
+                    output.flush()
+                }
+            }
+        }
+        return server
+    }
+
+    @Test
+    fun `downloads gzipped dictionaries and reports the progress`() {
+        val random = Random(1)
+        val words = List(20_000) { (1..8).map { 'a' + random.nextInt(26) }.joinToString("") }
+        val files = mapOf("/abc/de_DE/de_DE.aff" to "SET UTF-8\n", "/abc/de_DE/de_DE.dic" to "${words.size}\n" + words.joinToString("\n"))
+        val server = serve(files)
+        try {
+            File(runtime, "dictionaries/index.json").writeText(
+                """{"commit": "abc", "url": "http://127.0.0.1:${server.localPort}",
+                   "languages": {"en_US": [1033], "de_DE": [1031], "fr_FR": [1036]}}"""
+            )
+            val dictionaries = Dictionaries(runtime, downloads)
+            val progress = mutableListOf<Float>()
+            assertTrue(dictionaries.download("de_DE") { progress += it })
+            assertEquals(files["/abc/de_DE/de_DE.dic"], File(downloads, "de_DE/de_DE.dic").readText())
+            assertEquals(setOf(1033, 1031), dictionaries.installedLanguages().toSet())
+            assertTrue("steps: $progress", progress.size > 2 && progress.zipWithNext().all { (a, b) -> a < b })
+            assertEquals(1f, progress.last())
+            // Not there: nothing left behind
+            assertFalse(dictionaries.download("fr_FR"))
+            assertNull(dictionaries.files("fr_FR"))
+            assertFalse(File(downloads, "fr_FR.partial").exists())
+        } finally {
+            server.close()
+        }
     }
 
     private class FakeSpeller(private val words: Set<String>) : Speller {

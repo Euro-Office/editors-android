@@ -5,9 +5,11 @@ import lib.toolkit.base.managers.utils.EditorDictionaries
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FilterInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
+import java.util.zip.GZIPInputStream
 
 /** Answers sdkjs' spelling requests (see [EditorDocument.checkSpelling]). */
 fun interface SpellChecker {
@@ -79,8 +81,11 @@ class Dictionaries(runtimeDir: File, private val downloadDir: File) {
     fun installedLanguages(): List<Int> =
         index?.languages.orEmpty().filterKeys { files(it) != null }.values.flatten()
 
-    /** Downloads a dictionary; blocks, so call it on an IO thread. False if that failed. */
-    fun download(name: String): Boolean {
+    /**
+     * Downloads a dictionary; blocks, so call it on an IO thread. [onProgress] gets how much of it
+     * came (0 to 1, by whole percents) if its size is known. False if that failed.
+     */
+    fun download(name: String, onProgress: (Float) -> Unit = {}): Boolean {
         val index = index ?: return false
         if (name !in index.languages) return false
         val target = File(downloadDir, name)
@@ -88,17 +93,36 @@ class Dictionaries(runtimeDir: File, private val downloadDir: File) {
             deleteRecursively()
             mkdirs()
         }
+        val connections = mutableListOf<HttpURLConnection>()
         return runCatching {
-            for (extension in listOf("aff", "dic")) {
+            // Both first, for their sizes. Compressed, and decompressed here (asking for it turns
+            // HttpURLConnection's own off): the progress goes by the bytes that come.
+            for (extension in EXTENSIONS) {
                 val connection = URL("${index.baseUrl}/${index.commit}/$name/$name.$extension").openConnection() as HttpURLConnection
+                connections += connection
                 connection.connectTimeout = TIMEOUT_MS
                 connection.readTimeout = TIMEOUT_MS
-                try {
-                    if (connection.responseCode != HttpURLConnection.HTTP_OK) error("HTTP ${connection.responseCode}")
-                    connection.inputStream.use { input -> File(partial, "$name.$extension").outputStream().use { input.copyTo(it) } }
-                } finally {
-                    connection.disconnect()
+                connection.setRequestProperty("Accept-Encoding", "gzip")
+                if (connection.responseCode != HttpURLConnection.HTTP_OK) error("HTTP ${connection.responseCode}")
+            }
+            val total = connections.sumOf { it.contentLengthLong }.takeIf { connections.all { it.contentLengthLong > 0 } }
+            var received = 0L
+            var percent = -1
+            connections.forEachIndexed { i, connection ->
+                val counted = object : FilterInputStream(connection.inputStream) {
+                    override fun read(): Int = super.read().also { if (it >= 0) count(1) }
+                    override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { if (it > 0) count(it) }
+                    private fun count(bytes: Int) {
+                        received += bytes
+                        val now = if (total != null) (received * 100 / total).toInt().coerceAtMost(100) else return
+                        if (now != percent) {
+                            percent = now
+                            onProgress(now / 100f)
+                        }
+                    }
                 }
+                val input = if (connection.contentEncoding.equals("gzip", ignoreCase = true)) GZIPInputStream(counted) else counted
+                input.use { File(partial, "$name.${EXTENSIONS[i]}").outputStream().use { output -> it.copyTo(output) } }
             }
             File(partial, COMMIT).writeText(index.commit)
             target.deleteRecursively()
@@ -107,6 +131,8 @@ class Dictionaries(runtimeDir: File, private val downloadDir: File) {
         }.onFailure {
             Log.w(TAG, "can't download the dictionary $name", it)
             partial.deleteRecursively()
+        }.also {
+            connections.forEach { it.disconnect() }
         }.getOrDefault(false)
     }
 
@@ -114,6 +140,7 @@ class Dictionaries(runtimeDir: File, private val downloadDir: File) {
         const val TAG = "Dictionaries"
         const val COMMIT = "commit"
         const val TIMEOUT_MS = 20_000
+        val EXTENSIONS = listOf("aff", "dic")
     }
 }
 

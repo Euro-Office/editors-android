@@ -159,12 +159,15 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     // Spell checking while editing documents and presentations: the checker (set on the
     // engine's thread), whether a slice of checking is queued, dictionaries asked for (each
-    // once, unless its language is chosen) and the ones downloading (true: with messages)
+    // once, unless its language is chosen), the ones downloading (true: shown) and how much of
+    // them came
     @Volatile
     private var spellService: SpellService? = null
     private var spellChecking = false
     private val dictionaryDownloads = mutableSetOf<String>()
     private val downloadingDictionaries = mutableMapOf<String, Boolean>()
+    private val dictionaryProgress = mutableMapOf<String, Float>()
+    private val downloadIndicator by lazy { DownloadIndicator(documentView.parent as FrameLayout) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -557,27 +560,37 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         if (on) startSpelling() else spellService = null
     }
 
-    // A dictionary the device doesn't have, in the background; [announce]: a message while it
-    // downloads and if that fails (the text's languages, not the device's); [again]: also after
-    // it failed (a language the user chose)
+    // A dictionary the device doesn't have, in the background; [announce]: its progress shows
+    // and a message if it fails (the text's languages, not the device's); [again]: also after it
+    // failed (a language the user chose)
     private fun downloadDictionary(name: String, announce: Boolean = false, again: Boolean = false) {
         val dictionaries = EditorSpelling.dictionaries(this)
         if (dictionaries.files(name) != null) return
         val language = EditorDictionaries.languageName(name)
+        fun show() = downloadIndicator.start(name, language, getString(Resources.string.editors_spell_downloading, language), dictionaryProgress[name])
         val announced = downloadingDictionaries[name]
         if (announced != null) {
-            // On its way already: announced now if it wasn't
+            // On its way already: shown now if it wasn't
             if (announce && !announced) {
                 downloadingDictionaries[name] = true
-                toast(getString(Resources.string.editors_spell_downloading, language))
+                show()
             }
             return
         }
         if (!dictionaryDownloads.add(name) && !again) return
         downloadingDictionaries[name] = announce
-        if (announce) toast(getString(Resources.string.editors_spell_downloading, language))
+        if (announce) show()
         lifecycleScope.launch {
-            val downloaded = withContext(Dispatchers.IO) { dictionaries.download(name) }
+            val downloaded = withContext(Dispatchers.IO) {
+                dictionaries.download(name) { fraction ->
+                    lifecycleScope.launch {
+                        dictionaryProgress[name] = fraction
+                        downloadIndicator.progress(name, fraction)
+                    }
+                }
+            }
+            dictionaryProgress.remove(name)
+            downloadIndicator.end(name)
             if (downloadingDictionaries.remove(name) == true && !downloaded) {
                 toast(getString(Resources.string.editors_spell_download_failed, language), long = true)
             }
