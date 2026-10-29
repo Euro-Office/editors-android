@@ -201,6 +201,8 @@ class SpellService(
 
     private fun speller(lcid: Int): Speller? {
         val name = dictionaries.nameFor(lcid) ?: return null
+        // Removed meanwhile (the app's settings): its words count as correct again
+        if (spellers[name] != null && dictionaries.files(name) == null) spellers.remove(name)?.close()
         return spellers.getOrPut(name) {
             dictionaries.files(name)?.let { (aff, dic) -> createSpeller(aff, dic) }
                 ?.also { speller -> userWords.forEach { speller.add(it) } }

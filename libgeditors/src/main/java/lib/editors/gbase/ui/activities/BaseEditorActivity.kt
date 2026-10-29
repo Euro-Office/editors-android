@@ -547,7 +547,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             return
         }
         val dictionaries = EditorSpelling.dictionaries(this)
-        dictionaries.forLocale()?.let { downloadDictionary(it) }
+        // Not one the user removed
+        dictionaries.forLocale()?.takeIf { it !in EditorDictionaries.removed(this) }?.let { downloadDictionary(it) }
         edit {
             spellService = EditorSpelling.service(this@BaseEditorActivity)
             setSpellLanguages(dictionaries.installedLanguages())
@@ -594,6 +595,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             if (downloadingDictionaries.remove(name) == true && !downloaded) {
                 toast(getString(Resources.string.editors_spell_download_failed, language), long = true)
             }
+            if (downloaded) EditorDictionaries.setRemoved(this@BaseEditorActivity, name, false)
             if (!downloaded || spellService == null) return@launch
             edit {
                 EditorSpelling.service(this@BaseEditorActivity).reload()

@@ -81,6 +81,34 @@ class SpellingTest {
     }
 
     @Test
+    fun `lists and removes downloaded dictionaries, of older versions too`() {
+        download("de_DE", "abc")
+        download("fr_FR", "older")
+        File(downloads, "it_IT.partial").mkdirs()
+        val downloaded = EditorDictionaries(downloads)
+        assertEquals(setOf("de_DE", "fr_FR"), downloaded.downloaded().toSet())
+        // The files and the commit they are of
+        assertEquals(13L, downloaded.size("de_DE"))
+        assertFalse(downloaded.remove("en_US"))
+        assertTrue(downloaded.remove("de_DE"))
+        assertEquals(listOf("fr_FR"), downloaded.downloaded())
+        assertEquals(listOf(1033), dictionaries.installedLanguages())
+    }
+
+    @Test
+    fun `forgets a removed dictionary's words`() {
+        download("de_DE", "abc")
+        val spellers = mutableListOf<FakeSpeller>()
+        val service = SpellService(dictionaries, File(folder.root, "user.txt")) { _, _ -> FakeSpeller(setOf("Wort")).also { spellers += it } }
+        val request = """[{"type": "spell", "usrWords": ["Wrot"], "usrLang": [1031]}]"""
+        assertEquals("[false]", JSONArray(service.answer(request)).getJSONObject(0).getJSONArray("usrCorrect").toString())
+        // Removed in the app's settings
+        EditorDictionaries(downloads).remove("de_DE")
+        assertEquals("[true]", JSONArray(service.answer(request)).getJSONObject(0).getJSONArray("usrCorrect").toString())
+        assertTrue(spellers.single().closed)
+    }
+
+    @Test
     fun `names languages by tag or dictionary`() {
         assertEquals("German (Germany)", EditorDictionaries.languageName("de-DE", Locale.ENGLISH))
         assertEquals("German (Austria)", EditorDictionaries.languageName("de_AT", Locale.ENGLISH))
@@ -148,7 +176,10 @@ class SpellingTest {
         override fun add(word: String) {
             added += word
         }
-        override fun close() = Unit
+        var closed = false
+        override fun close() {
+            closed = true
+        }
     }
 
     @Test
