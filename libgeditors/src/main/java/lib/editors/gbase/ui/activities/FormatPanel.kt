@@ -5,6 +5,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
+import androidx.core.widget.NestedScrollView
 import android.widget.TextView
 import androidx.core.view.isVisible
 import lib.editors.base.engine.Alignment
@@ -96,6 +97,27 @@ internal class FormatPanel(
     private var shownMain = 0
 
     fun show() = open()
+
+    /** The text's and paragraphs' settings only, for the command sheet: selected drawings have a tab of their own. */
+    fun showText() {
+        loadFonts { loadedFonts, loadedDocumentFonts ->
+            fonts = loadedFonts
+            documentFonts = loadedDocumentFonts
+        }
+        build(null)
+    }
+
+    /** The [selected] drawings' settings as a view of their own, for their tab in the command sheet; [back] after panels opened from them. */
+    fun drawingContent(selected: ShapePanel.Selected, back: () -> Unit): View {
+        val rows = mutableListOf<ColorPicker.Row>()
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
+            shapes?.addTo(this, selected, back, rows)
+        }
+        colorPicker.load { colors -> rows.forEach { it.setColors(colors) } }
+        return NestedScrollView(context).apply { addView(content) }
+    }
 
     /** The font alone, for the command sheet; then [onBack]. */
     fun chooseFont(onBack: () -> Unit) = loadFonts { loadedFonts, loadedDocumentFonts ->

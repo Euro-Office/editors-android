@@ -1,5 +1,7 @@
 package lib.editors.gbase.ui.commands
 
+import android.view.View
+
 /**
  * An editor's commands: tabs ("Home", "Insert", …) of groups of commands. Phones show them in the
  * command sheet at the bottom, one tab at a time as a list; large screens in the ribbon, a tab's
@@ -12,7 +14,9 @@ class CommandTab(
     val title: Int,
     val groups: List<CommandGroup>,
     /** Shown for what is selected (a picture, a table) and only then; first while it is. */
-    val contextual: Boolean = false
+    val contextual: Boolean = false,
+    /** A view shown in place of commands: settings not yet made commands (a drawing's). */
+    val content: (() -> View)? = null
 )
 
 /** Commands that belong together; the sheet sets groups apart with a band, the ribbon with a line. */

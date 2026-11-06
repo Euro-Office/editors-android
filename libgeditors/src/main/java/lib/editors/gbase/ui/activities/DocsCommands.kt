@@ -20,6 +20,9 @@ internal class CommandState {
     var drawingSelected by mutableStateOf(false)
     var canUndo by mutableStateOf(false)
     var canRedo by mutableStateOf(false)
+    /** The selected drawings (a chart, a shape, a picture), loaded after they were selected; none: no tab of theirs. */
+    var drawing by mutableStateOf<ShapePanel.Selected?>(null)
+    var inTable by mutableStateOf(false)
 }
 
 /**
@@ -40,6 +43,7 @@ internal class DocsCommands(
     class Hooks(
         val chooseList: (kind: ListKind, onBack: () -> Unit) -> Unit,
         val chooseStyle: (current: String, onBack: () -> Unit) -> Unit,
+        val chooseTableStyle: (onBack: () -> Unit) -> Unit,
         val insertActions: () -> List<MenuAction>,
         val layoutActions: () -> List<MenuAction>,
         val reviewActions: () -> List<MenuAction>,
@@ -55,13 +59,18 @@ internal class DocsCommands(
     private val format get() = state.format
     private val forText: () -> Boolean = { !state.drawingSelected }
 
-    fun tabs(): List<CommandTab> = listOf(
+    fun tabs(): List<CommandTab> = listOfNotNull(
+        // What is selected first, as its own tab (Office's contextual tabs)
+        state.drawing?.let { drawing ->
+            CommandTab(DRAWING_TAB, drawing.title, emptyList(), contextual = true) { formatPanel.drawingContent(drawing, toCommands) }
+        },
+        if (state.inTable) CommandTab(TABLE_TAB, Resources.string.editors_doc_table_menu, table(), contextual = true) else null,
         CommandTab("home", Resources.string.editors_tab_home, home()),
         CommandTab("insert", Resources.string.editors_insert, groups(hooks.insertActions())),
         CommandTab("layout", Resources.string.editors_tab_layout, groups(hooks.layoutActions())),
         CommandTab("review", Resources.string.editors_tab_review, groups(hooks.reviewActions())),
         CommandTab("view", Resources.string.editors_tab_view, groups(hooks.viewActions()))
-    ).filter { it.groups.isNotEmpty() }
+    ).filter { it.groups.isNotEmpty() || it.content != null }
 
     private fun home() = listOf(
         CommandGroup(listOf(
@@ -83,7 +92,7 @@ internal class DocsCommands(
             Command.Split(Resources.string.editors_format_color, Resources.drawable.ic_editor_text_color, { format.color.takeIf { it.isNotEmpty() }?.let { "#$it" } },
                 apply = { chooseColor() }, more = { chooseColor() }),
             Command.Action(Resources.string.editors_format_clear, Resources.drawable.ic_editor_clear_format) { edit { clearFormatting() } },
-            Command.Page(Resources.string.editors_format_more, Resources.drawable.ic_editor_superscript) { formatPanel.show() }
+            Command.Page(Resources.string.editors_format_more, null) { formatPanel.showText() }
         )),
         CommandGroup(listOf(
             Command.Page(Resources.string.editors_format_bullets, Resources.drawable.ic_editor_bullets, isEnabled = forText) {
@@ -99,7 +108,7 @@ internal class DocsCommands(
             Command.Segments(Resources.string.editors_format_paragraph, FormatPanel.ALIGNMENTS.map { (alignment, icon, name) ->
                 Command.Toggle(name, icon, { format.alignment == alignment }) { edit { setAlignment(alignment) } }
             }, isEnabled = forText),
-            Command.Page(Resources.string.editors_format_paragraph, null, isEnabled = forText) { formatPanel.show() }
+            Command.Page(Resources.string.editors_format_paragraph, null, isEnabled = forText) { formatPanel.showText() }
         )),
         CommandGroup(listOf(
             Command.Value(Resources.string.editors_format_style, value = { EditorTranslations.styleName(context, format.style.ifEmpty { "—" }) }, isEnabled = forText) {
@@ -107,6 +116,26 @@ internal class DocsCommands(
             }
         ))
     )
+
+    private fun table(): List<CommandGroup> {
+        fun action(label: Int, icon: Int?, name: String) = Command.Action(label, icon) { edit { tableAction(name) } }
+        return listOf(
+            CommandGroup(listOf(
+                action(Resources.string.editors_doc_row_above, Resources.drawable.ic_editor_table_row_above, "rowAbove"),
+                action(Resources.string.editors_doc_row_below, Resources.drawable.ic_editor_table_row_below, "rowBelow"),
+                action(Resources.string.editors_doc_column_left, Resources.drawable.ic_editor_table_column_left, "columnLeft"),
+                action(Resources.string.editors_doc_column_right, Resources.drawable.ic_editor_table_column_right, "columnRight")
+            )),
+            CommandGroup(listOf(
+                action(Resources.string.editors_doc_delete_row, Resources.drawable.ic_editor_table_delete_row, "deleteRow"),
+                action(Resources.string.editors_doc_delete_column, Resources.drawable.ic_editor_table_delete_column, "deleteColumn"),
+                action(Resources.string.editors_doc_merge_cells, null, "merge"),
+                action(Resources.string.editors_doc_split_cell, null, "split"),
+                action(Resources.string.editors_doc_delete_table, null, "deleteTable")
+            )),
+            CommandGroup(listOf(Command.Page(Resources.string.editors_table_style, Resources.drawable.ic_editor_table) { hooks.chooseTableStyle(toCommands) }))
+        )
+    }
 
     /**
      * The bar's commands while the sheet is closed: inserting ([openSheet] at Insert), the text's
@@ -150,6 +179,8 @@ internal class DocsCommands(
     private fun size(points: Double) = if (points <= 0) "—" else if (points % 1.0 == 0.0) points.toInt().toString() else points.toString()
 
     companion object {
+        const val DRAWING_TAB = "drawing"
+        const val TABLE_TAB = "table"
         private const val HIGHLIGHT = "FFFF00"
         // Word's sizes
         private val SIZES = listOf(8.0, 9.0, 10.0, 11.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 36.0, 48.0, 72.0)

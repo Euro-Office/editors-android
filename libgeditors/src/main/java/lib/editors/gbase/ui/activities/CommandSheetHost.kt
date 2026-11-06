@@ -80,6 +80,11 @@ internal class CommandSheetHost(
     /** What the bar's last button does: the sheet where it was by default. */
     var onMore: () -> Unit = { show() }
 
+    /** Shows the tab [id], also once the page shown now closes. */
+    fun showTab(id: String) {
+        shownTab = id
+    }
+
     /** Opens the sheet, at the tab [tab] if given (by its id), else where it was. */
     fun show(tab: String? = null) {
         if (tab != null) shownTab = tab

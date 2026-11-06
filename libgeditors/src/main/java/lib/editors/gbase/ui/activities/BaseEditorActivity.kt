@@ -56,6 +56,7 @@ import lib.editors.base.convert.DocumentConverter
 import lib.editors.base.engine.Alignment
 import lib.editors.base.engine.CoEditingConnection
 import lib.editors.base.engine.DrawingFileResult
+import lib.editors.base.engine.DrawingFrame
 import lib.editors.base.engine.Comment
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
@@ -1042,6 +1043,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         commandState.drawingSelected = drawingSelected && !inTable
         commandState.canUndo = toolbar.canUndo
         commandState.canRedo = toolbar.canRedo
+        updateSelection(if (drawingSelected && !inTable) selectionKey(state.drawings) else null, inTable)
         state.sheet?.let {
             cellFormatPanel.update(it.cellFormat.copy(bold = toolbar.bold, italic = toolbar.italic, underline = toolbar.underline, alignment = toolbar.alignment), drawingSelected)
         }
@@ -1169,13 +1171,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 chooseDesign = ::chooseDesign,
                 chooseTransition = { back -> slidesUi?.chooseTransition(back) }
             ),
-            chooseTableStyle = if (isSpreadsheet || editorsType == EditorsType.PDF) null else {
-                { back ->
-                    previewPicker.show(getString(Resources.string.editors_table_style), "tableStyles", keepOpen = true, onBack = back) { style ->
-                        edit { setTableStyle(style.id) }
-                    }
-                }
-            },
+            chooseTableStyle = if (isSpreadsheet || editorsType == EditorsType.PDF) null else ::chooseTableStyle,
             chooseFill = if (editorsType == EditorsType.PDF) null else fillPanel::show,
             chooseList = if (editorsType == EditorsType.DOCS || editorsType == EditorsType.PRESENTATION) ::chooseListPreset else null,
             withNumberingRestart = editorsType == EditorsType.DOCS,
@@ -1196,6 +1192,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     // A list preset of the kind by its picture, the current one marked; "None" ends the list.
     // Documents' numbering has the multilevel lists below its own.
+    private fun chooseTableStyle(onBack: () -> Unit) {
+        previewPicker.show(getString(Resources.string.editors_table_style), "tableStyles", keepOpen = true, onBack = onBack) { style ->
+            edit { setTableStyle(style.id) }
+        }
+    }
+
     private fun chooseListPreset(kind: ListKind, onBack: () -> Unit) = read({ listPresets() }) { presets ->
         val title = getString(when (kind) {
             ListKind.BULLETS -> Resources.string.editors_list_bullets
@@ -1490,10 +1492,15 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         )
         findViewById<View>(R.id.toolFormat).isVisible = true
         findViewById<View>(R.id.toolFormat).setOnClickListener {
-            // With the command sheet: its Home tab, or the selected drawing's settings as its page
+            // With the command sheet: the tab of what is selected, else Home
             if (commandSheet == null) return@setOnClickListener showFormat()
-            showCommandSheet("home")
-            if (formatsDrawings) showFormat()
+            showCommandSheet(
+                when {
+                    commandState.drawing != null -> DocsCommands.DRAWING_TAB
+                    commandState.inTable -> DocsCommands.TABLE_TAB
+                    else -> "home"
+                }
+            )
         }
         // Selected pictures, shapes and charts: "Format" in their menu too
         val formatAction = listOf(getString(Resources.string.editors_format) to { showFormat() })
@@ -1577,6 +1584,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             DocsCommands.Hooks(
                 chooseList = ::chooseListPreset,
                 chooseStyle = ::chooseParagraphStyle,
+                chooseTableStyle = ::chooseTableStyle,
                 insertActions = { drawingUi.insertActions() + ui.insertActions() },
                 layoutActions = { listOfNotNull(ui.pageSetupAction()) },
                 reviewActions = { reviewActions(ui) },
@@ -1606,6 +1614,47 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.toolFile).setImageResource(Resources.drawable.ic_editor_more_horiz)
         findViewById<View>(R.id.toolRedo).isVisible = false
         findViewById<View>(R.id.toolNavigation).isVisible = false
+    }
+
+    // The selection's tab (Office's contextual tabs): a table at the cursor, or the selected
+    // drawings once loaded; one that appears while the sheet is open (just inserted) is shown
+    // The drawings selected now and those the tab was loaded for (by where they are, not while
+    // dragged): another selection loads anew
+    private var selectedDrawings: List<Pair<Int, List<Double>>>? = null
+    private var loadedDrawings: List<Pair<Int, List<Double>>>? = null
+
+    private fun selectionKey(frames: List<DrawingFrame>) = frames.filterNot { it.tracking }.map { it.page to it.points.toList() }
+
+    private fun updateSelection(drawings: List<Pair<Int, List<Double>>>?, inTable: Boolean) {
+        if (commandSheet == null) return
+        if (inTable != commandState.inTable) {
+            commandState.inTable = inTable
+            refreshCommandTabs(if (inTable) DocsCommands.TABLE_TAB else null)
+        }
+        selectedDrawings = drawings
+        if (drawings == null) {
+            loadedDrawings = null
+            if (commandState.drawing != null) {
+                commandState.drawing = null
+                refreshCommandTabs(null)
+            }
+            return
+        }
+        if (drawings == loadedDrawings) return
+        loadedDrawings = drawings
+        shapePanel.load { selected ->
+            // Not for drawings selected no more
+            if (selectedDrawings != drawings) return@load
+            val appeared = commandState.drawing == null
+            commandState.drawing = selected
+            refreshCommandTabs(if (appeared) DocsCommands.DRAWING_TAB else null)
+        }
+    }
+
+    private fun refreshCommandTabs(show: String?) {
+        val sheet = commandSheet?.takeIf { it.isOpen } ?: return
+        docsCommands?.let { sheet.tabs = it.tabs() }
+        if (show != null) sheet.showTab(show)
     }
 
     // The tabs anew (what they offer depends on the view, the document), at [tab] if given

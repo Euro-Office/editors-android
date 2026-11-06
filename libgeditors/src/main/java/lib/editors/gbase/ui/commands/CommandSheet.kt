@@ -97,6 +97,9 @@ fun CommandSheet(
                 key(page) {
                     AndroidView(factory = { (page.view.parent as? ViewGroup)?.removeView(page.view); page.view }, modifier = Modifier.fillMaxWidth())
                 }
+            } else if (shown?.content != null) {
+                // Built anew for each tab shown
+                key(shown.id) { AndroidView(factory = { shown.content.invoke() }, modifier = Modifier.fillMaxWidth()) }
             } else if (shown != null) {
                 LazyColumn {
                     shown.groups.forEachIndexed { index, group ->
