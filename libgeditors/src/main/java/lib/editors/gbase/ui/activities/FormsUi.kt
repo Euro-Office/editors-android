@@ -1,11 +1,11 @@
 package lib.editors.gbase.ui.activities
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.app.DatePickerDialog
 import android.content.Context
 import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.core.view.isVisible
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
@@ -54,7 +54,7 @@ internal class FormsUi(
         Accessibility.pane(this, context.getString(Resources.string.editors_forms))
         Accessibility.live(status)
         addView(button(context.getString(Resources.string.editors_forms_clear)) {
-            AlertDialog.Builder(context)
+            MaterialAlertDialogBuilder(context)
                 .setMessage(Resources.string.editors_forms_clear_confirm)
                 .setPositiveButton(Resources.string.editors_forms_clear) { _, _ -> edit { formAction("clear") } }
                 .setNegativeButton(android.R.string.cancel, null)
@@ -85,7 +85,7 @@ internal class FormsUi(
         when (field.type) {
             "comboBox", "dropDownList" -> {
                 if (field.items.isEmpty()) return
-                AlertDialog.Builder(context)
+                MaterialAlertDialogBuilder(context)
                     .setTitle(field.key.ifEmpty { field.placeholder })
                     .setItems(field.items.map { it.text }.toTypedArray()) { _, index -> edit { setFormValue(field, field.items[index].value) } }
                     .show()

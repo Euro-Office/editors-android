@@ -1,5 +1,6 @@
 package lib.editors.gbase.ui.activities
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.content.Context
 import android.graphics.Typeface
 import android.text.Editable
@@ -14,7 +15,6 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ListPopupWindow
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import kotlinx.coroutines.CoroutineScope
@@ -341,7 +341,7 @@ internal class CommentsUi(
         }
         val mentioned = mutableMapOf<String, String>()
         if (users.isNotEmpty()) suggestMentions(input, mentioned)
-        AlertDialog.Builder(activity)
+        MaterialAlertDialogBuilder(activity)
             .setTitle(if (replyTo == null) Resources.string.editors_comments_add else Resources.string.editors_comments_reply)
             .setView(FrameLayout(activity).apply {
                 setPaddingRelative(dp(24), dp(8), dp(24), 0)
@@ -413,7 +413,7 @@ internal class CommentsUi(
             isSingleLine = true
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PERSON_NAME or InputType.TYPE_TEXT_FLAG_CAP_WORDS
         }
-        AlertDialog.Builder(activity)
+        MaterialAlertDialogBuilder(activity)
             .setTitle(Resources.string.editors_comments_name)
             .setMessage(Resources.string.editors_comments_name_message)
             .setView(FrameLayout(activity).apply {

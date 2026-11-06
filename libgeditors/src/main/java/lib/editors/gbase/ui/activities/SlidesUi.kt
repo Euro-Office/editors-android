@@ -1,5 +1,6 @@
 package lib.editors.gbase.ui.activities
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -17,7 +18,6 @@ import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -203,7 +203,7 @@ internal class SlidesUi(
         val document = document() ?: return
         scope.launch {
             val layouts = withContext(EditorEngine.dispatcher) { runCatching { document.layouts() }.getOrNull() } ?: return@launch
-            AlertDialog.Builder(context)
+            MaterialAlertDialogBuilder(context)
                 .setTitle(if (forNewSlide) Resources.string.editors_slides_new else Resources.string.editors_slides_layout)
                 .setItems(layouts.map { it.name }.toTypedArray()) { _, position ->
                     val layout = layouts[position].index
@@ -227,7 +227,7 @@ internal class SlidesUi(
             gravity = Gravity.TOP
             setText(slides.getOrNull(index)?.notes.orEmpty())
         }
-        AlertDialog.Builder(context)
+        MaterialAlertDialogBuilder(context)
             .setTitle(Resources.string.editors_slides_notes)
             .setView(FrameLayout(context).apply {
                 setPaddingRelative(dp(24), dp(8), dp(24), 0)

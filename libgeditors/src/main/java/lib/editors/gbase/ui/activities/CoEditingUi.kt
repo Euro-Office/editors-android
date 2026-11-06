@@ -1,5 +1,6 @@
 package lib.editors.gbase.ui.activities
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -7,7 +8,6 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import lib.editors.base.engine.CoEditingState
@@ -80,7 +80,7 @@ internal class CoEditingUi(
                 setPadding(0, (8 * density).toInt(), 0, 0)
             })
         }
-        AlertDialog.Builder(context)
+        MaterialAlertDialogBuilder(context)
             .setTitle(Resources.string.editors_coediting_people)
             .setView(list)
             .setPositiveButton(Resources.string.editors_close, null)

@@ -1,5 +1,6 @@
 package lib.editors.gbase.ui.activities
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
@@ -10,6 +11,7 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.PorterDuff
+import android.graphics.Rect
 import android.graphics.Shader
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -29,7 +31,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Space
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.TooltipCompat
 import androidx.core.content.ContextCompat
 import lib.editors.base.engine.ThemeColors
@@ -132,7 +133,7 @@ internal class ColorPicker(
             onColor(value)
             onBack()
         }
-        // A row of square swatches, as many as the theme's columns
+        // A row of swatches, as many as the theme's columns
         fun LinearLayout.swatchRow(values: List<String>) {
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -141,7 +142,7 @@ internal class ColorPicker(
                     val selected = !marked && current != null && hex.equals(current, ignoreCase = true)
                     marked = marked || selected
                     addView(View(context).apply {
-                        background = InsetDrawable(swatchDrawable(context, hex, selected, round = false), dp(2))
+                        background = InsetDrawable(swatchDrawable(context, hex, selected), dp(2))
                         contentDescription = describe(value, palette, none)
                         isSelected = selected
                         setOnClickListener {
@@ -240,7 +241,7 @@ internal class ColorPicker(
                 addView(preview, LinearLayout.LayoutParams(dp(36), dp(36)).apply { marginStart = dp(12) })
             })
         }
-        AlertDialog.Builder(context)
+        MaterialAlertDialogBuilder(context)
             .setTitle(Resources.string.editors_color_custom)
             .setView(layout)
             .setPositiveButton(android.R.string.ok) { _, _ -> onChosen(hexOf(spectrum.color)) }
@@ -289,16 +290,32 @@ internal class ColorPicker(
     }
 }
 
-/** A color swatch "RRGGBB", a circle or a square; "" (automatic or none) is crossed out. */
-internal fun swatchDrawable(context: Context, color: String, selected: Boolean, round: Boolean = true): Drawable {
+/** A color swatch "RRGGBB", a circle; "" (automatic or none) is crossed out. */
+internal fun swatchDrawable(context: Context, color: String, selected: Boolean): Drawable {
     val density = context.resources.displayMetrics.density
     val swatch = GradientDrawable().apply {
-        if (round) shape = GradientDrawable.OVAL else cornerRadius = 4 * density
+        shape = GradientDrawable.OVAL
         setColor(if (color.isEmpty()) Color.TRANSPARENT else Color.parseColor("#$color"))
         val border = ContextCompat.getColor(context, if (selected) Resources.color.editors_selection_handle else Resources.color.editors_sheet_header_line)
         setStroke(((if (selected) 3 else 1) * density).toInt(), border)
     }
-    return if (color.isNotEmpty()) swatch else LayerDrawable(arrayOf(swatch, NoneMark(ContextCompat.getColor(context, Resources.color.editors_icon), density)))
+    return Round(if (color.isNotEmpty()) swatch else LayerDrawable(arrayOf(swatch, NoneMark(ContextCompat.getColor(context, Resources.color.editors_icon), density))))
+}
+
+// [inner] in the middle, as wide as high: a circle stays one in cells wider or higher than that
+private class Round(private val inner: Drawable) : Drawable() {
+    override fun onBoundsChange(bounds: Rect) {
+        val side = minOf(bounds.width(), bounds.height())
+        val left = bounds.centerX() - side / 2
+        val top = bounds.centerY() - side / 2
+        inner.setBounds(left, top, left + side, top + side)
+    }
+
+    override fun draw(canvas: Canvas) = inner.draw(canvas)
+    override fun setAlpha(alpha: Int) { inner.alpha = alpha }
+    override fun setColorFilter(colorFilter: ColorFilter?) { inner.colorFilter = colorFilter }
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity() = PixelFormat.TRANSLUCENT
 }
 
 // A diagonal line across the swatch

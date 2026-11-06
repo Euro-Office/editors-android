@@ -1,6 +1,8 @@
 package lib.editors.gbase.ui.activities
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -9,6 +11,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.OpenableColumns
+import android.text.InputType
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
@@ -16,8 +19,8 @@ import android.view.KeyboardShortcutGroup
 import android.view.KeyboardShortcutInfo
 import android.view.Menu
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
-import android.text.InputType
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -25,26 +28,37 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.view.ViewGroup
-import androidx.activity.OnBackPressedCallback
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.addCallback
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
-import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
-import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -55,32 +69,34 @@ import kotlinx.coroutines.withContext
 import lib.editors.base.convert.DocumentConverter
 import lib.editors.base.engine.Alignment
 import lib.editors.base.engine.CoEditingConnection
+import lib.editors.base.engine.Comment
+import lib.editors.base.engine.DocumentResult
 import lib.editors.base.engine.DrawingFileResult
 import lib.editors.base.engine.DrawingFrame
-import lib.editors.base.engine.Comment
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorSpelling
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.FillTarget
-import lib.editors.base.engine.ListKind
-import lib.editors.base.engine.Preview
-import lib.editors.base.engine.Misspelling
-import lib.editors.base.engine.SheetState
-import lib.editors.base.engine.SpellService
-import lib.editors.base.engine.DocumentResult
 import lib.editors.base.engine.FormField
+import lib.editors.base.engine.ListKind
+import lib.editors.base.engine.Misspelling
 import lib.editors.base.engine.PageSize
+import lib.editors.base.engine.PagedDocument
 import lib.editors.base.engine.PdfImage
 import lib.editors.base.engine.PdfMarkup
 import lib.editors.base.engine.PdfMarkupKind
-import lib.editors.base.engine.PagedDocument
+import lib.editors.base.engine.Preview
+import lib.editors.base.engine.SheetState
+import lib.editors.base.engine.SpellService
 import lib.editors.base.engine.TextBlock
 import lib.editors.base.engine.TextOptions
 import lib.editors.base.engine.TouchAction
 import lib.editors.base.engine.WRITABLE_FORMATS
 import lib.editors.gbase.R
 import lib.editors.gbase.ui.clipboard.EditorClipboard
+import lib.editors.gbase.ui.commands.PasswordField
+import lib.editors.gbase.ui.commands.showComposeDialog
 import lib.editors.gbase.ui.views.DocumentView
 import lib.editors.gbase.ui.views.SheetView
 import lib.toolkit.base.managers.utils.CrashLog
@@ -88,8 +104,8 @@ import lib.toolkit.base.managers.utils.EditType
 import lib.toolkit.base.managers.utils.EditorDictionaries
 import lib.toolkit.base.managers.utils.EditorsContract
 import lib.toolkit.base.managers.utils.EditorsType
-import lib.editors.resources.R as Resources
 import java.io.File
+import lib.editors.resources.R as Resources
 
 /**
  * Base for the editor activities the app launches by class name (see [EditorsContract]).
@@ -787,46 +803,35 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     // A new password, typed twice: the document is saved with it from now on
     private fun askNewPassword() {
-        fun field(hint: Int) = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            isSingleLine = true
-            setHint(hint)
+        val title = if (documentPassword.isEmpty()) Resources.string.editors_password_protect else Resources.string.editors_password_change
+        showComposeDialog(this) { dismiss ->
+            var password by remember { mutableStateOf("") }
+            var repeated by remember { mutableStateOf("") }
+            // OK once both are the same
+            val matches = password == repeated
+            val canSave = password.isNotEmpty() && matches
+            val save = {
+                dismiss()
+                changePassword(password)
+            }
+            val focus = remember { FocusRequester() }
+            LaunchedEffect(Unit) { focus.requestFocus() }
+            AlertDialog(
+                onDismissRequest = dismiss,
+                title = { Text(stringResource(title)) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(Resources.string.editors_password_new_message))
+                        PasswordField(password, { password = it }, Resources.string.editors_password_new, Modifier.focusRequester(focus))
+                        PasswordField(repeated, { repeated = it }, Resources.string.editors_password_repeat,
+                            error = if (!matches && repeated.isNotEmpty()) Resources.string.editors_password_mismatch else null,
+                            onDone = { if (canSave) save() })
+                    }
+                },
+                confirmButton = { TextButton(onClick = save, enabled = canSave) { Text(stringResource(android.R.string.ok)) } },
+                dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(android.R.string.cancel)) } }
+            )
         }
-        val password = field(Resources.string.editors_password_new)
-        val repeated = field(Resources.string.editors_password_repeat)
-        val mismatch = TextView(this).apply {
-            setText(Resources.string.editors_password_mismatch)
-            setTextColor(ContextCompat.getColor(context, Resources.color.editors_error))
-            isVisible = false
-        }
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val padding = (20 * resources.displayMetrics.density).toInt()
-            setPaddingRelative(padding, 0, padding, 0)
-            addView(password)
-            addView(repeated)
-            addView(mismatch)
-        }
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(if (documentPassword.isEmpty()) Resources.string.editors_password_protect else Resources.string.editors_password_change)
-            .setMessage(Resources.string.editors_password_new_message)
-            .setView(container)
-            .setPositiveButton(android.R.string.ok) { _, _ -> changePassword(password.text.toString()) }
-            .setNegativeButton(android.R.string.cancel, null)
-            .create()
-        // OK once both are the same
-        fun check() {
-            val typed = password.text.toString()
-            val matches = typed == repeated.text.toString()
-            mismatch.isVisible = !matches && repeated.text.isNotEmpty()
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.isEnabled = typed.isNotEmpty() && matches
-        }
-        password.doAfterTextChanged { check() }
-        repeated.doAfterTextChanged { check() }
-        dialog.setOnShowListener { check() }
-        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
-        dialog.show()
-        password.requestFocus()
     }
 
     // The password to save with ("" for none); the document is modified until it is saved
@@ -840,26 +845,31 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     }
 
     private fun askPassword(wrong: Boolean, onPassword: (String) -> Unit) {
-        val input = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            isSingleLine = true
+        showComposeDialog(this) { dismiss ->
+            var password by remember { mutableStateOf("") }
+            val open = {
+                dismiss()
+                onPassword(password)
+            }
+            val cancel = {
+                dismiss()
+                finish()
+            }
+            val focus = remember { FocusRequester() }
+            LaunchedEffect(Unit) { focus.requestFocus() }
+            AlertDialog(
+                onDismissRequest = cancel,
+                title = { Text(stringResource(Resources.string.editors_password_title)) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(if (wrong) Resources.string.editors_password_wrong else Resources.string.editors_password_message))
+                        PasswordField(password, { password = it }, Resources.string.editors_password_title, Modifier.focusRequester(focus), onDone = open)
+                    }
+                },
+                confirmButton = { TextButton(onClick = open) { Text(stringResource(Resources.string.editors_open)) } },
+                dismissButton = { TextButton(onClick = cancel) { Text(stringResource(android.R.string.cancel)) } }
+            )
         }
-        val container = FrameLayout(this).apply {
-            val padding = (20 * resources.displayMetrics.density).toInt()
-            setPaddingRelative(padding, 0, padding, 0)
-            addView(input)
-        }
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(Resources.string.editors_password_title)
-            .setMessage(if (wrong) Resources.string.editors_password_wrong else Resources.string.editors_password_message)
-            .setView(container)
-            .setPositiveButton(Resources.string.editors_open) { _, _ -> onPassword(input.text.toString()) }
-            .setNegativeButton(android.R.string.cancel) { _, _ -> finish() }
-            .setOnCancelListener { finish() }
-            .create()
-        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
-        dialog.show()
-        input.requestFocus()
     }
 
     private fun isEditable(): Boolean {
@@ -1963,7 +1973,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 val outline = withContext(EditorEngine.dispatcher) { file.fileOutline() }
                 val labels = listOf(getString(Resources.string.editors_doc_go_to_page)) +
                     outline.map { "\u2003".repeat((it.level - 1).coerceAtLeast(0)) + it.title }
-                AlertDialog.Builder(this@BaseEditorActivity)
+                MaterialAlertDialogBuilder(this@BaseEditorActivity)
                     .setTitle(Resources.string.editors_pages_contents)
                     .setItems(labels.toTypedArray()) { _, position ->
                         if (position == 0) askPage(pages.size) else outline[position - 1].let { documentView.goToPage(it.page, it.yMm) }
@@ -1980,7 +1990,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             selectAll()
         }
         val padding = (20 * resources.displayMetrics.density).toInt()
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle(getString(Resources.string.editors_pages_go_to, pageCount))
             .setView(FrameLayout(this).apply {
                 setPaddingRelative(padding, 0, padding, 0)
@@ -2074,7 +2084,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             return
         }
         if (pdfEdited || modified) {
-            AlertDialog.Builder(this)
+            MaterialAlertDialogBuilder(this)
                 .setTitle(Resources.string.editors_save_changes_title)
                 .setMessage(getString(Resources.string.editors_save_changes_message, topBar.title))
                 .setPositiveButton(Resources.string.editors_save) { _, _ -> saveAndLeave() }
@@ -2108,7 +2118,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             if (error == 0) {
                 finish()
             } else if (!isFinishing) {
-                AlertDialog.Builder(this)
+                MaterialAlertDialogBuilder(this)
                     .setTitle(Resources.string.editors_leave_unsaved_title)
                     .setMessage(saveErrorMessage(error))
                     .setPositiveButton(Resources.string.editors_leave) { _, _ -> finish() }

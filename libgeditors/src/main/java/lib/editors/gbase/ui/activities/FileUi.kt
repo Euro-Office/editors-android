@@ -1,5 +1,6 @@
 package lib.editors.gbase.ui.activities
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.content.ClipData
 import android.content.Intent
 import android.os.Build
@@ -20,7 +21,6 @@ import android.widget.PopupMenu
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.CoroutineScope
@@ -105,7 +105,7 @@ internal class FileUi(
             addView(name)
             addView(group)
         }
-        AlertDialog.Builder(activity)
+        MaterialAlertDialogBuilder(activity)
             .setTitle(Resources.string.editors_file_save_as)
             .setView(content)
             .setPositiveButton(Resources.string.editors_save) { _, _ ->
