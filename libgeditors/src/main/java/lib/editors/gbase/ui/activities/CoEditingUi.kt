@@ -5,7 +5,6 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
-import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
@@ -24,7 +23,7 @@ internal class CoEditingUi(
     private val context: Context,
     /** The bar (editor_coediting_bar), above the toolbar. */
     private val bar: TextView,
-    private val button: ImageButton,
+    private val button: EditorTopBar.Button,
     /** sdkjs turned to viewing: the editor stops editing too. */
     private val onDisconnected: () -> Unit
 ) {
@@ -34,7 +33,7 @@ internal class CoEditingUi(
 
     init {
         button.isVisible = true
-        button.setOnClickListener { showPeople() }
+        button.onClick = ::showPeople
     }
 
     fun update(state: CoEditingState?) {
@@ -43,7 +42,7 @@ internal class CoEditingUi(
         this.state = state
         if (previous?.participants != state.participants) {
             val others = state.participants.count { !it.me }
-            button.contentDescription = if (others == 0) {
+            button.description = if (others == 0) {
                 context.getString(Resources.string.editors_coediting_people)
             } else {
                 context.resources.getQuantityString(Resources.plurals.editors_coediting_others, others, others)

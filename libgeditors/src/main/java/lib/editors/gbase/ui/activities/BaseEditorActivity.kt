@@ -81,7 +81,6 @@ import lib.editors.base.engine.TouchAction
 import lib.editors.base.engine.WRITABLE_FORMATS
 import lib.editors.gbase.R
 import lib.editors.gbase.ui.clipboard.EditorClipboard
-import lib.editors.gbase.ui.views.BadgeButton
 import lib.editors.gbase.ui.views.DocumentView
 import lib.editors.gbase.ui.views.SheetView
 import lib.toolkit.base.managers.utils.CrashLog
@@ -137,6 +136,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // The engine opened a PDF in sdkjs' PDF editor (DocsActivity and PdfActivity): PDF tools instead of the document editor's
     private var isPdfEditor = false
     private val hiddenTools = mutableListOf<View>()
+    private val hiddenTopButtons = mutableListOf<EditorTopBar.Button>()
+    private val topBar by lazy { EditorTopBar(findViewById(R.id.editorTopBar)) }
     private var documentUi: DocumentUi? = null
     private var commentsUi: CommentsUi? = null
     private var formsUi: FormsUi? = null
@@ -210,7 +211,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             documentView.addOnLayoutChangeListener(mobileViewResize)
         }
 
-        findViewById<View>(R.id.toolClose).setOnClickListener { onBack() }
+        topBar.close.onClick = ::onBack
         linkBar = createLinkBar()
         Accessibility.pane(linkBar, getString(Resources.string.editors_link))
         // Read as switches: on while selected
@@ -237,7 +238,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 finish()
                 return@launch
             }
-            findViewById<TextView>(R.id.editorTitle).text = file.name
+            topBar.title = file.name
             if (editorsType == EditorsType.PDF && !file.extension.equals("pdf", ignoreCase = true)) {
                 openDrawingFile(uri, file, password = "")
                 return@launch
@@ -325,10 +326,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 documentView.readOnly = true
             }
             showToolbar(editable = false)
-            findViewById<View>(R.id.toolFile).isVisible = true
+            topBar.file.isVisible = true
             // Phones: in a bottom sheet, as Office's "…"
-            findViewById<View>(R.id.toolFile).setOnClickListener {
-                if (resources.getBoolean(R.bool.editor_side_panels)) fileUi.showMenu(it) else actionSheet.show(fileUi.actions())
+            topBar.file.onClick = {
+                if (resources.getBoolean(R.bool.editor_side_panels)) fileUi.showMenu(findViewById(R.id.editorTopBar)) else actionSheet.show(fileUi.actions())
             }
             // Comments: written when editing or with comment access (KEY_EDIT_ACCESS), read otherwise
             val comments = CommentsUi(
@@ -346,8 +347,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             // Tapping a comment's mark shows it
             if (isSpreadsheet) findViewById<SheetView>(R.id.sheetView).onCellComment = comments::showThread
             else documentView.onCommentMarker = comments::showThread
-            findViewById<View>(R.id.toolComments).isVisible = true
-            findViewById<View>(R.id.toolComments).setOnClickListener { comments.show() }
+            topBar.comments.isVisible = true
+            topBar.comments.onClick = comments::show
             // Commenting the selected text or cells from their menu
             commentAction()?.let { action ->
                 if (isSpreadsheet) findViewById<SheetView>(R.id.sheetView).cellActions = listOf(action)
@@ -367,8 +368,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 addStrip(ui.strip)
                 slidesUi = ui
                 documentView.onDrawingsDroppedOnPage = { slide, offsetMm -> edit { moveToSlide(slide, offsetMm) } }
-                findViewById<View>(R.id.toolSlideshow).isVisible = true
-                findViewById<View>(R.id.toolSlideshow).setOnClickListener { ui.startSlideshow() }
+                topBar.slideshow.isVisible = true
+                topBar.slideshow.onClick = ui::startSlideshow
             }
             addSearchBar(object : SearchBar.Target {
                 override val canReplace get() = editing
@@ -407,8 +408,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             if (isEditable && (editorConfig != null || !startsInView() || fillsForms() || startsFilling() || isPdfEditor || wasEditing)) {
                 enableEditing()
             } else if (isEditable) {
-                findViewById<View>(R.id.toolEdit).isVisible = true
-                findViewById<View>(R.id.toolEdit).setOnClickListener { enableEditing() }
+                topBar.edit.isVisible = true
+                topBar.edit.onClick = ::enableEditing
             }
             if (editorConfig != null) startCoEditing(if (isEditable) editorConfig else viewerConfig(editorConfig))
         }
@@ -433,7 +434,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         val root = findViewById<ViewGroup>(R.id.editorRoot)
         val bar = layoutInflater.inflate(R.layout.editor_coediting_bar, root, false) as TextView
         root.addView(bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
-        coEditingUi = CoEditingUi(this, bar, findViewById(R.id.toolCoEditors)) { stopEditing() }
+        coEditingUi = CoEditingUi(this, bar, topBar.coEditors) { stopEditing() }
         lifecycleScope.launch {
             val imagesDir = File(withContext(EditorEngine.dispatcher) { document.imagesDirectory() })
             coConnection = CoEditingConnection(server, key, File(cacheDir, "coediting"), imagesDir) { events.trySend(it) }
@@ -513,7 +514,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             return
         }
         editing = true
-        findViewById<View>(R.id.toolEdit).isVisible = false
+        topBar.edit.isVisible = false
         showToolbar(editable = true)
         if (isSpreadsheet) spreadsheetUi?.enableEditing() else documentView.readOnly = false
         slidesUi?.editable = true
@@ -1027,8 +1028,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             pdfPageEditable = state.pdf?.canEditPage == true
             updatePdfTools()
         }
-        findViewById<View>(R.id.toolUndo).isEnabled = toolbar.canUndo
-        findViewById<View>(R.id.toolRedo).isEnabled = toolbar.canRedo
+        topBar.undo.isEnabled = toolbar.canUndo
+        topBar.redo.isEnabled = toolbar.canRedo
         // In a table (also one on a slide, which is a drawing): the table's and its text's settings
         val inTable = state.structure?.inTable == true
         formatsDrawings = if (isPdfEditor) state.pdf?.drawing == true else isEditable() && !fillsForms() && drawingSelected && !inTable
@@ -1473,16 +1474,16 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun bindToolbar() {
         bindTextTools()
-        bindTool(R.id.toolUndo) { undo() }
-        bindTool(R.id.toolRedo) { redo() }
+        topBar.undo.onClick = { edit { undo() } }
+        topBar.redo.onClick = { edit { redo() } }
         // Slides are added and deleted at the slides (the button at their end, a slide's menu)
         findViewById<View>(R.id.toolInsert).setOnClickListener { if (commandSheet != null) showCommandSheet("insert") else drawingUi.showInsertMenu(it) }
         documentUi?.let { ui ->
             // PDF forms keep their contents (showPageTools)
-            val navigation = findViewById<View>(R.id.toolNavigation)
+            val navigation = topBar.navigation
             if (!navigation.isVisible) {
                 navigation.isVisible = true
-                navigation.setOnClickListener { ui.showNavigation() }
+                navigation.onClick = ui::showNavigation
             }
         }
         // The table at the cursor: adding and deleting rows from the text's menu too
@@ -1554,7 +1555,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun showComments(comments: List<Comment>) {
         documentComments = comments
-        findViewById<BadgeButton>(R.id.toolComments).count = comments.count { !it.solved }
+        topBar.comments.count = comments.count { !it.solved }
         if (editorsType == EditorsType.PRESENTATION) {
             documentView.commentMarkers = comments.filter { it.page >= 0 }.map { DocumentView.CommentMarker(it.id, it.page, it.x, it.y) }
         }
@@ -1610,10 +1611,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // The top bar as Office's on phones: closing, the title, undo, comments and "…"; redo and
     // navigation are in the command sheet
     private fun showSheetTopBar() {
-        findViewById<ImageButton>(R.id.toolClose).setImageResource(Resources.drawable.ic_editor_close)
-        findViewById<ImageButton>(R.id.toolFile).setImageResource(Resources.drawable.ic_editor_more_horiz)
-        findViewById<View>(R.id.toolRedo).isVisible = false
-        findViewById<View>(R.id.toolNavigation).isVisible = false
+        topBar.close.icon = Resources.drawable.ic_editor_close
+        topBar.file.icon = Resources.drawable.ic_editor_more_horiz
+        topBar.redo.isVisible = false
+        topBar.navigation.isVisible = false
     }
 
     // The selection's tab (Office's contextual tabs): a table at the cursor, or the selected
@@ -1727,13 +1728,14 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun enablePdfEditing() {
         editing = true
-        findViewById<View>(R.id.toolEdit).isVisible = false
+        topBar.edit.isVisible = false
         showToolbar(editable = true)
         // The document editor's tools don't apply
         listOf(
             R.id.toolBold, R.id.toolItalic, R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight,
-            R.id.toolInsert, R.id.toolFormat, R.id.toolSlideshow
+            R.id.toolInsert, R.id.toolFormat
         ).forEach { findViewById<View>(it).isVisible = false }
+        topBar.slideshow.isVisible = false
         documentView.readOnly = false
         // Typing only goes into text boxes and form fields
         documentView.keyboardWithCursor = true
@@ -1751,8 +1753,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         // Pictures and shapes: fill, outline and order (their menu too); text: its formatting
         findViewById<View>(R.id.toolFormat).setOnClickListener { showFormat() }
         documentView.drawingActions = listOf(getString(Resources.string.editors_format) to { showFormat() })
-        findViewById<View>(R.id.toolUndo).setOnClickListener { edit { undo() } }
-        findViewById<View>(R.id.toolRedo).setOnClickListener { edit { redo() } }
+        topBar.undo.onClick = { edit { undo() } }
+        topBar.redo.onClick = { edit { redo() } }
     }
 
     // Selected text of the page is marked up; in text boxes it is formatted
@@ -1955,8 +1957,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolPages).isVisible = true
         findViewById<View>(R.id.toolPages).setOnClickListener { strip.toggle() }
         // Contents and pages: the top bar's navigation, as in documents
-        findViewById<View>(R.id.toolNavigation).isVisible = true
-        findViewById<View>(R.id.toolNavigation).setOnClickListener {
+        topBar.navigation.isVisible = true
+        topBar.navigation.onClick = {
             lifecycleScope.launch {
                 val outline = withContext(EditorEngine.dispatcher) { file.fileOutline() }
                 val labels = listOf(getString(Resources.string.editors_doc_go_to_page)) +
@@ -1999,16 +2001,23 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.editorToolbar).isVisible = commandSheet == null
         if (!editable) {
             // The editing buttons come back when editing starts
-            for (buttons in listOf<ViewGroup>(findViewById(R.id.editorTopButtons), findViewById(R.id.editorToolButtons))) {
-                for (i in 0 until buttons.childCount) {
-                    val button = buttons.getChildAt(i)
-                    if (button.isVisible && button.id !in VIEWING_TOOLS) {
-                        hiddenTools += button
-                        button.isVisible = false
-                    }
+            for (button in topBar.buttons) {
+                if (button.isVisible && !button.viewing) {
+                    hiddenTopButtons += button
+                    button.isVisible = false
+                }
+            }
+            val buttons = findViewById<ViewGroup>(R.id.editorToolButtons)
+            for (i in 0 until buttons.childCount) {
+                val button = buttons.getChildAt(i)
+                if (button.isVisible && button.id !in VIEWING_TOOLS) {
+                    hiddenTools += button
+                    button.isVisible = false
                 }
             }
         } else {
+            hiddenTopButtons.forEach { it.isVisible = true }
+            hiddenTopButtons.clear()
             hiddenTools.forEach { it.isVisible = true }
             hiddenTools.clear()
         }
@@ -2067,7 +2076,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         if (pdfEdited || modified) {
             AlertDialog.Builder(this)
                 .setTitle(Resources.string.editors_save_changes_title)
-                .setMessage(getString(Resources.string.editors_save_changes_message, findViewById<TextView>(R.id.editorTitle).text))
+                .setMessage(getString(Resources.string.editors_save_changes_message, topBar.title))
                 .setPositiveButton(Resources.string.editors_save) { _, _ -> saveAndLeave() }
                 .setNegativeButton(Resources.string.editors_discard) { _, _ -> finish() }
                 .setNeutralButton(Resources.string.editors_cancel, null)
@@ -2425,10 +2434,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             R.id.toolInsert, R.id.toolFormat, R.id.toolBold, R.id.toolItalic,
             R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight
         )
-        private val VIEWING_TOOLS = setOf(
-            R.id.toolFile, R.id.toolComments, R.id.toolSlideshow, R.id.toolEdit, R.id.toolPages, R.id.toolNavigation,
-            R.id.toolSign, R.id.toolCoEditors
-        )
+        // The bottom toolbar's while viewing (the top bar's: EditorTopBar.Button.viewing)
+        private val VIEWING_TOOLS = setOf(R.id.toolPages, R.id.toolSign)
         const val UNSUPPORTED_FORMAT = -1
         const val WRITE_ERROR = -2
     }

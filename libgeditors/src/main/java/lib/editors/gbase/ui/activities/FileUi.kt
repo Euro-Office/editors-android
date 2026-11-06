@@ -11,6 +11,7 @@ import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
 import android.print.PrintDocumentInfo
 import android.print.PrintManager
+import android.view.Gravity
 import android.view.View
 import android.webkit.MimeTypeMap
 import android.widget.EditText
@@ -75,7 +76,8 @@ internal class FileUi(
     }
 
     fun showMenu(anchor: View) {
-        PopupMenu(activity, anchor).apply {
+        // At the bar's end, where its button is
+        PopupMenu(activity, anchor, Gravity.END).apply {
             menu.addActions(actions())
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setForceShowIcon(true)
         }.show()
