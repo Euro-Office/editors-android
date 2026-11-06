@@ -34,7 +34,7 @@ sealed interface Command {
     /** On or off: "Bold". */
     class Toggle(
         override val label: Int,
-        override val icon: Int,
+        override val icon: Int?,
         val isOn: () -> Boolean,
         override val isEnabled: () -> Boolean = { true },
         val run: () -> Unit

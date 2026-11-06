@@ -36,7 +36,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +45,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.graphics.toColorInt
 import lib.editors.resources.R as Resources
 
 /** A page opened from a command in the sheet (fonts, colors, margins): an existing panel's view. */
@@ -59,6 +59,9 @@ class SheetPage(val title: String, val view: View, val onBack: (() -> Unit)?)
 @Composable
 fun CommandSheet(
     tabs: List<CommandTab>,
+    /** The tab to show, by its id; the first one without it. */
+    shownId: String?,
+    onShowTab: (String) -> Unit,
     page: SheetPage?,
     canUndo: () -> Boolean,
     canRedo: () -> Boolean,
@@ -67,14 +70,13 @@ fun CommandSheet(
     onHide: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var shownId by rememberSaveable { mutableStateOf<String?>(null) }
     val ordered = tabs.ordered()
     val shown = ordered.keeping(shownId)
     Surface(modifier = modifier, color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 2.dp) {
         Column {
             Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (page == null) {
-                    TabPicker(ordered, shown) { shownId = it.id }
+                    TabPicker(ordered, shown) { onShowTab(it.id) }
                 } else {
                     page.onBack?.let { back ->
                         IconButton(onClick = back) { Icon(painterResource(Resources.drawable.ic_editor_back), stringResource(Resources.string.editors_back)) }
@@ -144,7 +146,10 @@ private fun CommandRow(command: Command) {
                     shape = SegmentedButtonDefaults.itemShape(index, command.toggles.size),
                     enabled = enabled && toggle.isEnabled(),
                     icon = {}
-                ) { Icon(painterResource(toggle.icon), stringResource(toggle.label)) }
+                ) {
+                    val icon = toggle.icon
+                    if (icon != null) Icon(painterResource(icon), stringResource(toggle.label)) else Text(stringResource(toggle.label))
+                }
             }
         }
         return
@@ -183,7 +188,7 @@ private fun CommandIcon(icon: Int, color: String?) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Icon(painterResource(icon), null)
         if (color != null) {
-            val parsed = runCatching { Color(android.graphics.Color.parseColor(color)) }.getOrNull()
+            val parsed = runCatching { Color(color.toColorInt()) }.getOrNull()
             if (parsed != null) Box(Modifier.width(24.dp).height(4.dp).background(parsed))
         }
     }

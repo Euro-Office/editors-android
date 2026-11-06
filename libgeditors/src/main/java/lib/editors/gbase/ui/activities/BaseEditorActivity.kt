@@ -520,6 +520,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             val root = findViewById<ViewGroup>(R.id.editorRoot)
             root.addView(ui.bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
             documentUi = ui
+            if (!resources.getBoolean(R.bool.editor_side_panels)) setUpCommandSheet(ui)
             // Reviewers' changes are always tracked
             if (editAccess() == EditorsContract.INTERNAL_EDIT_ACCESS_TRACKED_CHANGES) {
                 ui.trackChangesForced = true
@@ -1033,6 +1034,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         // With what the toolbar shows too (bold, italic, underline, alignment)
         val textFormat = state.format.copy(bold = toolbar.bold, italic = toolbar.italic, underline = toolbar.underline, alignment = toolbar.alignment)
         formatPanel.update(textFormat, drawingSelected && !inTable, state.cursor != null || state.selection.isNotEmpty(), inTable)
+        commandState.format = textFormat
+        commandState.drawingSelected = drawingSelected && !inTable
+        commandState.canUndo = toolbar.canUndo
+        commandState.canRedo = toolbar.canRedo
         state.sheet?.let {
             cellFormatPanel.update(it.cellFormat.copy(bold = toolbar.bold, italic = toolbar.italic, underline = toolbar.underline, alignment = toolbar.alignment), drawingSelected)
         }
@@ -1339,7 +1344,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             iconPicker,
             // Tables with a style: documents and presentations (spreadsheets' tables are cells)
             tablePicker = previewPicker.takeUnless { isSpreadsheet },
-            moreInsertItems = { menu -> documentUi?.addInsertItems(menu) },
+            moreInsertItems = { menu -> documentUi?.let { menu.addActions(it.insertActions()) } },
             // Text boxes take the typing at once (in spreadsheets at the active cell)
             insertTextBox = if (isSpreadsheet) {
                 { edit { insertTextBox(0, 0.0, 0.0) } }
@@ -1462,7 +1467,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         bindTool(R.id.toolUndo) { undo() }
         bindTool(R.id.toolRedo) { redo() }
         // Slides are added and deleted at the slides (the button at their end, a slide's menu)
-        findViewById<View>(R.id.toolInsert).setOnClickListener { drawingUi.showInsertMenu(it) }
+        findViewById<View>(R.id.toolInsert).setOnClickListener { if (commandSheet != null) showCommandSheet("insert") else drawingUi.showInsertMenu(it) }
         documentUi?.let { ui ->
             // PDF forms keep their contents (showPageTools)
             val navigation = findViewById<View>(R.id.toolNavigation)
@@ -1477,7 +1482,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             getString(Resources.string.editors_doc_delete_row) to { edit { tableAction("deleteRow") } }
         )
         findViewById<View>(R.id.toolFormat).isVisible = true
-        findViewById<View>(R.id.toolFormat).setOnClickListener { showFormat() }
+        findViewById<View>(R.id.toolFormat).setOnClickListener {
+            // With the command sheet: its Home tab, or the selected drawing's settings as its page
+            if (commandSheet == null) return@setOnClickListener showFormat()
+            showCommandSheet("home")
+            if (formatsDrawings) showFormat()
+        }
         // Selected pictures, shapes and charts: "Format" in their menu too
         val formatAction = listOf(getString(Resources.string.editors_format) to { showFormat() })
         if (isSpreadsheet) findViewById<SheetView>(R.id.sheetView).drawingActions = formatAction else documentView.drawingActions = formatAction
@@ -1545,6 +1555,65 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun saveNow() =
         save { error -> if (error == 0) toast(getString(Resources.string.editors_saved)) else toast(saveErrorMessage(error)) }
+
+    // ---------------------------------------------------------------------------------
+    // The command sheet: on phones, text documents' commands in tabs at the bottom, as in
+    // Office; panels open in it as its pages
+
+    private val commandState = CommandState()
+    private var commandSheet: CommandSheetHost? = null
+    private var docsCommands: DocsCommands? = null
+
+    private fun setUpCommandSheet(ui: DocumentUi) {
+        docsCommands = DocsCommands(
+            this, commandState, { command -> edit(command = command) }, panels, formatPanel, colorPicker,
+            DocsCommands.Hooks(
+                chooseList = ::chooseListPreset,
+                chooseStyle = ::chooseParagraphStyle,
+                insertActions = { drawingUi.insertActions() + ui.insertActions() },
+                layoutActions = { listOfNotNull(ui.pageSetupAction()) },
+                reviewActions = { reviewActions(ui) },
+                viewActions = { viewActions(ui) }
+            )
+        )
+        val sheet = CommandSheetHost(
+            this, { commandState.canUndo }, { commandState.canRedo }, { edit { undo() } }, { edit { redo() } }, dismissPanel = panels::dismiss
+        ) { open ->
+            // In the bottom toolbar's place
+            findViewById<View>(R.id.editorToolbar).isVisible = !open
+        }
+        val root = findViewById<ViewGroup>(R.id.editorRoot)
+        root.addView(sheet.view, root.indexOfChild(findViewById(R.id.editorToolbar)) + 1)
+        panels.pages = sheet
+        commandSheet = sheet
+    }
+
+    // The tabs anew (what they offer depends on the view, the document), at [tab] if given
+    private fun showCommandSheet(tab: String? = null) {
+        val sheet = commandSheet ?: return
+        docsCommands?.let { sheet.tabs = it.tabs() }
+        sheet.show(tab)
+    }
+
+    private fun reviewActions(ui: DocumentUi): List<MenuAction> = buildList {
+        commentsUi?.let { comments -> add(MenuAction(Resources.string.editors_comments, Resources.drawable.ic_editor_comment) { comments.show() }) }
+        add(MenuAction(Resources.string.editors_spell_check, Resources.drawable.ic_editor_spellcheck, isChecked = { spellCheckOn }) {
+            setSpellCheck(!spellCheckOn)
+        })
+        add(MenuAction(Resources.string.editors_document_language, Resources.drawable.ic_editor_language) { chooseDocumentLanguage() })
+        add(ui.statisticsAction())
+        addAll(ui.reviewActions())
+    }
+
+    private fun viewActions(ui: DocumentUi): List<MenuAction> = buildList {
+        if (canUseMobileView()) {
+            add(MenuAction(Resources.string.editors_doc_mobile_view, Resources.drawable.ic_editor_mobile_view, isChecked = { mobileViewChosen }) {
+                toggleMobileView()
+            })
+        }
+        add(MenuAction(Resources.string.editors_doc_navigation, Resources.drawable.ic_editor_outline) { ui.showNavigation() })
+        searchBar?.let { bar -> add(MenuAction(Resources.string.editors_search, Resources.drawable.ic_editor_search) { bar.show() }) }
+    }
 
     // ---------------------------------------------------------------------------------
     // PDFs in sdkjs' PDF editor: pages, contents and search; marking text up, drawing, notes
@@ -2127,7 +2196,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                         isChecked = mobileViewChosen
                     }
                 }
-                documentUi?.addDocumentItems(menu)
+                documentUi?.let { menu.addActions(it.documentActions()) }
                 // Presentations' and spreadsheets' page setup (documents': documentUi's)
                 if (editing && !isPdfEditor) {
                     when (editorsType) {

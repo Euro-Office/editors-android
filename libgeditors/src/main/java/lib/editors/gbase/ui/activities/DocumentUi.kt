@@ -4,8 +4,6 @@ import android.content.Context
 import android.graphics.Typeface
 import android.text.InputType
 import android.view.Gravity
-import android.view.Menu
-import android.view.MenuItem
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -98,71 +96,74 @@ internal class DocumentUi(
     // ---------------------------------------------------------------------------------
     // Menus
 
-    /** Breaks, headers and footers, page numbers, notes and the table of contents: in the "Insert" menu. */
-    fun addInsertItems(menu: Menu) {
-        menu.addSubMenu(Resources.string.editors_doc_break).setIcon(Resources.drawable.ic_editor_page_break).let { sub ->
-            item(sub, Resources.string.editors_doc_break_page, Resources.drawable.ic_editor_page_break) { edit { insertBreak("page") } }
-            item(sub, Resources.string.editors_doc_break_line, Resources.drawable.ic_editor_line_break) { edit { insertBreak("line") } }
-            item(sub, Resources.string.editors_doc_break_column) { edit { insertBreak("column") } }
-            item(sub, Resources.string.editors_doc_break_section_page, Resources.drawable.ic_editor_section_break) {
+    /** Breaks, headers and footers, page numbers, notes and the table of contents: inserted. */
+    fun insertActions(): List<MenuAction> = buildList {
+        add(MenuAction(Resources.string.editors_doc_break, Resources.drawable.ic_editor_page_break, children = listOf(
+            MenuAction(Resources.string.editors_doc_break_page, Resources.drawable.ic_editor_page_break) { edit { insertBreak("page") } },
+            MenuAction(Resources.string.editors_doc_break_line, Resources.drawable.ic_editor_line_break) { edit { insertBreak("line") } },
+            MenuAction(Resources.string.editors_doc_break_column) { edit { insertBreak("column") } },
+            MenuAction(Resources.string.editors_doc_break_section_page, Resources.drawable.ic_editor_section_break) {
                 edit { insertBreak("sectionNextPage") }
-            }
-            item(sub, Resources.string.editors_doc_break_section_continuous, Resources.drawable.ic_editor_section_break) {
+            },
+            MenuAction(Resources.string.editors_doc_break_section_continuous, Resources.drawable.ic_editor_section_break) {
                 edit { insertBreak("sectionContinuous") }
             }
-        }
-        if (!mobileView) menu.addSubMenu(Resources.string.editors_doc_header_footer).setIcon(Resources.drawable.ic_editor_page_number).let { sub ->
-            item(sub, Resources.string.editors_doc_edit_header) { type { editHeaderFooter(documentView.visiblePage(), footer = false) } }
-            item(sub, Resources.string.editors_doc_edit_footer) { type { editHeaderFooter(documentView.visiblePage(), footer = true) } }
-            item(sub, Resources.string.editors_doc_page_number_footer) { edit { insertPageNumber(2, 2) } }
-            item(sub, Resources.string.editors_doc_page_number_header) { edit { insertPageNumber(1, 0) } }
-            item(sub, Resources.string.editors_doc_page_number_here) { edit { insertPageNumber(-1, 0) } }
-        }
+        )))
+        if (!mobileView) add(MenuAction(Resources.string.editors_doc_header_footer, Resources.drawable.ic_editor_page_number, children = listOf(
+            MenuAction(Resources.string.editors_doc_edit_header) { type { editHeaderFooter(documentView.visiblePage(), footer = false) } },
+            MenuAction(Resources.string.editors_doc_edit_footer) { type { editHeaderFooter(documentView.visiblePage(), footer = true) } },
+            MenuAction(Resources.string.editors_doc_page_number_footer) { edit { insertPageNumber(2, 2) } },
+            MenuAction(Resources.string.editors_doc_page_number_header) { edit { insertPageNumber(1, 0) } },
+            MenuAction(Resources.string.editors_doc_page_number_here) { edit { insertPageNumber(-1, 0) } }
+        )))
         // Each with its settings
         for (endnote in listOf(false, true)) {
-            menu.addSubMenu(if (endnote) Resources.string.editors_doc_endnote else Resources.string.editors_doc_footnote)
-                .setIcon(Resources.drawable.ic_editor_footnote).let { sub ->
-                    item(sub, if (endnote) Resources.string.editors_notes_insert_endnote else Resources.string.editors_notes_insert_footnote) {
+            add(MenuAction(
+                if (endnote) Resources.string.editors_doc_endnote else Resources.string.editors_doc_footnote, Resources.drawable.ic_editor_footnote,
+                children = listOf(
+                    MenuAction(if (endnote) Resources.string.editors_notes_insert_endnote else Resources.string.editors_notes_insert_footnote) {
                         type { addNote(endnote) }
-                    }
-                    item(sub, if (endnote) Resources.string.editors_notes_endnote_settings else Resources.string.editors_notes_footnote_settings) {
+                    },
+                    MenuAction(if (endnote) Resources.string.editors_notes_endnote_settings else Resources.string.editors_notes_footnote_settings) {
                         notesPanel.show(endnote)
                     }
-                }
+                )
+            ))
         }
-        menu.addSubMenu(Resources.string.editors_doc_toc).setIcon(Resources.drawable.ic_editor_table_contents).let { sub ->
-            item(sub, Resources.string.editors_doc_toc_insert) { edit { addTableOfContents() } }
-            item(sub, Resources.string.editors_doc_toc_update) { edit { updateTableOfContents() } }
+        add(MenuAction(Resources.string.editors_doc_toc, Resources.drawable.ic_editor_table_contents, children = listOf(
+            MenuAction(Resources.string.editors_doc_toc_insert) { edit { addTableOfContents() } },
+            MenuAction(Resources.string.editors_doc_toc_update) { edit { updateTableOfContents() } }
+        )))
+    }
+
+    /** The page's setup; null in mobile view, which has no pages. */
+    fun pageSetupAction(): MenuAction? =
+        if (mobileView) null else MenuAction(Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) { showPageSetup() }
+
+    fun statisticsAction() = MenuAction(Resources.string.editors_doc_statistics, Resources.drawable.ic_editor_info) { showStatistics() }
+
+    /** Tracking changes, going through them, accepting or rejecting them, and how they show. */
+    fun reviewActions(): List<MenuAction> = buildList {
+        if (!trackChangesForced) {
+            add(MenuAction(Resources.string.editors_doc_track_changes, isChecked = { structure.trackChanges }) {
+                edit { setTrackChanges(!structure.trackChanges) }
+            })
         }
+        add(MenuAction(Resources.string.editors_doc_next_change) { edit { reviewAction("next") } })
+        add(MenuAction(Resources.string.editors_doc_previous_change) { edit { reviewAction("previous") } })
+        add(MenuAction(Resources.string.editors_doc_accept_all) { edit { reviewAction("acceptAll") } })
+        add(MenuAction(Resources.string.editors_doc_reject_all) { edit { reviewAction("rejectAll") } })
+        add(MenuAction(Resources.string.editors_doc_show_markup) { edit { setReviewMode(0) } })
+        add(MenuAction(Resources.string.editors_doc_show_final) { edit { setReviewMode(1) } })
+        add(MenuAction(Resources.string.editors_doc_show_original) { edit { setReviewMode(2) } })
     }
 
     /** Page setup, word count and reviewing: in the file menu. */
-    fun addDocumentItems(menu: Menu) {
-        if (!mobileView) item(menu, Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) { showPageSetup() }
-        item(menu, Resources.string.editors_doc_statistics, Resources.drawable.ic_editor_info) { showStatistics() }
-        menu.addSubMenu(Resources.string.editors_doc_review).setIcon(Resources.drawable.ic_editor_review).let { sub ->
-            if (!trackChangesForced) {
-                item(sub, Resources.string.editors_doc_track_changes) { edit { setTrackChanges(!structure.trackChanges) } }.apply {
-                    isCheckable = true
-                    isChecked = structure.trackChanges
-                }
-            }
-            item(sub, Resources.string.editors_doc_next_change) { edit { reviewAction("next") } }
-            item(sub, Resources.string.editors_doc_previous_change) { edit { reviewAction("previous") } }
-            item(sub, Resources.string.editors_doc_accept_all) { edit { reviewAction("acceptAll") } }
-            item(sub, Resources.string.editors_doc_reject_all) { edit { reviewAction("rejectAll") } }
-            item(sub, Resources.string.editors_doc_show_markup) { edit { setReviewMode(0) } }
-            item(sub, Resources.string.editors_doc_show_final) { edit { setReviewMode(1) } }
-            item(sub, Resources.string.editors_doc_show_original) { edit { setReviewMode(2) } }
-        }
-    }
-
-    // An item that does its action itself, whichever menu it is in
-    private fun item(parent: Menu, label: Int, icon: Int? = null, action: () -> Unit): MenuItem =
-        parent.add(Menu.NONE, Menu.NONE, Menu.NONE, label).setOnMenuItemClickListener {
-            action()
-            true
-        }.also { item -> icon?.let { item.setIcon(it) } }
+    fun documentActions(): List<MenuAction> = listOfNotNull(
+        pageSetupAction(),
+        statisticsAction(),
+        MenuAction(Resources.string.editors_doc_review, Resources.drawable.ic_editor_review, children = reviewActions())
+    )
 
     // A command that moves the cursor somewhere to type: a header, footer or note
     private fun type(command: EditorDocument.() -> EditorState) {
