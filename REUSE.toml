@@ -145,6 +145,7 @@ path = [
     "libresources/src/main/res/drawable/ic_editor_text_box.xml",
     "libresources/src/main/res/drawable/ic_editor_underline.xml",
     "libresources/src/main/res/drawable/ic_editor_undo.xml",
+    "libresources/src/main/res/drawable/ic_editor_unfold.xml",
     "libresources/src/main/res/drawable/ic_editor_up.xml"
 ]
 SPDX-FileCopyrightText = "Google LLC"
