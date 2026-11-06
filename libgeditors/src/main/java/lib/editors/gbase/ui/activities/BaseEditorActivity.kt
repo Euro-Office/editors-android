@@ -1053,6 +1053,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         commandState.format = textFormat
         commandState.drawingSelected = drawingSelected && !inTable
         commandState.canUndo = toolbar.canUndo
+        commandSheet?.stateChanged()
         commandState.canRedo = toolbar.canRedo
         updateSelection(if (drawingSelected && !inTable) selectionKey(state.drawings) else null, inTable)
         state.sheet?.let {
@@ -1352,7 +1353,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             ChartSettingsPanel(this, { command -> edit(command = command) }, panels, previewPicker), colorPicker, panels,
             chart = { drawingUi.chart },
             withGroups = editorsType != EditorsType.PDF,
-            chooseFill = if (editorsType == EditorsType.PDF) null else { back -> fillPanel.show(FillTarget.SHAPE, back) }
+            chooseFill = if (editorsType == EditorsType.PDF) null else { back -> fillPanel.show(FillTarget.SHAPE, back) },
+            fills = if (editorsType == EditorsType.PDF) null else fillPanel
         )
     }
 
@@ -1590,6 +1592,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private var docsCommands: DocsCommands? = null
 
     private fun setUpCommandSheet(ui: DocumentUi) {
+        // Page setup from the file menu: the Layout tab
+        ui.openLayout = { showCommandSheet("layout") }
         docsCommands = DocsCommands(
             this, commandState, { command -> edit(command = command) }, panels, formatPanel, colorPicker,
             DocsCommands.Hooks(
@@ -1597,9 +1601,14 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 chooseStyle = ::chooseParagraphStyle,
                 chooseTableStyle = ::chooseTableStyle,
                 insertActions = { drawingUi.insertActions() + ui.insertActions() },
-                layoutActions = { listOfNotNull(ui.pageSetupAction()) },
+                layoutCommands = ui::pageSetupCommands,
                 reviewActions = { reviewActions(ui) },
-                viewActions = { viewActions(ui) }
+                viewActions = { viewActions(ui) },
+                reloadDrawing = {
+                    loadedDrawings = null
+                    updateSelection(selectedDrawings, commandState.inTable)
+                },
+                drawingCommands = shapePanel::commands
             )
         )
         val sheet = CommandSheetHost(
@@ -1656,9 +1665,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         shapePanel.load { selected ->
             // Not for drawings selected no more
             if (selectedDrawings != drawings) return@load
-            val appeared = commandState.drawing == null
+            // Its tab, when there was none, or one was just inserted (another selected before)
+            val show = commandState.drawing == null || commandSheet?.shownTabId == "insert"
             commandState.drawing = selected
-            refreshCommandTabs(if (appeared) DocsCommands.DRAWING_TAB else null)
+            refreshCommandTabs(if (show) DocsCommands.DRAWING_TAB else null)
         }
     }
 

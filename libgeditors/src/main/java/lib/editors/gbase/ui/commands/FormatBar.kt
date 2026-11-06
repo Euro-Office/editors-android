@@ -56,13 +56,14 @@ private fun BarButton(command: Command) {
             checked = command.isOn(),
             onCheckedChange = { command.run() },
             enabled = enabled,
-            colors = IconButtonDefaults.filledIconToggleButtonColors(containerColor = Color.Transparent)
+            // Off and disabled alike without a background: only on has one
+            colors = IconButtonDefaults.filledIconToggleButtonColors(containerColor = Color.Transparent, disabledContainerColor = Color.Transparent)
         ) { command.icon?.let { Icon(painterResource(it), stringResource(command.label)) } }
         is Command.Segments -> command.toggles.forEach { BarButton(it) }
         is Command.Split -> IconButton(onClick = command.apply, enabled = enabled) { CommandIcon(command.icon, command.choice()) }
         is Command.Action -> IconButton(onClick = command.run, enabled = enabled) {
             command.icon?.let { Icon(painterResource(it), stringResource(command.label)) }
         }
-        is Command.Page, is Command.Value -> Unit
+        is Command.Page, is Command.Value, is Command.Stepper, is Command.Choice, is Command.Field, is Command.Custom -> Unit
     }
 }

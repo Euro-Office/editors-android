@@ -16,6 +16,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -37,6 +39,8 @@ internal class ActionSheetHost(context: Context) {
 
     // The actions shown and the ones they were opened from; none: closed
     private var stack by mutableStateOf(emptyList<List<MenuAction>>())
+    // Switches show preferences, not Compose state: drawn anew after one was switched
+    private var revision by mutableIntStateOf(0)
 
     val view: ComposeView = ComposeView(context).apply {
         setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
@@ -68,7 +72,8 @@ internal class ActionSheetHost(context: Context) {
                         HorizontalDivider()
                     }
                 }
-                items(shown) { action -> Row(action) }
+                // Switches read again after one was switched
+                items(shown) { action -> key(revision) { Row(action) } }
             }
         }
     }
@@ -89,6 +94,10 @@ internal class ActionSheetHost(context: Context) {
             modifier = Modifier.clickable(enabled = enabled) {
                 if (action.children.isNotEmpty()) {
                     stack = stack + listOf(action.children)
+                } else if (checked != null) {
+                    // Stays open: the switch moves
+                    action.run()
+                    revision++
                 } else {
                     // Its dialog or panel opens over the closed sheet
                     close()

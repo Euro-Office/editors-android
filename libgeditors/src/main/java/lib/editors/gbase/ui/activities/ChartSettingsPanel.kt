@@ -18,6 +18,8 @@ import lib.editors.base.engine.ChartState
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
 import lib.editors.gbase.R
+import lib.editors.gbase.ui.commands.Command
+import lib.editors.gbase.ui.commands.CommandGroup
 import lib.editors.resources.R as Resources
 
 /**
@@ -127,6 +129,66 @@ internal class ChartSettingsPanel(
             panels.show(context.getString(axisName(chart, value)), content, onBack) {}
         }
         open()
+    }
+
+    /** The [chart]'s layout as commands, for the command sheet; [change] applies one and loads the chart anew. */
+    fun layoutCommands(chart: ChartState, change: (EditorDocument.() -> EditorState) -> Unit): List<CommandGroup> {
+        val layout = chart.layout ?: return emptyList()
+        fun choice(name: Int, options: List<Pair<Int, Int>>, current: Int, key: String) =
+            Command.Choice(name, null, options.map { context.getString(it.first) }, { options.indexOfFirst { it.second == current } }) { index ->
+                change { setChartLayout(mapOf(key to options[index].second)) }
+            }
+        return listOf(
+            CommandGroup(listOf(
+                choice(Resources.string.editors_chart_title, TITLES, layout.title, "title"),
+                choice(Resources.string.editors_chart_legend, LEGENDS, layout.legend, "legend"),
+                choice(Resources.string.editors_chart_labels, dataLabels(chart.type), layout.dataLabels, "dataLabels")
+            )),
+            CommandGroup(listOfNotNull(
+                layout.horizontalTitle?.let { choice(Resources.string.editors_chart_axis_horizontal, HORIZONTAL_TITLES, it, "horizontalTitle") },
+                layout.verticalTitle?.let { choice(Resources.string.editors_chart_axis_vertical, VERTICAL_TITLES, it, "verticalTitle") },
+                layout.horizontalGridlines?.let { choice(Resources.string.editors_chart_gridlines_horizontal, GRIDLINES, it, "horizontalGridlines") },
+                layout.verticalGridlines?.let { choice(Resources.string.editors_chart_gridlines_vertical, GRIDLINES, it, "verticalGridlines") }
+            ))
+        ).filter { it.commands.isNotEmpty() }
+    }
+
+    /** The value axis' settings ([value]) or the category axis', as commands (see [layoutCommands]). */
+    fun axisCommands(chart: ChartState, value: Boolean, change: (EditorDocument.() -> EditorState) -> Unit): List<CommandGroup> {
+        val axis = (if (value) chart.valueAxis else chart.categoryAxis) ?: return emptyList()
+        fun set(name: String, v: Any?) = change { setChartAxis(value, mapOf(name to v)) }
+        fun choice(name: Int, options: List<Pair<Int, Int>>, current: Int, key: String) =
+            Command.Choice(name, null, options.map { context.getString(it.first) }, { options.indexOfFirst { it.second == current } }) { index -> set(key, options[index].second) }
+        // Empty: automatic, if [allowAuto]
+        fun number(name: Int, current: Double?, allowAuto: Boolean, key: String) =
+            Command.Field(name, { current?.let { format(it) }.orEmpty() }, number = true, placeholder = if (allowAuto) Resources.string.editors_chart_auto else null) { typed ->
+                val text = typed.trim().replace(',', '.')
+                val number = if (text.isEmpty()) null else text.toDoubleOrNull() ?: return@Field
+                if (number != null || allowAuto) set(key, number)
+            }
+        val scale = if (value) listOfNotNull(
+            number(Resources.string.editors_chart_minimum, axis.min, allowAuto = true, "min"),
+            number(Resources.string.editors_chart_maximum, axis.max, allowAuto = true, "max"),
+            axis.units?.let { choice(Resources.string.editors_chart_units, UNITS, it, "units") }
+        ) else emptyList()
+        // Where the other axis crosses: automatic, at the minimum or maximum, or at a value
+        val crosses = listOfNotNull(
+            Command.Choice(Resources.string.editors_chart_crosses, null, CROSSES.map { context.getString(it.first) }, { CROSSES.indexOfFirst { it.second == axis.crosses } }) { index ->
+                val rule = CROSSES[index].second
+                if (rule == CROSSES_AT_VALUE) set("crossesValue", axis.crossesValue ?: 0.0) else set("crosses", rule)
+            },
+            if (axis.crosses == CROSSES_AT_VALUE) number(Resources.string.editors_chart_crossing_value, axis.crossesValue, allowAuto = false, "crossesValue") else null,
+            if (!value) axis.position?.let { choice(Resources.string.editors_chart_axis_position, POSITIONS, it, "position") } else null
+        )
+        val marks = listOf(
+            choice(Resources.string.editors_chart_ticks_major, TICKS, axis.majorTicks, "majorTicks"),
+            choice(Resources.string.editors_chart_ticks_minor, TICKS, axis.minorTicks, "minorTicks"),
+            choice(Resources.string.editors_chart_axis_labels, LABELS, axis.labels, "labels"),
+            Command.Toggle(if (value) Resources.string.editors_chart_reverse_values else Resources.string.editors_chart_reverse_categories, null, { axis.reverse }) {
+                set("reverse", !axis.reverse)
+            }
+        )
+        return listOf(CommandGroup(scale), CommandGroup(crosses), CommandGroup(marks)).filter { it.commands.isNotEmpty() }
     }
 
     /** The name of the value axis ([value]) or the category axis: vertical, horizontal for horizontal bars. */

@@ -2,9 +2,9 @@ package lib.editors.gbase.ui.activities
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.Typeface
 import android.text.Editable
 import android.text.TextWatcher
-import android.graphics.Typeface
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -18,8 +18,8 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
-import androidx.core.widget.NestedScrollView
 import androidx.core.view.isVisible
+import androidx.core.widget.NestedScrollView
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import lib.editors.gbase.R
@@ -38,7 +38,10 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
         fun dismiss()
     }
 
-    /** Where panels open as pages instead of in a sheet of their own: the command sheet while it is open. */
+    /**
+     * Where panels open as pages instead of in a sheet of their own: the command sheet (opened
+     * for them if it is closed, and closed with them then).
+     */
     interface Pages {
         val isOpen: Boolean
 
@@ -83,7 +86,7 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
         shownScroll?.let { (shownTitle, shown) -> scrolled[shownTitle] = shown.scrollY }
         shownScroll = title to scroll
         scrolled[title]?.let { y -> scroll.post { scroll.scrollTo(0, y) } }
-        val pages = pages?.takeIf { !isSide && it.isOpen }
+        val pages = pages?.takeIf { !isSide }
         if (pages != null) return showPage(pages, title, scroll, onBack, onDismiss)
         val sheet = (current as? SheetPanel)?.takeIf { !isSide && it.sheet.isShowing }
         if (sheet != null) {

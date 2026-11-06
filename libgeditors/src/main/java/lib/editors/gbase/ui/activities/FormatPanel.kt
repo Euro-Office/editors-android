@@ -5,7 +5,6 @@ import android.view.Gravity
 import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
-import androidx.core.widget.NestedScrollView
 import android.widget.TextView
 import androidx.core.view.isVisible
 import lib.editors.base.engine.Alignment
@@ -15,8 +14,8 @@ import lib.editors.base.engine.FillTarget
 import lib.editors.base.engine.ListKind
 import lib.editors.base.engine.ParagraphOption
 import lib.editors.base.engine.TextFormat
-import lib.editors.resources.R as Resources
 import lib.toolkit.base.managers.utils.EditorDictionaries
+import lib.editors.resources.R as Resources
 
 /**
  * The formatting panel: font, size, styles, colors and paragraph settings of the text at the
@@ -98,33 +97,16 @@ internal class FormatPanel(
 
     fun show() = open()
 
-    /** The text's and paragraphs' settings only, for the command sheet: selected drawings have a tab of their own. */
-    fun showText() {
-        loadFonts { loadedFonts, loadedDocumentFonts ->
-            fonts = loadedFonts
-            documentFonts = loadedDocumentFonts
-        }
-        build(null)
-    }
-
-    /** The [selected] drawings' settings as a view of their own, for their tab in the command sheet; [back] after panels opened from them. */
-    fun drawingContent(selected: ShapePanel.Selected, back: () -> Unit): View {
-        val rows = mutableListOf<ColorPicker.Row>()
-        val content = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
-            shapes?.addTo(this, selected, back, rows)
-        }
-        colorPicker.load { colors -> rows.forEach { it.setColors(colors) } }
-        return NestedScrollView(context).apply { addView(content) }
-    }
-
     /** The font alone, for the command sheet; then [onBack]. */
     fun chooseFont(onBack: () -> Unit) = loadFonts { loadedFonts, loadedDocumentFonts ->
         fonts = loadedFonts
         documentFonts = loadedDocumentFonts
         fontChooser.choose(fonts, documentFonts, format.fontName, onBack) { name -> edit { setFontName(name) } }
     }
+
+    /** The text's language, for the command sheet; null: none to choose (PDFs, spreadsheets). */
+    val chooseTextLanguage: ((onBack: () -> Unit) -> Unit)?
+        get() = chooseLanguage?.let { choose -> { onBack -> choose(format.language, onBack) } }
 
     /** Highlighting alone, for the command sheet; a color chosen goes [onBack]. */
     fun chooseHighlight(onBack: () -> Unit) {
@@ -401,10 +383,10 @@ internal class FormatPanel(
         }
     }
 
-    private fun centimeters(mm: Double) = context.getString(Resources.string.editors_format_cm_value, trimNumber(Math.round(mm * 10) / 100.0))
+    internal fun centimeters(mm: Double) = context.getString(Resources.string.editors_format_cm_value, trimNumber(Math.round(mm * 10) / 100.0))
 
     // By a quarter centimeter, hanging (negative) too
-    private fun stepFirstLine(up: Boolean) {
+    internal fun stepFirstLine(up: Boolean) {
         val mm = step(format.firstLine, INDENT_STEP_MM, up).coerceIn(-MAX_INDENT_MM, MAX_INDENT_MM)
         edit { setFirstLineIndent(mm) }
     }
@@ -454,11 +436,11 @@ internal class FormatPanel(
         updaters.forEach { it(format) }
     }
 
-    private fun lineSpacingText(format: TextFormat) =
+    internal fun lineSpacingText(format: TextFormat) =
         if (format.lineRule == LINE_MULTIPLE) trimNumber(format.line) else pointsText(format.line)
 
     // To the next step: multiples by a quarter line, heights by a point
-    private fun stepLineSpacing(up: Boolean) {
+    internal fun stepLineSpacing(up: Boolean) {
         if (format.lineRule == LINE_MULTIPLE) {
             val value = step(format.line, LINE_STEP, up).coerceIn(LINE_STEP, MAX_LINE_MULTIPLE)
             edit { setLineSpacing(LINE_MULTIPLE, value) }
@@ -469,7 +451,7 @@ internal class FormatPanel(
     }
 
     // Space before or after paragraphs, by points (automatic, -1, counts as none)
-    private fun stepSpacing(before: Boolean, up: Boolean) {
+    internal fun stepSpacing(before: Boolean, up: Boolean) {
         val current = maxOf(0.0, if (before) format.spacingBefore else format.spacingAfter) / MM_PER_POINT
         val mm = step(current, 1.0, up).coerceIn(0.0, MAX_POINTS) * MM_PER_POINT
         val spacingBefore = if (before) mm else maxOf(0.0, format.spacingBefore)
@@ -482,7 +464,7 @@ internal class FormatPanel(
     private fun step(value: Double, size: Double, up: Boolean): Double =
         if (up) (Math.floor(value / size + STEP_TOLERANCE) + 1) * size else (Math.ceil(value / size - STEP_TOLERANCE) - 1) * size
 
-    private fun pointsText(mm: Double): String {
+    internal fun pointsText(mm: Double): String {
         val points = Math.round(maxOf(0.0, mm) / MM_PER_POINT * 2) / 2.0
         return context.getString(Resources.string.editors_format_points_value, trimNumber(points))
     }

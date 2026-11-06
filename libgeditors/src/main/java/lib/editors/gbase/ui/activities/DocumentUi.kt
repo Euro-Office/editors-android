@@ -1,14 +1,26 @@
 package lib.editors.gbase.ui.activities
 
 import android.content.Context
-import android.graphics.Typeface
 import android.text.InputType
 import android.view.Gravity
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.core.view.isVisible
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -18,6 +30,9 @@ import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.PageSetup
 import lib.editors.gbase.R
+import lib.editors.gbase.ui.commands.Command
+import lib.editors.gbase.ui.commands.CommandGroup
+import lib.editors.gbase.ui.commands.composePanel
 import lib.editors.gbase.ui.views.DocumentView
 import java.text.DateFormat
 import java.text.NumberFormat
@@ -138,7 +153,50 @@ internal class DocumentUi(
 
     /** The page's setup; null in mobile view, which has no pages. */
     fun pageSetupAction(): MenuAction? =
-        if (mobileView) null else MenuAction(Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) { showPageSetup() }
+        if (mobileView) null else MenuAction(Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) {
+            openLayout?.invoke() ?: showPageSetup()
+        }
+
+    /** Shows the page's setup as the command sheet's Layout tab, where there is one; null: in a panel. */
+    var openLayout: (() -> Unit)? = null
+
+    // The page's setup, for the Layout tab's commands (loaded as they are built; null before)
+    private var pageSetup by mutableStateOf<PageSetup?>(null)
+
+    /** Orientation, size, margins and columns as commands, for the Layout tab: each applied as it is chosen. */
+    fun pageSetupCommands(): List<CommandGroup> {
+        if (mobileView) return emptyList()
+        read({ pageSetup() }) { pageSetup = it }
+        fun change(command: EditorDocument.() -> EditorState) {
+            edit(command)
+            read({ pageSetup() }) { pageSetup = it }
+        }
+        val sizes = PageSettingsUi.PAPER_SIZES
+        return listOf(
+            CommandGroup(listOf(
+                Command.Segments(Resources.string.editors_doc_orientation, listOf(
+                    Command.Toggle(Resources.string.editors_doc_portrait, null, { pageSetup?.landscape == false }) { change { setPageSetup(landscape = false) } },
+                    Command.Toggle(Resources.string.editors_doc_landscape, null, { pageSetup?.landscape == true }) { change { setPageSetup(landscape = true) } }
+                )),
+                Command.Choice(Resources.string.editors_doc_size, Resources.drawable.ic_editor_page_setup, sizes.map { it.first }, {
+                    val setup = pageSetup
+                    if (setup == null) -1 else sizes.indexOfFirst { (_, width, height) ->
+                        abs(minOf(setup.width, setup.height) - width) < 1 && abs(maxOf(setup.width, setup.height) - height) < 1
+                    }
+                }) { index -> change { setPageSetup(width = sizes[index].second, height = sizes[index].third) } },
+                Command.Choice(Resources.string.editors_doc_margins, null, MARGINS.map { context.getString(it.first) }, {
+                    val setup = pageSetup
+                    if (setup == null) -1 else MARGINS.indexOfFirst { (_, margin) -> abs(setup.left - margin) < 0.5 && abs(setup.top - margin) < 0.5 }
+                }) { index -> MARGINS[index].second.let { margin -> change { setPageSetup(margins = doubleArrayOf(margin, margin, margin, margin)) } } },
+                Command.Choice(Resources.string.editors_doc_columns, Resources.drawable.ic_editor_columns_two, COLUMNS.map { it.first.toString() }, {
+                    COLUMNS.indexOfFirst { it.first == pageSetup?.columns }
+                }) { index -> change { setPageSetup(columns = COLUMNS[index].first) } }
+            )),
+            CommandGroup(listOf(
+                Command.Page(Resources.string.editors_color_scheme, null) { pageSettings.chooseColorScheme { panels.dismiss() } }
+            ))
+        )
+    }
 
     fun statisticsAction() = MenuAction(Resources.string.editors_doc_statistics, Resources.drawable.ic_editor_info) { showStatistics() }
 
@@ -243,7 +301,7 @@ internal class DocumentUi(
             setText((documentView.visiblePage() + 1).toString())
             selectAll()
         }
-        AlertDialog.Builder(context)
+        MaterialAlertDialogBuilder(context)
             .setTitle(Resources.string.editors_doc_go_to_page)
             .setView(LinearLayout(context).apply {
                 setPaddingRelative(dp(24), dp(8), dp(24), 0)
@@ -258,31 +316,22 @@ internal class DocumentUi(
 
     // The counts, a row each
     private fun showStatistics() = read({ statistics() }) { statistics ->
-        val content = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(16), 0, dp(16), dp(24))
-            listOf(
-                Resources.string.editors_doc_statistics_pages to statistics.pages,
-                Resources.string.editors_doc_statistics_words to statistics.words,
-                Resources.string.editors_doc_statistics_paragraphs to statistics.paragraphs,
-                Resources.string.editors_doc_statistics_characters to statistics.symbols,
-                Resources.string.editors_doc_statistics_characters_spaces to statistics.symbolsWithSpaces
-            ).filter { (_, count) -> count >= 0 }.forEach { (label, count) ->
-                addView(LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    minimumHeight = dp(48)
-                    addView(TextView(context).apply {
-                        setText(label)
-                        textSize = 16f
-                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                    })
-                    addView(TextView(context).apply {
-                        text = NumberFormat.getIntegerInstance().format(count)
-                        textSize = 16f
-                        setTypeface(typeface, Typeface.BOLD)
-                    })
-                })
+        val counts = listOf(
+            Resources.string.editors_doc_statistics_pages to statistics.pages,
+            Resources.string.editors_doc_statistics_words to statistics.words,
+            Resources.string.editors_doc_statistics_paragraphs to statistics.paragraphs,
+            Resources.string.editors_doc_statistics_characters to statistics.symbols,
+            Resources.string.editors_doc_statistics_characters_spaces to statistics.symbolsWithSpaces
+        ).filter { (_, count) -> count >= 0 }
+        val content = composePanel(context) {
+            Column(Modifier.padding(bottom = 16.dp)) {
+                for ((label, count) in counts) {
+                    ListItem(
+                        headlineContent = { Text(stringResource(label)) },
+                        trailingContent = { Text(NumberFormat.getIntegerInstance().format(count), style = MaterialTheme.typography.titleMedium) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                    )
+                }
             }
         }
         panels.show(context.getString(Resources.string.editors_doc_statistics), content) {}

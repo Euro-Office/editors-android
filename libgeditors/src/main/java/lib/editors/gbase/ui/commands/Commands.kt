@@ -1,6 +1,7 @@
 package lib.editors.gbase.ui.commands
 
 import android.view.View
+import androidx.compose.runtime.Composable
 
 /**
  * An editor's commands: tabs ("Home", "Insert", …) of groups of commands. Phones show them in the
@@ -73,12 +74,60 @@ sealed interface Command {
         val more: () -> Unit
     ) : Command
 
-    /** Opens a page of its own (in the sheet, with a way back): "Margins", "Bullets". */
+    /**
+     * Opens a page of its own (in the sheet, with a way back): of [commands] ("Paragraph"), or
+     * one [open] shows ("Margins", "Bullets"). With [commands], [open] runs as it opens (loads
+     * what they show).
+     */
     class Page(
         override val label: Int,
         override val icon: Int?,
         override val isEnabled: () -> Boolean = { true },
-        val open: () -> Unit
+        val commands: (() -> List<CommandGroup>)? = null,
+        val open: () -> Unit = {}
+    ) : Command
+
+    /** One of [options] (their names), the [selected] one shown; they open as a page to choose from. */
+    class Choice(
+        override val label: Int,
+        override val icon: Int? = null,
+        val options: List<String>,
+        /** Its index in [options]; -1: none of them. */
+        val selected: () -> Int,
+        override val isEnabled: () -> Boolean = { true },
+        val choose: (Int) -> Unit
+    ) : Command
+
+    /** Text typed in place (a chart's title), or a [number]; [set] when typing ends. */
+    class Field(
+        override val label: Int,
+        val value: () -> String,
+        val number: Boolean = false,
+        /** Shown while it is empty ("Auto"). */
+        val placeholder: Int? = null,
+        override val isEnabled: () -> Boolean = { true },
+        val set: (String) -> Unit
+    ) : Command {
+        override val icon: Int? get() = null
+    }
+
+    /** What isn't one of the others, drawn by [content]: pictures to choose from (patterns), a preview. */
+    class Custom(
+        override val label: Int,
+        val content: @Composable () -> Unit
+    ) : Command {
+        override val icon: Int? get() = null
+        override val isEnabled: () -> Boolean get() = { true }
+    }
+
+    /** A value made smaller or larger a step at a time: line spacing, space before. */
+    class Stepper(
+        override val label: Int,
+        override val icon: Int? = null,
+        val value: () -> String,
+        override val isEnabled: () -> Boolean = { true },
+        val down: () -> Unit,
+        val up: () -> Unit
     ) : Command
 }
 
