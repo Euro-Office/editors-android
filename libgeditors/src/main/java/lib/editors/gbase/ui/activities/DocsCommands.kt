@@ -108,6 +108,30 @@ internal class DocsCommands(
         ))
     )
 
+    /**
+     * The bar's commands while the sheet is closed: inserting ([openSheet] at Insert), the text's
+     * format, its color (chosen in the sheet) and lists.
+     */
+    fun barCommands(openSheet: (tab: String) -> Unit): List<Command> = listOf(
+        Command.Action(Resources.string.editors_insert, Resources.drawable.ic_editor_insert) { openSheet("insert") },
+        Command.Toggle(Resources.string.editors_bold, Resources.drawable.ic_editor_bold, { format.bold }) { edit { setBold(!format.bold) } },
+        Command.Toggle(Resources.string.editors_italic, Resources.drawable.ic_editor_italic, { format.italic }) { edit { setItalic(!format.italic) } },
+        Command.Toggle(Resources.string.editors_underline, Resources.drawable.ic_editor_underline, { format.underline }) {
+            edit { setUnderline(!format.underline) }
+        },
+        Command.Split(Resources.string.editors_format_highlight, Resources.drawable.ic_editor_highlight, { "#$highlight" }, isEnabled = forText,
+            apply = { edit { setHighlight(if (format.highlight.equals(highlight, ignoreCase = true)) "" else highlight) } },
+            more = {}),
+        Command.Split(Resources.string.editors_format_color, Resources.drawable.ic_editor_text_color, { format.color.takeIf { it.isNotEmpty() }?.let { "#$it" } },
+            apply = { openSheet("home"); chooseColor() }, more = {}),
+        Command.Toggle(Resources.string.editors_format_bullets, Resources.drawable.ic_editor_bullets, { format.list == 0 }, isEnabled = forText) {
+            edit { setList(0, if (format.list == 0) -1 else 1) }
+        },
+        Command.Toggle(Resources.string.editors_format_numbers, Resources.drawable.ic_editor_numbering, { format.list == 1 }, isEnabled = forText) {
+            edit { setList(1, if (format.list == 1) -1 else 1) }
+        }
+    )
+
     // Each action a group of its own when it opens choices, the others together, in their order
     private fun groups(actions: List<MenuAction>): List<CommandGroup> = actions.map { it.toCommand(context, panels) }
         .takeIf { it.isNotEmpty() }?.let { listOf(CommandGroup(it)) } ?: emptyList()

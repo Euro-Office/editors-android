@@ -531,6 +531,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             }
         }
         bindToolbar()
+        if (commandSheet != null) showSheetTopBar()
         if (fillsForms()) {
             edit { setFillMode(true) }
             // Only the form's fields take input: inserting and formatting don't apply
@@ -1584,14 +1585,27 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         )
         val sheet = CommandSheetHost(
             this, { commandState.canUndo }, { commandState.canRedo }, { edit { undo() } }, { edit { redo() } }, dismissPanel = panels::dismiss
-        ) { open ->
-            // In the bottom toolbar's place
-            findViewById<View>(R.id.editorToolbar).isVisible = !open
-        }
+        )
         val root = findViewById<ViewGroup>(R.id.editorRoot)
         root.addView(sheet.view, root.indexOfChild(findViewById(R.id.editorToolbar)) + 1)
+        // The bottom toolbar's place: the bar floats over the document (above the keyboard)
+        findViewById<View>(R.id.editorToolbar).isVisible = false
+        sheet.barCommands = docsCommands?.barCommands(::showCommandSheet).orEmpty()
+        sheet.onMore = { showCommandSheet("home") }
+        (documentView.parent as FrameLayout).addView(
+            sheet.barView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
+        )
         panels.pages = sheet
         commandSheet = sheet
+    }
+
+    // The top bar as Office's on phones: closing, the title, undo, comments and "…"; redo and
+    // navigation are in the command sheet
+    private fun showSheetTopBar() {
+        findViewById<ImageButton>(R.id.toolClose).setImageResource(Resources.drawable.ic_editor_close)
+        findViewById<ImageButton>(R.id.toolFile).setImageResource(Resources.drawable.ic_editor_more_horiz)
+        findViewById<View>(R.id.toolRedo).isVisible = false
+        findViewById<View>(R.id.toolNavigation).isVisible = false
     }
 
     // The tabs anew (what they offer depends on the view, the document), at [tab] if given
@@ -1932,7 +1946,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // The toolbar; viewing only, it has just the search
     private fun showToolbar(editable: Boolean) {
         findViewById<View>(R.id.editorTopBar).isVisible = true
-        findViewById<View>(R.id.editorToolbar).isVisible = true
+        // With the command sheet, its bar takes the toolbar's place
+        findViewById<View>(R.id.editorToolbar).isVisible = commandSheet == null
         if (!editable) {
             // The editing buttons come back when editing starts
             for (buttons in listOf<ViewGroup>(findViewById(R.id.editorTopButtons), findViewById(R.id.editorToolButtons))) {

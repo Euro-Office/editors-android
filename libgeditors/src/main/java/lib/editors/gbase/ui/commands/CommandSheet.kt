@@ -184,7 +184,7 @@ private fun CommandRow(command: Command) {
 
 // A split command's icon shows its color in a bar under it
 @Composable
-private fun CommandIcon(icon: Int, color: String?) {
+internal fun CommandIcon(icon: Int, color: String?) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Icon(painterResource(icon), null)
         if (color != null) {

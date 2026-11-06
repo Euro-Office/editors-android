@@ -129,6 +129,7 @@ path = [
     "libresources/src/main/res/drawable/ic_editor_lock_open.xml",
     "libresources/src/main/res/drawable/ic_editor_lock.xml",
     "libresources/src/main/res/drawable/ic_editor_more.xml",
+    "libresources/src/main/res/drawable/ic_editor_more_horiz.xml",
     "libresources/src/main/res/drawable/ic_editor_outline.xml",
     "libresources/src/main/res/drawable/ic_editor_pages.xml",
     "libresources/src/main/res/drawable/ic_editor_palette.xml",
