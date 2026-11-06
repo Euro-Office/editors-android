@@ -97,6 +97,27 @@ internal class FormatPanel(
 
     fun show() = open()
 
+    /** The font alone, for the command sheet; then [onBack]. */
+    fun chooseFont(onBack: () -> Unit) = loadFonts { loadedFonts, loadedDocumentFonts ->
+        fonts = loadedFonts
+        documentFonts = loadedDocumentFonts
+        fontChooser.choose(fonts, documentFonts, format.fontName, onBack) { name -> edit { setFontName(name) } }
+    }
+
+    /** Highlighting alone, for the command sheet; a color chosen goes [onBack]. */
+    fun chooseHighlight(onBack: () -> Unit) {
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
+            colors(HIGHLIGHTS, { it.highlight }) { color ->
+                edit { setHighlight(color) }
+                onBack()
+            }
+        }
+        panels.show(context.getString(Resources.string.editors_format_highlight), content) {}
+        updaters.forEach { it(format) }
+    }
+
     // Again after the panels opened from it, and when a drawing is selected or no more
     private fun open() {
         loadFonts { loadedFonts, loadedDocumentFonts ->
@@ -460,7 +481,7 @@ internal class FormatPanel(
     private fun trimNumber(value: Double): String =
         if (value == Math.floor(value)) value.toInt().toString() else "%.2f".format(value).trimEnd('0').trimEnd('.')
 
-    private companion object {
+    internal companion object {
         const val MM_PER_POINT = 25.4 / 72
         // Word's highlight colors, as web-apps offers them; "" is none
         val HIGHLIGHTS = listOf(

@@ -15,6 +15,13 @@
     <string name="editors_align_right">Align right</string>
     <string name="editors_undo">Undo</string>
     <string name="editors_redo">Redo</string>
+    <string name="editors_tab_home">Home</string>
+    <string name="editors_tab_layout">Layout</string>
+    <string name="editors_tab_review">Review</string>
+    <string name="editors_tab_view">View</string>
+    <string name="editors_commands_tabs">Choose a tab</string>
+    <string name="editors_commands_show">Show commands</string>
+    <string name="editors_commands_hide">Hide commands</string>
     <string name="editors_password_title">Password required</string>
     <string name="editors_password_message">This document is protected. Enter its password to open it.</string>
     <string name="editors_password_wrong">Wrong password. Try again.</string>
