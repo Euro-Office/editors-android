@@ -325,7 +325,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             }
             showToolbar(editable = false)
             findViewById<View>(R.id.toolFile).isVisible = true
-            findViewById<View>(R.id.toolFile).setOnClickListener { fileUi.showMenu(it) }
+            // Phones: in a bottom sheet, as Office's "…"
+            findViewById<View>(R.id.toolFile).setOnClickListener {
+                if (resources.getBoolean(R.bool.editor_side_panels)) fileUi.showMenu(it) else actionSheet.show(fileUi.actions())
+            }
             // Comments: written when editing or with comment access (KEY_EDIT_ACCESS), read otherwise
             val comments = CommentsUi(
                 this@BaseEditorActivity, lifecycleScope, { document }, { command -> edit(command = command) },
@@ -1137,6 +1140,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     // Formatting and comments: bottom sheets on phones, beside the document on large screens
     private val panels by lazy { PanelHost(this, findViewById(R.id.editorSidePane)) }
+    private val actionSheet by lazy {
+        ActionSheetHost(this).also { findViewById<ViewGroup>(R.id.editorRoot).addView(it.view) }
+    }
     private val iconPicker by lazy { IconPicker(this, panels) }
     private val colorPicker by lazy { ColorPicker(this, panels) { onLoaded -> read({ themeColors() }) { colors -> colors?.let(onLoaded) } } }
 
@@ -2169,40 +2175,43 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             spellCheck = { spellCheckOn.takeIf { editing && editorsType != EditorsType.CELLS } },
             setSpellCheck = ::setSpellCheck,
             chooseDocumentLanguage = ::chooseDocumentLanguage,
-            moreItems = { menu ->
-                fun item(label: Int, icon: Int, action: () -> Unit) =
-                    menu.add(label).setIcon(icon).setOnMenuItemClickListener { action(); true }
-                if (searchBar != null) item(Resources.string.editors_search, Resources.drawable.ic_editor_search) { searchBar?.show() }
-                if (canSave()) item(Resources.string.editors_save, Resources.drawable.ic_editor_save) { saveNow() }.isEnabled = modified
-                if (canSave() && !isPdfEditor && extension in ENCRYPTABLE_FORMATS) {
-                    val label = if (documentPassword.isEmpty()) Resources.string.editors_password_protect else Resources.string.editors_password_change
-                    item(label, Resources.drawable.ic_editor_lock) { askNewPassword() }
-                    if (documentPassword.isNotEmpty()) {
-                        item(Resources.string.editors_password_remove, Resources.drawable.ic_editor_lock_open) { changePassword("") }
+            moreActions = {
+                buildList {
+                    searchBar?.let { bar -> add(MenuAction(Resources.string.editors_search, Resources.drawable.ic_editor_search) { bar.show() }) }
+                    if (canSave()) add(MenuAction(Resources.string.editors_save, Resources.drawable.ic_editor_save, isEnabled = { modified }) { saveNow() })
+                    if (canSave() && !isPdfEditor && extension in ENCRYPTABLE_FORMATS) {
+                        val label = if (documentPassword.isEmpty()) Resources.string.editors_password_protect else Resources.string.editors_password_change
+                        add(MenuAction(label, Resources.drawable.ic_editor_lock) { askNewPassword() })
+                        if (documentPassword.isNotEmpty()) {
+                            add(MenuAction(Resources.string.editors_password_remove, Resources.drawable.ic_editor_lock_open) { changePassword("") })
+                        }
                     }
-                }
-                // Not in co-editing, where the Document Server reads the file
-                val text = textOptions
-                val file = textFile
-                if (text != null && file != null && coConnection == null) {
-                    val label = if (text.delimiter >= 0) Resources.string.editors_text_options_csv else Resources.string.editors_text_options
-                    item(label, Resources.drawable.ic_editor_encoding) {
-                        TextOptionsDialog(this@BaseEditorActivity, file, text, discards = modified, onChosen = ::reopenWith).show()
+                    // Not in co-editing, where the Document Server reads the file
+                    val text = textOptions
+                    val file = textFile
+                    if (text != null && file != null && coConnection == null) {
+                        val label = if (text.delimiter >= 0) Resources.string.editors_text_options_csv else Resources.string.editors_text_options
+                        add(MenuAction(label, Resources.drawable.ic_editor_encoding) {
+                            TextOptionsDialog(this@BaseEditorActivity, file, text, discards = modified, onChosen = ::reopenWith).show()
+                        })
                     }
-                }
-                if (canUseMobileView()) {
-                    item(Resources.string.editors_doc_mobile_view, Resources.drawable.ic_editor_mobile_view) { toggleMobileView() }.apply {
-                        isCheckable = true
-                        isChecked = mobileViewChosen
+                    if (canUseMobileView()) {
+                        add(MenuAction(Resources.string.editors_doc_mobile_view, Resources.drawable.ic_editor_mobile_view, isChecked = { mobileViewChosen }) {
+                            toggleMobileView()
+                        })
                     }
-                }
-                documentUi?.let { menu.addActions(it.documentActions()) }
-                // Presentations' and spreadsheets' page setup (documents': documentUi's)
-                if (editing && !isPdfEditor) {
-                    when (editorsType) {
-                        EditorsType.PRESENTATION -> item(Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) { pageSettingsUi.showSlides() }
-                        EditorsType.CELLS -> item(Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) { pageSettingsUi.showSheet() }
-                        else -> Unit
+                    documentUi?.let { addAll(it.documentActions()) }
+                    // Presentations' and spreadsheets' page setup (documents': documentUi's)
+                    if (editing && !isPdfEditor) {
+                        when (editorsType) {
+                            EditorsType.PRESENTATION -> add(MenuAction(Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) {
+                                pageSettingsUi.showSlides()
+                            })
+                            EditorsType.CELLS -> add(MenuAction(Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) {
+                                pageSettingsUi.showSheet()
+                            })
+                            else -> Unit
+                        }
                     }
                 }
             }
