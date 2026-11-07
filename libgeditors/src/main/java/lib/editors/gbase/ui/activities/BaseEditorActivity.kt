@@ -392,7 +392,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     panels = panels
                 )
                 ui.showActions = actionSheet::show
-                addStrip(ui.strip)
+                addStrip(ui.strip, ui.sideWidth)
                 slidesUi = ui
                 documentView.onDrawingsDroppedOnPage = { slide, offsetMm -> edit { moveToSlide(slide, offsetMm) } }
                 topBar.slideshow.isVisible = true
@@ -2174,10 +2174,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // Large screens: thumbnails of slides and pages beside them, instead of above the toolbar
     private val sideStrips get() = resources.getBoolean(R.bool.editor_side_panels)
 
-    private fun addStrip(strip: View) {
+    // Beside the document [sideWidth] wide, its thumbnails' width (wrapping them, the pane was
+    // as narrow as the new slide button)
+    private fun addStrip(strip: View, sideWidth: Int) {
         if (sideStrips) {
             findViewById<ViewGroup>(R.id.editorStartPane).apply {
-                addView(strip, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                addView(strip, ViewGroup.LayoutParams(sideWidth, ViewGroup.LayoutParams.MATCH_PARENT))
                 isVisible = true
             }
         } else {
@@ -2191,7 +2193,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         val strip = PageStrip(this, lifecycleScope, pages,
             render = { page, width, height -> renderTile(page, width, height, 0, 0, width, height) },
             onPage = { documentView.goToPage(it) }, vertical = sideStrips)
-        addStrip(strip.view)
+        addStrip(strip.view, strip.sideWidth)
         documentView.onVisiblePageChanged = { strip.setCurrent(it) }
         findViewById<View>(R.id.toolPages).isVisible = true
         findViewById<View>(R.id.toolPages).setOnClickListener { strip.toggle() }

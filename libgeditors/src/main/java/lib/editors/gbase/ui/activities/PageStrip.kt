@@ -41,6 +41,9 @@ internal class PageStrip(
     private var renderJob: Job? = null
     private var current = -1
     private val thumbnailWidth = dp(120)
+
+    /** The strip's width beside the pages: a thumbnail with its frame and margins. */
+    val sideWidth: Int get() = thumbnailWidth + dp(6) + dp(8)
     private val thumbnails = LinearLayout(context).apply {
         orientation = if (vertical) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
         setPaddingRelative(dp(4), dp(4), dp(4), dp(4))

@@ -59,6 +59,9 @@ internal class SlidesUi(
 
     private val density = context.resources.displayMetrics.density
     private val thumbnailWidth = dp(if (vertical) 144 else 96)
+
+    /** The strip's width beside the slides: a thumbnail with its frame and margins. */
+    val sideWidth: Int get() = thumbnailWidth + dp(6) + dp(8)
     private var slides: List<SlideInfo> = emptyList()
     private var currentSlide = 0
     private val thumbnails = LinearLayout(context).apply {

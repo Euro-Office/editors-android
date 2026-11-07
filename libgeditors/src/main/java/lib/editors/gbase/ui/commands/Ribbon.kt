@@ -1,5 +1,6 @@
 package lib.editors.gbase.ui.commands
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconToggleButton
@@ -26,7 +28,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
@@ -42,7 +43,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import lib.editors.resources.R as Resources
@@ -65,32 +71,39 @@ fun Ribbon(
 ) {
     val ordered = tabs.ordered()
     val shown = ordered.keeping(shownId)
-    Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainer) {
+    // The band of the tabs is the top bar's; the commands are on a strip of their own
+    val strip = MaterialTheme.colorScheme.surfaceContainerHigh
+    Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface) {
         Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Row(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(start = 8.dp, top = 4.dp)) {
                     for (tab in ordered) {
                         val selected = tab.id == shown?.id
-                        Tab(
-                            selected = selected,
+                        // The shown tab is joined to its commands, as Office's (not when they are hidden)
+                        val lifted = selected && !collapsed
+                        Surface(
                             onClick = {
                                 onShowTab(tab.id)
                                 if (collapsed) onCollapse(false)
                             },
-                            text = {
-                                Text(
-                                    stringResource(tab.title),
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                    // What is selected stands out, as Office's contextual tabs
-                                    color = when {
-                                        tab.contextual -> MaterialTheme.colorScheme.tertiary
-                                        selected -> MaterialTheme.colorScheme.primary
-                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                    }
-                                )
-                            },
-                            modifier = Modifier.widthIn(min = 72.dp)
-                        )
+                            shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp),
+                            color = if (lifted) strip else Color.Transparent,
+                            modifier = Modifier.semantics { this.selected = selected; role = Role.Tab }
+                        ) {
+                            Text(
+                                stringResource(tab.title),
+                                Modifier.widthIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 10.dp),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                textAlign = TextAlign.Center,
+                                // What is selected stands out, as Office's contextual tabs
+                                color = when {
+                                    tab.contextual -> MaterialTheme.colorScheme.tertiary
+                                    selected -> MaterialTheme.colorScheme.primary
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
                     }
                 }
                 IconButton(onClick = { onCollapse(!collapsed) }) {
@@ -101,8 +114,7 @@ fun Ribbon(
                 }
             }
             if (!collapsed && shown != null) {
-                HorizontalDivider()
-                Surface(color = MaterialTheme.colorScheme.surface) {
+                Surface(color = strip, contentColor = MaterialTheme.colorScheme.onSurfaceVariant) {
                     // A tab's own scroll position
                     key(shown.id) {
                         Row(
@@ -112,7 +124,7 @@ fun Ribbon(
                             // Inserting: what each button inserts is said, as Office's Insert tab
                             val labeled = shown.id == "insert"
                             shown.groups.forEachIndexed { index, group ->
-                                if (index > 0) VerticalDivider(Modifier.fillMaxHeight().padding(vertical = 10.dp, horizontal = 6.dp))
+                                if (index > 0) VerticalDivider(Modifier.fillMaxHeight().padding(vertical = 12.dp, horizontal = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                                     for (command in group.commands) key(command) {
                                         // A choice's menu stays open while the editor's state comes
@@ -124,8 +136,8 @@ fun Ribbon(
                         }
                     }
                 }
-                HorizontalDivider()
             }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
 }
@@ -140,7 +152,7 @@ private fun RibbonCommand(command: Command, labeled: Boolean, onOpenPage: (Comma
             if (icon != null && !labeled) {
                 IconButton(onClick = command.run, enabled = enabled) { Icon(painterResource(icon), label) }
             } else {
-                TextButton(onClick = command.run, enabled = enabled) {
+                TextButton(onClick = command.run, enabled = enabled, shape = BUTTON_SHAPE, colors = neutralText()) {
                     if (icon != null) Icon(painterResource(icon), null, Modifier.size(20.dp))
                     Text(label, Modifier.padding(start = if (icon != null) 6.dp else 0.dp), maxLines = 1)
                 }
@@ -157,7 +169,10 @@ private fun RibbonCommand(command: Command, labeled: Boolean, onOpenPage: (Comma
             }
         }
         // A combo box: the value, opening where to choose another
-        is Command.Value -> ComboButton(command.value(), label, enabled, command.open)
+        // None ("—": text of several fonts, nothing selected): the box's name, as Office's
+        is Command.Value -> command.value().let { value ->
+            ComboButton(if (value == NONE) label else value, label, enabled, placeholder = value == NONE, onClick = command.open)
+        }
         is Command.Choice -> {
             var open by menuOpen
             val selected = command.selected()
@@ -177,7 +192,7 @@ private fun RibbonCommand(command: Command, labeled: Boolean, onOpenPage: (Comma
                 }
             }
         }
-        is Command.Page -> TextButton(onClick = { onOpenPage(command) }, enabled = enabled) {
+        is Command.Page -> TextButton(onClick = { onOpenPage(command) }, enabled = enabled, shape = BUTTON_SHAPE, colors = neutralText()) {
             command.icon?.let { Icon(painterResource(it), null, Modifier.size(20.dp)) }
             Text(label, Modifier.padding(start = if (command.icon != null) 6.dp else 0.dp), maxLines = 1)
             Icon(painterResource(Resources.drawable.ic_editor_drop_down), null, Modifier.size(20.dp))
@@ -199,7 +214,13 @@ private fun ToggleButton(toggle: Command.Toggle, enabled: Boolean) {
             checked = toggle.isOn(),
             onCheckedChange = { toggle.run() },
             enabled = enabled,
-            colors = IconButtonDefaults.filledIconToggleButtonColors(containerColor = Color.Transparent, disabledContainerColor = Color.Transparent)
+            // On: a quiet tone, as Office marks it
+            shape = BUTTON_SHAPE,
+            colors = IconButtonDefaults.filledIconToggleButtonColors(
+                containerColor = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                checkedContainerColor = MaterialTheme.colorScheme.secondaryContainer, checkedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                disabledContainerColor = Color.Transparent
+            )
         ) { Icon(painterResource(icon), stringResource(toggle.label)) }
     } else {
         FilterChip(selected = toggle.isOn(), onClick = toggle.run, enabled = enabled, label = { Text(stringResource(toggle.label), maxLines = 1) },
@@ -208,15 +229,27 @@ private fun ToggleButton(toggle: Command.Toggle, enabled: Boolean) {
 }
 
 @Composable
-private fun ComboButton(text: String, description: String, enabled: Boolean, onClick: () -> Unit) {
+private fun ComboButton(text: String, description: String, enabled: Boolean, placeholder: Boolean = false, onClick: () -> Unit) {
+    // A field, as Office's font box
     OutlinedButton(
-        onClick = onClick, enabled = enabled, shape = RoundedCornerShape(8.dp),
+        onClick = onClick, enabled = enabled, shape = RoundedCornerShape(6.dp),
+        colors = ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.onSurface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         contentPadding = PaddingValues(start = 12.dp, end = 4.dp),
         modifier = Modifier.height(36.dp).padding(horizontal = 2.dp)
     ) {
-        Text(text, Modifier.widthIn(max = 160.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
+        Text(
+            text, Modifier.widthIn(max = 160.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge,
+            color = if (placeholder) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified
+        )
         Icon(painterResource(Resources.drawable.ic_editor_drop_down), description, Modifier.size(20.dp))
     }
 }
 
+// Labels in the text's color, not the accent: the strip is calm, as Office's
+@Composable
+private fun neutralText() = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
+
+private val BUTTON_SHAPE = RoundedCornerShape(8.dp)
+private const val NONE = "—"
 private val STRIP_HEIGHT = 52.dp
