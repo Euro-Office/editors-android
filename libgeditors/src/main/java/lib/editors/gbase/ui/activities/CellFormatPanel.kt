@@ -186,6 +186,13 @@ internal class CellFormatPanel(
         colorRow(Resources.string.editors_format_color, none = null, { it.color }) { color -> edit { setTextColor(color) } }
     }
 
+    /** The fonts in a panel, the active cell's marked; then [onBack]. */
+    fun chooseFont(onBack: () -> Unit) = loadFonts { all, used ->
+        fonts = all
+        documentFonts = used
+        fontChooser.choose(all, used, format.fontName, onBack) { name -> edit { setFontName(name) } }
+    }
+
     // In the panel's place, then back to it
     private fun chooseFont() = fontChooser.choose(fonts, documentFonts, format.fontName, ::show) { name -> edit { setFontName(name) } }
 
@@ -197,7 +204,7 @@ internal class CellFormatPanel(
         updaters += { row.mark(current(it)) }
     }
 
-    private companion object {
+    internal companion object {
         val ALIGNMENTS = listOf(
             Triple(Alignment.LEFT, Resources.drawable.ic_editor_align_left, Resources.string.editors_align_left),
             Triple(Alignment.CENTER, Resources.drawable.ic_editor_align_center, Resources.string.editors_align_center),

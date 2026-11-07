@@ -1,6 +1,5 @@
 package lib.editors.gbase.ui.activities
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -18,6 +17,7 @@ import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.TextView
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -25,6 +25,7 @@ import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.SlideInfo
+import lib.editors.gbase.ui.commands.CommandGroup
 import lib.editors.resources.R as Resources
 
 /**
@@ -219,6 +220,19 @@ internal class SlidesUi(
     fun chooseTransition(onBack: (() -> Unit)? = null) {
         transitionPanel?.show(slides.getOrNull(currentSlide)?.transition, onBack)
     }
+
+    /** The current slide's transition as commands (for the command sheet's page); [loadTransition] first. */
+    fun transitionCommands(): List<CommandGroup> = transitionPanel?.commands().orEmpty()
+
+    fun loadTransition() {
+        transitionPanel?.load(slides.getOrNull(currentSlide)?.transition)
+    }
+
+    /** The current slide is hidden in the slideshow. */
+    val currentHidden: Boolean get() = slides.getOrNull(currentSlide)?.hidden == true
+
+    /** The current slide's speaker notes, in a dialog. */
+    fun editCurrentNotes() = editNotes(currentSlide)
 
     private fun editNotes(index: Int) {
         val input = EditText(context).apply {

@@ -100,6 +100,9 @@ import lib.editors.base.engine.TouchAction
 import lib.editors.base.engine.WRITABLE_FORMATS
 import lib.editors.gbase.R
 import lib.editors.gbase.ui.clipboard.EditorClipboard
+import lib.editors.gbase.ui.commands.Command
+import lib.editors.gbase.ui.commands.CommandGroup
+import lib.editors.gbase.ui.commands.CommandTab
 import lib.editors.gbase.ui.commands.PasswordField
 import lib.editors.gbase.ui.commands.showComposeDialog
 import lib.editors.gbase.ui.views.DocumentView
@@ -546,13 +549,15 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             val root = findViewById<ViewGroup>(R.id.editorRoot)
             root.addView(ui.bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
             documentUi = ui
-            if (!resources.getBoolean(R.bool.editor_side_panels)) setUpCommandSheet(ui)
+            if (!resources.getBoolean(R.bool.editor_side_panels)) setUpDocsCommandSheet(ui)
             // Reviewers' changes are always tracked
             if (editAccess() == EditorsContract.INTERNAL_EDIT_ACCESS_TRACKED_CHANGES) {
                 ui.trackChangesForced = true
                 edit { setTrackChanges(true) }
             }
         }
+        if (editorsType == EditorsType.PRESENTATION && !resources.getBoolean(R.bool.editor_side_panels)) setUpSlidesCommandSheet()
+        if (isSpreadsheet && !resources.getBoolean(R.bool.editor_side_panels)) setUpCellsCommandSheet()
         bindToolbar()
         if (commandSheet != null) showSheetTopBar()
         if (fillsForms()) {
@@ -1037,8 +1042,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         listOf(R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight).forEach { findViewById<View>(it).isEnabled = !drawingSelected }
         if (isPdfEditor && editing) {
             val textBox = state.pdf?.textBox == true
-            if (textBox != pdfTextBox) documentView.selectionActions = pdfSelectionActions(textBox)
+            val textBoxChanged = textBox != pdfTextBox
+            if (textBoxChanged) documentView.selectionActions = pdfSelectionActions(textBox)
             pdfTextBox = textBox
+            pdfSelection = state.selection.isNotEmpty()
+            // Its text's tab comes or goes
+            if (textBoxChanged) refreshCommandTabs(if (textBox) "home" else null)
             pdfDrawing = state.pdf?.drawing == true
             pdfPageEditable = state.pdf?.canEditPage == true
             updatePdfTools()
@@ -1062,7 +1071,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         commandState.canRedo = toolbar.canRedo
         updateSelection(if (drawingSelected && !inTable) selectionKey(state.drawings) else null, inTable)
         state.sheet?.let {
-            cellFormatPanel.update(it.cellFormat.copy(bold = toolbar.bold, italic = toolbar.italic, underline = toolbar.underline, alignment = toolbar.alignment), drawingSelected)
+            val cellFormat = it.cellFormat.copy(bold = toolbar.bold, italic = toolbar.italic, underline = toolbar.underline, alignment = toolbar.alignment)
+            cellFormatPanel.update(cellFormat, drawingSelected)
+            commandState.cellFormat = cellFormat
+            commandState.sheet = it
         }
         searchBar?.update(state.search)
         slidesUi?.update(state)
@@ -1593,28 +1605,120 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private val commandState = CommandState()
     private var commandSheet: CommandSheetHost? = null
-    private var docsCommands: DocsCommands? = null
+    private var editorCommands: EditorCommands? = null
 
-    private fun setUpCommandSheet(ui: DocumentUi) {
+    // The selected drawing anew from the engine: what was set in its tab shows
+    private fun reloadDrawing() {
+        loadedDrawings = null
+        updateSelection(selectedDrawings, commandState.inTable)
+    }
+
+    private fun setUpDocsCommandSheet(ui: DocumentUi) {
         // Page setup from the file menu: the Layout tab
         ui.openLayout = { showCommandSheet("layout") }
-        docsCommands = DocsCommands(
-            this, commandState, { command -> edit(command = command) }, panels, formatPanel, colorPicker,
+        lateinit var commands: DocsCommands
+        commands = DocsCommands(
+            this, commandState, { command -> edit(command = command) }, panels, formatPanel, colorPicker, DocsCommands.Features.DOCS,
             DocsCommands.Hooks(
                 chooseList = ::chooseListPreset,
                 chooseStyle = ::chooseParagraphStyle,
                 chooseTableStyle = ::chooseTableStyle,
-                insertActions = { drawingUi.insertActions() + ui.insertActions() },
-                layoutCommands = ui::pageSetupCommands,
-                reviewActions = { reviewActions(ui) },
-                viewActions = { viewActions(ui) },
-                reloadDrawing = {
-                    loadedDrawings = null
-                    updateSelection(selectedDrawings, commandState.inTable)
+                tabs = {
+                    listOf(
+                        CommandTab("insert", Resources.string.editors_insert, commands.groups(drawingUi.insertActions() + ui.insertActions())),
+                        CommandTab("layout", Resources.string.editors_tab_layout, ui.pageSetupCommands()),
+                        CommandTab("review", Resources.string.editors_tab_review, commands.groups(reviewActions(ui))),
+                        CommandTab("view", Resources.string.editors_tab_view, commands.groups(viewActions(ui)))
+                    )
                 },
+                reloadDrawing = ::reloadDrawing,
                 drawingCommands = shapePanel::commands
             )
         )
+        installCommandSheet(commands)
+    }
+
+    // Presentations: Home with new slides and their layout, Insert, Design (layout, design,
+    // transition, background, size), Slideshow (presenting, notes, hiding) and Review
+    private fun setUpSlidesCommandSheet() {
+        lateinit var commands: DocsCommands
+        val back = { panels.dismiss() }
+        val newSlide = { Command.Page(Resources.string.editors_slides_new, Resources.drawable.ic_editor_slide_add) { slidesUi?.chooseLayout(forNewSlide = true, onBack = back) } }
+        val layout = { Command.Page(Resources.string.editors_slides_layout, null) { slidesUi?.chooseLayout(forNewSlide = false, onBack = back) } }
+        commands = DocsCommands(
+            this, commandState, { command -> edit(command = command) }, panels, formatPanel, colorPicker, DocsCommands.Features.SLIDES,
+            DocsCommands.Hooks(
+                chooseList = ::chooseListPreset,
+                chooseStyle = { _, _ -> },
+                chooseTableStyle = ::chooseTableStyle,
+                homeFirst = { listOf(newSlide(), layout()) },
+                tabs = {
+                    listOf(
+                        CommandTab("insert", Resources.string.editors_insert, listOf(CommandGroup(listOf(newSlide()))) + commands.groups(drawingUi.insertActions())),
+                        CommandTab("design", Resources.string.editors_slide_design, listOf(
+                            CommandGroup(listOf(
+                                layout(),
+                                Command.Page(Resources.string.editors_slide_design, null) { chooseDesign(back) },
+                                Command.Page(Resources.string.editors_slides_transition, null, commands = { slidesUi?.transitionCommands().orEmpty() }, open = { slidesUi?.loadTransition() })
+                            )),
+                            CommandGroup(listOf(
+                                Command.Page(Resources.string.editors_slide_background, Resources.drawable.ic_editor_shading,
+                                    commands = { fillPanel.commands(back) }, open = { fillPanel.load(FillTarget.SLIDE) })
+                            ) + pageSettingsUi.slideCommands(back))
+                        )),
+                        CommandTab("slideshow", Resources.string.editors_slides_slideshow, listOf(
+                            CommandGroup(listOf(
+                                Command.Action(Resources.string.editors_slides_slideshow, Resources.drawable.ic_editor_slideshow) { slidesUi?.startSlideshow() },
+                                Command.Action(Resources.string.editors_slides_notes, null) { slidesUi?.editCurrentNotes() },
+                                Command.Toggle(Resources.string.editors_slides_hide, null, { slidesUi?.currentHidden == true }) {
+                                    val hidden = slidesUi?.currentHidden == true
+                                    edit { hideSlide(!hidden) }
+                                }
+                            )),
+                            CommandGroup(listOf(
+                                Command.Action(Resources.string.editors_slides_duplicate, null) { edit { duplicateSlide() } },
+                                Command.Action(Resources.string.editors_slides_delete, null) { edit { deleteSlide() } }
+                            ))
+                        )),
+                        CommandTab("review", Resources.string.editors_tab_review, commands.groups(reviewActions(null)))
+                    )
+                },
+                reloadDrawing = ::reloadDrawing,
+                drawingCommands = shapePanel::commands
+            )
+        )
+        installCommandSheet(commands)
+    }
+
+    // Spreadsheets: Home with the cells' format, rows and columns, Insert, Layout (the pages),
+    // Review and View (finding, freezing panes)
+    private fun setUpCellsCommandSheet() {
+        lateinit var commands: CellsCommands
+        commands = CellsCommands(
+            this, commandState, { command -> edit(command = command) }, panels, cellFormatPanel, colorPicker,
+            CellsCommands.Hooks(
+                chooseStyle = ::chooseCellStyle,
+                tabs = {
+                    listOf(
+                        CommandTab("insert", Resources.string.editors_insert, commands.groups(drawingUi.insertActions())),
+                        CommandTab("layout", Resources.string.editors_tab_layout, pageSettingsUi.sheetCommands(commands.back)),
+                        CommandTab("review", Resources.string.editors_tab_review, commands.groups(reviewActions(null))),
+                        CommandTab("view", Resources.string.editors_tab_view, listOf(CommandGroup(
+                            listOfNotNull(searchBar?.let { bar -> MenuAction(Resources.string.editors_search, Resources.drawable.ic_editor_search) { bar.show() } })
+                                .map { it.toCommand(this, panels) } + commands.freezeCommands()
+                        )))
+                    )
+                },
+                reloadDrawing = ::reloadDrawing,
+                drawingCommands = shapePanel::commands
+            )
+        )
+        installCommandSheet(commands)
+    }
+
+    // The sheet in the bottom toolbar's place, the bar floating over the document, the panels in it
+    private fun installCommandSheet(commands: EditorCommands) {
+        editorCommands = commands
         val sheet = CommandSheetHost(
             this, { commandState.canUndo }, { commandState.canRedo }, { edit { undo() } }, { edit { redo() } }, dismissPanel = panels::dismiss
         )
@@ -1622,9 +1726,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         root.addView(sheet.view, root.indexOfChild(findViewById(R.id.editorToolbar)) + 1)
         // The bottom toolbar's place: the bar floats over the document (above the keyboard)
         findViewById<View>(R.id.editorToolbar).isVisible = false
-        sheet.barCommands = docsCommands?.barCommands(::showCommandSheet).orEmpty()
+        sheet.barCommands = commands.barCommands(::showCommandSheet)
         sheet.onMore = { showCommandSheet("home") }
-        (documentView.parent as FrameLayout).addView(
+        val document = if (isSpreadsheet) findViewById<View>(R.id.sheetView) else documentView
+        (document.parent as FrameLayout).addView(
             sheet.barView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
         )
         panels.pages = sheet
@@ -1678,25 +1783,31 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun refreshCommandTabs(show: String?) {
         val sheet = commandSheet?.takeIf { it.isOpen } ?: return
-        docsCommands?.let { sheet.tabs = it.tabs() }
+        editorCommands?.let { sheet.tabs = it.tabs() }
         if (show != null) sheet.showTab(show)
     }
 
     // The tabs anew (what they offer depends on the view, the document), at [tab] if given
     private fun showCommandSheet(tab: String? = null) {
         val sheet = commandSheet ?: return
-        docsCommands?.let { sheet.tabs = it.tabs() }
+        editorCommands?.let { sheet.tabs = it.tabs() }
         sheet.show(tab)
     }
 
-    private fun reviewActions(ui: DocumentUi): List<MenuAction> = buildList {
+    // Text documents' with their [ui]: word count, tracking changes; presentations' without
+    private fun reviewActions(ui: DocumentUi?): List<MenuAction> = buildList {
         commentsUi?.let { comments -> add(MenuAction(Resources.string.editors_comments, Resources.drawable.ic_editor_comment) { comments.show() }) }
-        add(MenuAction(Resources.string.editors_spell_check, Resources.drawable.ic_editor_spellcheck, isChecked = { spellCheckOn }) {
-            setSpellCheck(!spellCheckOn)
-        })
-        add(MenuAction(Resources.string.editors_document_language, Resources.drawable.ic_editor_language) { chooseDocumentLanguage() })
-        add(ui.statisticsAction())
-        addAll(ui.reviewActions())
+        // Spreadsheets aren't spell checked
+        if (!isSpreadsheet) {
+            add(MenuAction(Resources.string.editors_spell_check, Resources.drawable.ic_editor_spellcheck, isChecked = { spellCheckOn }) {
+                setSpellCheck(!spellCheckOn)
+            })
+            add(MenuAction(Resources.string.editors_document_language, Resources.drawable.ic_editor_language) { chooseDocumentLanguage() })
+        }
+        if (ui != null) {
+            add(ui.statisticsAction())
+            addAll(ui.reviewActions())
+        }
     }
 
     private fun viewActions(ui: DocumentUi): List<MenuAction> = buildList {
@@ -1714,6 +1825,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // (comments), signatures and others' annotations, saved into the PDF
 
     private var penOn = false
+    // The pen drawing (PENS' color), while one is
+    private var penColor: String? = null
+    // Text of the page is selected: it can be marked up
+    private var pdfSelection = false
     // A text box or its text is selected (PdfState.textBox)
     private var pdfTextBox = false
     // The text of the page shown can be made editable (PdfState.canEditPage)
@@ -1767,7 +1882,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolPen).isVisible = true
         findViewById<View>(R.id.toolPen).setOnClickListener { showPenMenu(it) }
         findViewById<View>(R.id.toolSign).isVisible = true
-        findViewById<View>(R.id.toolSign).setOnClickListener { SignaturePad(this) { picture, aspect -> placeSignature(picture, aspect) }.show() }
+        findViewById<View>(R.id.toolSign).setOnClickListener { showSignaturePad() }
         findViewById<View>(R.id.toolTextBox).isVisible = true
         findViewById<View>(R.id.toolTextBox).setOnClickListener { addTextBox() }
         findViewById<View>(R.id.toolEditText).setOnClickListener { editPageText() }
@@ -1779,16 +1894,97 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         documentView.drawingActions = listOf(getString(Resources.string.editors_format) to { showFormat() })
         topBar.undo.onClick = { edit { undo() } }
         topBar.redo.onClick = { edit { redo() } }
+        if (!resources.getBoolean(R.bool.editor_side_panels)) {
+            setUpPdfCommandSheet()
+            showSheetTopBar()
+        }
     }
+
+    // PDFs: Insert (text boxes, signatures, the page's text made editable), Draw (pens), Review
+    // (marking selected text up, comments) and View; Home for a text box's text, the tab of
+    // selected pictures and shapes
+    private fun setUpPdfCommandSheet() {
+        lateinit var docs: DocsCommands
+        val forSelection = { pdfSelection && !pdfTextBox }
+        fun markup(label: Int, kind: PdfMarkupKind, color: String) = Command.Action(label, null, forSelection) { edit { markup(kind, color) } }
+        docs = DocsCommands(
+            this, commandState, { command -> edit(command = command) }, panels, formatPanel, colorPicker, DocsCommands.Features.SLIDES,
+            DocsCommands.Hooks(
+                chooseList = ::chooseListPreset,
+                chooseStyle = { _, _ -> },
+                chooseTableStyle = ::chooseTableStyle,
+                showHome = { pdfTextBox },
+                tabs = {
+                    listOf(
+                        CommandTab("insert", Resources.string.editors_insert, listOf(CommandGroup(listOf(
+                            Command.Action(Resources.string.editors_text_box, Resources.drawable.ic_editor_text_box) { addTextBox() },
+                            Command.Action(Resources.string.editors_sign, Resources.drawable.ic_editor_sign) { showSignaturePad() },
+                            Command.Action(Resources.string.editors_pdf_edit_text, Resources.drawable.ic_editor_edit_text, { pdfPageEditable }) { editPageText() }
+                        )))),
+                        CommandTab("draw", Resources.string.editors_pdf_pen, listOf(
+                            CommandGroup(PENS.map { (label, color, width) ->
+                                Command.Toggle(label, null, { penOn && penColor == color }) { setPen(if (penColor == color && penOn) null else color, width) }
+                            }),
+                            CommandGroup(listOf(Command.Action(Resources.string.editors_pdf_pen_stop, null, { penOn }) { setPen(null, 0.0) }))
+                        )),
+                        CommandTab("review", Resources.string.editors_tab_review, listOfNotNull(
+                            CommandGroup(listOf(
+                                markup(Resources.string.editors_pdf_highlight, PdfMarkupKind.HIGHLIGHT, HIGHLIGHT_COLOR),
+                                markup(Resources.string.editors_pdf_underline, PdfMarkupKind.UNDERLINE, UNDERLINE_COLOR),
+                                markup(Resources.string.editors_pdf_strikeout, PdfMarkupKind.STRIKEOUT, STRIKEOUT_COLOR)
+                            )),
+                            commentsUi?.let { comments ->
+                                CommandGroup(listOfNotNull(
+                                    commentAction()?.let { (_, add) -> Command.Action(Resources.string.editors_comment, Resources.drawable.ic_editor_comment, forSelection) { add() } },
+                                    Command.Action(Resources.string.editors_comments, null) { comments.show() }
+                                ))
+                            }
+                        )),
+                        CommandTab("view", Resources.string.editors_tab_view, docs.groups(listOfNotNull(
+                            searchBar?.let { bar -> MenuAction(Resources.string.editors_search, Resources.drawable.ic_editor_search) { bar.show() } }
+                        )))
+                    )
+                },
+                reloadDrawing = ::reloadDrawing,
+                drawingCommands = shapePanel::commands
+            )
+        )
+        installCommandSheet(object : EditorCommands {
+            override fun tabs() = docs.tabs()
+
+            // Drawing, marking up, inserting; a text box's text
+            override fun barCommands(openSheet: (tab: String) -> Unit): List<Command> = listOf(
+                Command.Toggle(Resources.string.editors_pdf_pen, Resources.drawable.ic_editor_pen, { penOn }) {
+                    if (penOn) setPen(null, 0.0) else openSheet("draw")
+                },
+                Command.Action(Resources.string.editors_pdf_highlight, Resources.drawable.ic_editor_highlight, forSelection) {
+                    edit { markup(PdfMarkupKind.HIGHLIGHT, HIGHLIGHT_COLOR) }
+                },
+                Command.Action(Resources.string.editors_text_box, Resources.drawable.ic_editor_text_box) { addTextBox() },
+                Command.Action(Resources.string.editors_sign, Resources.drawable.ic_editor_sign) { showSignaturePad() },
+                Command.Toggle(Resources.string.editors_bold, Resources.drawable.ic_editor_bold, { commandState.format.bold }, { pdfTextBox }) {
+                    edit { setBold(!commandState.format.bold) }
+                },
+                Command.Toggle(Resources.string.editors_italic, Resources.drawable.ic_editor_italic, { commandState.format.italic }, { pdfTextBox }) {
+                    edit { setItalic(!commandState.format.italic) }
+                },
+                Command.Toggle(Resources.string.editors_underline, Resources.drawable.ic_editor_underline, { commandState.format.underline }, { pdfTextBox }) {
+                    edit { setUnderline(!commandState.format.underline) }
+                }
+            )
+        })
+    }
+
+    private fun showSignaturePad() = SignaturePad(this) { picture, aspect -> placeSignature(picture, aspect) }.show()
 
     // Selected text of the page is marked up; in text boxes it is formatted
     private fun pdfSelectionActions(textBox: Boolean): List<Pair<String, () -> Unit>> = if (textBox) listOf(
         getString(Resources.string.editors_pdf_underline) to { edit { setUnderline(true) } },
         getString(Resources.string.editors_pdf_strikeout) to { edit { setStrikeout(true) } }
     ) else listOfNotNull(
-        getString(Resources.string.editors_pdf_highlight) to { edit { markup(PdfMarkupKind.HIGHLIGHT, "FFEB3B") } },
-        getString(Resources.string.editors_pdf_underline) to { edit { markup(PdfMarkupKind.UNDERLINE, "3366D9") } },
-        getString(Resources.string.editors_pdf_strikeout) to { edit { markup(PdfMarkupKind.STRIKEOUT, "D92626") } },
+        getString(Resources.string.editors_pdf_highlight) to { edit { markup(PdfMarkupKind.HIGHLIGHT, HIGHLIGHT_COLOR) } },
+        getString(Resources.string.editors_pdf_underline) to { edit { markup(PdfMarkupKind.UNDERLINE, UNDERLINE_COLOR) } },
+        getString(Resources.string.editors_pdf_strikeout) to { edit { markup(PdfMarkupKind.STRIKEOUT, STRIKEOUT_COLOR) } },
         commentAction()
     )
 
@@ -1826,13 +2022,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     // Freehand drawing: pens of a few colors and a marker; one finger draws, two scroll
     private fun showPenMenu(anchor: View) {
-        val pens = listOf(
-            Triple(Resources.string.editors_color_black, "000000", 0.7),
-            Triple(Resources.string.editors_color_red, "E53935", 0.7),
-            Triple(Resources.string.editors_color_blue, "1E63D6", 0.7),
-            Triple(Resources.string.editors_color_green, "2E9E44", 0.7),
-            Triple(Resources.string.editors_pdf_marker, "FFEB3B", 4.0)
-        )
+        val pens = PENS
         val menu = PopupMenu(this, anchor)
         pens.forEachIndexed { index, pen -> menu.menu.add(0, index, index, pen.first) }
         if (penOn) menu.menu.add(0, pens.size, pens.size, Resources.string.editors_pdf_pen_stop)
@@ -1846,6 +2036,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun setPen(color: String?, widthMm: Double) {
         penOn = color != null
+        penColor = color
+        commandSheet?.stateChanged()
         documentView.penMode = penOn
         findViewById<View>(R.id.toolPen).isSelected = penOn
         if (color != null) {
@@ -2302,10 +2494,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     if (editing && !isPdfEditor) {
                         when (editorsType) {
                             EditorsType.PRESENTATION -> add(MenuAction(Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) {
-                                pageSettingsUi.showSlides()
+                                if (commandSheet != null) showCommandSheet("design") else pageSettingsUi.showSlides()
                             })
                             EditorsType.CELLS -> add(MenuAction(Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) {
-                                pageSettingsUi.showSheet()
+                                if (commandSheet != null) showCommandSheet("layout") else pageSettingsUi.showSheet()
                             })
                             else -> Unit
                         }
@@ -2452,6 +2644,18 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         const val EXTRA_REOPEN_SAVED = "lib.editors.gbase.REOPEN_SAVED"
         const val EXTRA_REOPEN_COPIES = "lib.editors.gbase.REOPEN_COPIES"
         const val EXTRA_REOPEN_EDITING = "lib.editors.gbase.REOPEN_EDITING"
+        // Freehand drawing: pens of a few colors and a marker (their width in mm)
+        private val PENS = listOf(
+            Triple(Resources.string.editors_color_black, "000000", 0.7),
+            Triple(Resources.string.editors_color_red, "E53935", 0.7),
+            Triple(Resources.string.editors_color_blue, "1E63D6", 0.7),
+            Triple(Resources.string.editors_color_green, "2E9E44", 0.7),
+            Triple(Resources.string.editors_pdf_marker, "FFEB3B", 4.0)
+        )
+        // Marking up the page's text
+        private const val HIGHLIGHT_COLOR = "FFEB3B"
+        private const val UNDERLINE_COLOR = "3366D9"
+        private const val STRIKEOUT_COLOR = "D92626"
         private val TEXT_TOOLS = listOf(R.id.toolBold, R.id.toolItalic, R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight)
         // Toolbar buttons also when viewing
         private val FILLING_HIDDEN_TOOLS = listOf(

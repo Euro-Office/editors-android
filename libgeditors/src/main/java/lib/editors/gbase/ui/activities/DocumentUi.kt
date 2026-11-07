@@ -32,6 +32,7 @@ import lib.editors.base.engine.PageSetup
 import lib.editors.gbase.R
 import lib.editors.gbase.ui.commands.Command
 import lib.editors.gbase.ui.commands.CommandGroup
+import lib.editors.gbase.ui.commands.CommandPanel
 import lib.editors.gbase.ui.commands.composePanel
 import lib.editors.gbase.ui.views.DocumentView
 import java.text.DateFormat
@@ -164,7 +165,7 @@ internal class DocumentUi(
     private var pageSetup by mutableStateOf<PageSetup?>(null)
 
     /** Orientation, size, margins and columns as commands, for the Layout tab: each applied as it is chosen. */
-    fun pageSetupCommands(): List<CommandGroup> {
+    fun pageSetupCommands(back: () -> Unit = { panels.dismiss() }): List<CommandGroup> {
         if (mobileView) return emptyList()
         read({ pageSetup() }) { pageSetup = it }
         fun change(command: EditorDocument.() -> EditorState) {
@@ -193,7 +194,7 @@ internal class DocumentUi(
                 }) { index -> change { setPageSetup(columns = COLUMNS[index].first) } }
             )),
             CommandGroup(listOf(
-                Command.Page(Resources.string.editors_color_scheme, null) { pageSettings.chooseColorScheme { panels.dismiss() } }
+                Command.Page(Resources.string.editors_color_scheme, null) { pageSettings.chooseColorScheme(back) }
             ))
         )
     }
@@ -232,60 +233,10 @@ internal class DocumentUi(
     // ---------------------------------------------------------------------------------
     // Dialogs
 
-    private fun showPageSetup() = read({ pageSetup() }) { PageSetupPanel(it).show() }
-
-    /** Orientation, size, margins and columns, each applied as it is chosen (as the format panel's). */
-    private inner class PageSetupPanel(private var setup: PageSetup) : PanelBuilder<PageSetup>(context) {
-
-        fun show() {
-            val content = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
-                caption(Resources.string.editors_doc_orientation)
-                scrollRow {
-                    choice(context.getString(Resources.string.editors_doc_portrait), { !it.landscape }, Resources.drawable.ic_editor_page_portrait) {
-                        change { setPageSetup(landscape = false) }
-                    }
-                    choice(context.getString(Resources.string.editors_doc_landscape), { it.landscape }, Resources.drawable.ic_editor_page_landscape) {
-                        change { setPageSetup(landscape = true) }
-                    }
-                }
-                caption(Resources.string.editors_doc_size)
-                scrollRow {
-                    for ((name, width, height) in PageSettingsUi.PAPER_SIZES) {
-                        choice(name, { abs(minOf(it.width, it.height) - width) < 1 && abs(maxOf(it.width, it.height) - height) < 1 }) {
-                            change { setPageSetup(width = width, height = height) }
-                        }
-                    }
-                }
-                caption(Resources.string.editors_doc_margins)
-                scrollRow {
-                    for ((name, margin) in MARGINS) {
-                        choice(context.getString(name), { abs(it.left - margin) < 0.5 && abs(it.top - margin) < 0.5 }) {
-                            change { setPageSetup(margins = doubleArrayOf(margin, margin, margin, margin)) }
-                        }
-                    }
-                }
-                caption(Resources.string.editors_doc_columns)
-                scrollRow {
-                    for ((count, icon) in COLUMNS) {
-                        choice(count.toString(), { it.columns == count }, icon) { change { setPageSetup(columns = count) } }
-                    }
-                }
-                action(Resources.string.editors_color_scheme) { pageSettings.chooseColorScheme { showPageSetup() } }
-            }
-            panels.show(context.getString(Resources.string.editors_doc_page_setup), content) {}
-            updaters.forEach { it(setup) }
-        }
-
-        // Applies a change, then marks what the page has now
-        private fun change(command: EditorDocument.() -> EditorState) {
-            edit(command)
-            read({ pageSetup() }) { changed ->
-                setup = changed
-                updaters.forEach { it(changed) }
-            }
-        }
+    // In a panel, where there is no Layout tab (its color schemes come back to it)
+    private fun showPageSetup() {
+        val content = composePanel(context) { CommandPanel { pageSetupCommands { showPageSetup() } } }
+        panels.show(context.getString(Resources.string.editors_doc_page_setup), content) {}
     }
 
     fun showNavigation() = read({ outline() }) { items ->

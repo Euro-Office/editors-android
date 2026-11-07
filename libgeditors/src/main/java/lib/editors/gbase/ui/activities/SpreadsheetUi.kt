@@ -448,7 +448,7 @@ internal class SpreadsheetUi(
 
     private fun toast(text: String) = Toast.makeText(activity, text, Toast.LENGTH_SHORT).show()
 
-    private companion object {
+    internal companion object {
         // Asc.c_oAscInsertOptions / c_oAscDeleteOptions
         const val INSERT_COLUMNS = 3
         const val INSERT_ROWS = 4

@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import lib.editors.base.engine.CellFormat
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.ListKind
+import lib.editors.base.engine.SheetState
 import lib.editors.base.engine.TextFormat
 import lib.editors.gbase.ui.commands.Command
 import lib.editors.gbase.ui.commands.CommandGroup
@@ -24,11 +26,24 @@ internal class CommandState {
     /** The selected drawings (a chart, a shape, a picture), loaded after they were selected; none: no tab of theirs. */
     var drawing by mutableStateOf<ShapePanel.Selected?>(null)
     var inTable by mutableStateOf(false)
+    /** Spreadsheets: the active cell's format. */
+    var cellFormat by mutableStateOf(CellFormat())
+    /** Spreadsheets: the active sheet (its active cell, frozen panes). */
+    var sheet by mutableStateOf<SheetState?>(null)
+}
+
+/** An editor's commands for the command sheet: its tabs, and the floating bar's while it is closed. */
+internal interface EditorCommands {
+    fun tabs(): List<CommandTab>
+
+    /** [openSheet] opens the sheet at a tab (by its id). */
+    fun barCommands(openSheet: (tab: String) -> Unit): List<Command>
 }
 
 /**
- * The commands of text documents, as Office arranges them: Home (the text, its paragraphs and
- * style), Insert, Layout, Review and View. Pages open where the existing panels are.
+ * The commands of text documents and presentations, as Office arranges them: Home (the text, its
+ * paragraphs and style), then the editor's own tabs (Insert, Layout or Design, Review, View),
+ * and the tabs of what is selected (a drawing, a table). Pages open where the panels are.
  */
 internal class DocsCommands(
     private val context: Context,
@@ -37,19 +52,29 @@ internal class DocsCommands(
     private val panels: PanelHost,
     private val formatPanel: FormatPanel,
     private val colorPicker: ColorPicker,
+    private val features: Features,
     private val hooks: Hooks
-) {
+) : EditorCommands {
+
+    /** What the editor's text has beyond what all have: text documents' paragraph styles, shading, numbering and options. */
+    class Features(val styles: Boolean, val shading: Boolean, val numbering: Boolean, val advanced: Boolean) {
+        companion object {
+            val DOCS = Features(styles = true, shading = true, numbering = true, advanced = true)
+            val SLIDES = Features(styles = false, shading = false, numbering = false, advanced = false)
+        }
+    }
 
     /** The editor's other parts, opened from the commands. */
     class Hooks(
         val chooseList: (kind: ListKind, onBack: () -> Unit) -> Unit,
         val chooseStyle: (current: String, onBack: () -> Unit) -> Unit,
         val chooseTableStyle: (onBack: () -> Unit) -> Unit,
-        val insertActions: () -> List<MenuAction>,
-        /** The Layout tab's commands: the page's setup. */
-        val layoutCommands: () -> List<CommandGroup>,
-        val reviewActions: () -> List<MenuAction>,
-        val viewActions: () -> List<MenuAction>,
+        /** Home's first commands (presentations: a new slide, its layout). */
+        val homeFirst: () -> List<Command> = { emptyList() },
+        /** The editor's tabs after Home. */
+        val tabs: () -> List<CommandTab>,
+        /** Home is there (PDFs: while a text box is selected). */
+        val showHome: () -> Boolean = { true },
         /** The selected drawing from the engine anew: what was set in its tab shows. */
         val reloadDrawing: () -> Unit,
         /** The selected drawings' commands (see [ShapePanel.commands]). */
@@ -77,20 +102,17 @@ internal class DocsCommands(
     private val format get() = state.format
     private val forText: () -> Boolean = { !state.drawingSelected }
 
-    fun tabs(): List<CommandTab> = listOfNotNull(
+    override fun tabs(): List<CommandTab> = (listOfNotNull(
         // What is selected first, as its own tab (Office's contextual tabs)
         state.drawing?.let { drawing ->
             CommandTab(DRAWING_TAB, drawing.title, hooks.drawingCommands({ state.drawing }, changeDrawing, toDrawing), contextual = true)
         },
         if (state.inTable) CommandTab(TABLE_TAB, Resources.string.editors_doc_table_menu, table(), contextual = true) else null,
-        CommandTab("home", Resources.string.editors_tab_home, home()),
-        CommandTab("insert", Resources.string.editors_insert, groups(hooks.insertActions())),
-        CommandTab("layout", Resources.string.editors_tab_layout, hooks.layoutCommands()),
-        CommandTab("review", Resources.string.editors_tab_review, groups(hooks.reviewActions())),
-        CommandTab("view", Resources.string.editors_tab_view, groups(hooks.viewActions()))
-    ).filter { it.groups.isNotEmpty() || it.content != null }
+        if (hooks.showHome()) CommandTab("home", Resources.string.editors_tab_home, home()) else null
+    ) + hooks.tabs()).filter { it.groups.isNotEmpty() || it.content != null }
 
-    private fun home() = listOf(
+    private fun home() = listOfNotNull(
+        hooks.homeFirst().takeIf { it.isNotEmpty() }?.let { CommandGroup(it) },
         CommandGroup(listOf(
             fontCommand(),
             Command.Value(Resources.string.editors_format_size, value = { size(format.fontSize) }) { chooseSize() },
@@ -106,7 +128,7 @@ internal class DocsCommands(
             alignmentCommand(),
             Command.Page(Resources.string.editors_format_paragraph, null, isEnabled = forText, commands = ::paragraphPage)
         )),
-        CommandGroup(listOf(styleCommand()))
+        if (features.styles) CommandGroup(listOf(styleCommand())) else null
     )
 
     // "More formatting": all of the text's own settings, as Office's "Font formatting" page
@@ -141,22 +163,24 @@ internal class DocsCommands(
     // and the advanced settings (what keeps it together)
     private fun paragraphPage(): List<CommandGroup> = listOf(
         CommandGroup(listOfNotNull(
-            styleCommand(),
+            if (features.styles) styleCommand() else null,
             *listCommands(),
             // In a numbered list
-            if (format.list == 1) Command.Action(Resources.string.editors_list_restart, null, forText) { edit { restartNumbering() } } else null,
-            if (format.list == 1) Command.Action(Resources.string.editors_list_continue, null, forText) { edit { continueNumbering() } } else null
+            if (features.numbering && format.list == 1) Command.Action(Resources.string.editors_list_restart, null, forText) { edit { restartNumbering() } } else null,
+            if (features.numbering && format.list == 1) Command.Action(Resources.string.editors_list_continue, null, forText) { edit { continueNumbering() } } else null
         )),
-        CommandGroup(listOf(
+        CommandGroup(listOfNotNull(
             alignmentCommand(),
             indentCommand(),
             Command.Segments(Resources.string.editors_format_direction, listOf(
                 Command.Toggle(Resources.string.editors_format_ltr, Resources.drawable.ic_editor_text_ltr, { !format.rtl }) { edit { setRtl(false) } },
                 Command.Toggle(Resources.string.editors_format_rtl, Resources.drawable.ic_editor_text_rtl, { format.rtl }) { edit { setRtl(true) } }
             ), isEnabled = forText),
-            Command.Split(Resources.string.editors_format_paragraph_background, Resources.drawable.ic_editor_shading,
-                { format.shading.takeIf { it.isNotEmpty() }?.let { "#$it" } }, isEnabled = forText,
-                apply = ::chooseShading, more = ::chooseShading)
+            if (features.shading) {
+                Command.Split(Resources.string.editors_format_paragraph_background, Resources.drawable.ic_editor_shading,
+                    { format.shading.takeIf { it.isNotEmpty() }?.let { "#$it" } }, isEnabled = forText,
+                    apply = ::chooseShading, more = ::chooseShading)
+            } else null
         )),
         CommandGroup(listOf(
             Command.Segments(Resources.string.editors_format_line_spacing, listOf(
@@ -176,15 +200,15 @@ internal class DocsCommands(
             Command.Stepper(Resources.string.editors_format_space_after, null, { formatPanel.pointsText(format.spacingAfter) }, forText,
                 down = { formatPanel.stepSpacing(before = false, up = false) }, up = { formatPanel.stepSpacing(before = false, up = true) })
         )),
-        CommandGroup(listOf<Command>(
+        if (features.advanced) CommandGroup(listOf<Command>(
             Command.Stepper(Resources.string.editors_format_first_line, null, { formatPanel.centimeters(format.firstLine) }, forText,
                 down = { formatPanel.stepFirstLine(up = false) }, up = { formatPanel.stepFirstLine(up = true) })
         ) + FormatPanel.PARAGRAPH_OPTIONS.map { (option, label) ->
             Command.Toggle(label, null, { option in format.paragraphOptions }, forText) {
                 edit { setParagraphOption(option, option !in format.paragraphOptions) }
             }
-        })
-    )
+        }) else null
+    ).filterNotNull()
 
     // The commands Home and the pages share
 
@@ -261,7 +285,7 @@ internal class DocsCommands(
      * The bar's commands while the sheet is closed: inserting ([openSheet] at Insert), the text's
      * format, its color (chosen in the sheet) and lists.
      */
-    fun barCommands(openSheet: (tab: String) -> Unit): List<Command> = listOf(
+    override fun barCommands(openSheet: (tab: String) -> Unit): List<Command> = listOf(
         Command.Action(Resources.string.editors_insert, Resources.drawable.ic_editor_insert) { openSheet("insert") },
         Command.Toggle(Resources.string.editors_bold, Resources.drawable.ic_editor_bold, { format.bold }) { edit { setBold(!format.bold) } },
         Command.Toggle(Resources.string.editors_italic, Resources.drawable.ic_editor_italic, { format.italic }) { edit { setItalic(!format.italic) } },
@@ -281,9 +305,12 @@ internal class DocsCommands(
         }
     )
 
-    // Each action a group of its own when it opens choices, the others together, in their order
-    private fun groups(actions: List<MenuAction>): List<CommandGroup> = actions.map { it.toCommand(context, panels) }
+    /** [actions] as one group of commands (none without them), for a tab. */
+    fun groups(actions: List<MenuAction>): List<CommandGroup> = actions.map { it.toCommand(context, panels) }
         .takeIf { it.isNotEmpty() }?.let { listOf(CommandGroup(it)) } ?: emptyList()
+
+    /** Back from a page opened from a command: to the commands. */
+    val back: () -> Unit get() = toCommands
 
     private fun chooseShading() = colorPicker.choose(
         context.getString(Resources.string.editors_format_paragraph_background), format.shading, Resources.string.editors_color_none, toCommands
@@ -300,13 +327,15 @@ internal class DocsCommands(
         }
     }
 
-    private fun size(points: Double) = if (points <= 0) "—" else if (points % 1.0 == 0.0) points.toInt().toString() else points.toString()
-
     companion object {
         const val DRAWING_TAB = "drawing"
         const val TABLE_TAB = "table"
         private const val HIGHLIGHT = "FFFF00"
-        // Word's sizes
-        private val SIZES = listOf(8.0, 9.0, 10.0, 11.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 36.0, 48.0, 72.0)
+
+        /** A font size in points as shown ("—": text of several sizes). */
+        fun size(points: Double) = if (points <= 0) "—" else if (points % 1.0 == 0.0) points.toInt().toString() else points.toString()
+
+        /** Word's font sizes. */
+        val SIZES = listOf(8.0, 9.0, 10.0, 11.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 36.0, 48.0, 72.0)
     }
 }
