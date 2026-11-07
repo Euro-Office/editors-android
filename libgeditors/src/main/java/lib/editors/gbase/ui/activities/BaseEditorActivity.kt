@@ -557,6 +557,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             }
         }
         if (editorsType == EditorsType.PRESENTATION && !resources.getBoolean(R.bool.editor_side_panels)) setUpSlidesCommandSheet()
+        if (isSpreadsheet && !resources.getBoolean(R.bool.editor_side_panels)) setUpCellsCommandSheet()
         bindToolbar()
         if (commandSheet != null) showSheetTopBar()
         if (fillsForms()) {
@@ -1066,7 +1067,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         commandState.canRedo = toolbar.canRedo
         updateSelection(if (drawingSelected && !inTable) selectionKey(state.drawings) else null, inTable)
         state.sheet?.let {
-            cellFormatPanel.update(it.cellFormat.copy(bold = toolbar.bold, italic = toolbar.italic, underline = toolbar.underline, alignment = toolbar.alignment), drawingSelected)
+            val cellFormat = it.cellFormat.copy(bold = toolbar.bold, italic = toolbar.italic, underline = toolbar.underline, alignment = toolbar.alignment)
+            cellFormatPanel.update(cellFormat, drawingSelected)
+            commandState.cellFormat = cellFormat
+            commandState.sheet = it
         }
         searchBar?.update(state.search)
         slidesUi?.update(state)
@@ -1682,6 +1686,32 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         installCommandSheet(commands)
     }
 
+    // Spreadsheets: Home with the cells' format, rows and columns, Insert, Layout (the pages),
+    // Review and View (finding, freezing panes)
+    private fun setUpCellsCommandSheet() {
+        lateinit var commands: CellsCommands
+        commands = CellsCommands(
+            this, commandState, { command -> edit(command = command) }, panels, cellFormatPanel, colorPicker,
+            CellsCommands.Hooks(
+                chooseStyle = ::chooseCellStyle,
+                tabs = {
+                    listOf(
+                        CommandTab("insert", Resources.string.editors_insert, commands.groups(drawingUi.insertActions())),
+                        CommandTab("layout", Resources.string.editors_tab_layout, pageSettingsUi.sheetCommands(commands.back)),
+                        CommandTab("review", Resources.string.editors_tab_review, commands.groups(reviewActions(null))),
+                        CommandTab("view", Resources.string.editors_tab_view, listOf(CommandGroup(
+                            listOfNotNull(searchBar?.let { bar -> MenuAction(Resources.string.editors_search, Resources.drawable.ic_editor_search) { bar.show() } })
+                                .map { it.toCommand(this, panels) } + commands.freezeCommands()
+                        )))
+                    )
+                },
+                reloadDrawing = ::reloadDrawing,
+                drawingCommands = shapePanel::commands
+            )
+        )
+        installCommandSheet(commands)
+    }
+
     // The sheet in the bottom toolbar's place, the bar floating over the document, the panels in it
     private fun installCommandSheet(commands: EditorCommands) {
         editorCommands = commands
@@ -1694,7 +1724,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.editorToolbar).isVisible = false
         sheet.barCommands = commands.barCommands(::showCommandSheet)
         sheet.onMore = { showCommandSheet("home") }
-        (documentView.parent as FrameLayout).addView(
+        val document = if (isSpreadsheet) findViewById<View>(R.id.sheetView) else documentView
+        (document.parent as FrameLayout).addView(
             sheet.barView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
         )
         panels.pages = sheet
@@ -1762,10 +1793,13 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // Text documents' with their [ui]: word count, tracking changes; presentations' without
     private fun reviewActions(ui: DocumentUi?): List<MenuAction> = buildList {
         commentsUi?.let { comments -> add(MenuAction(Resources.string.editors_comments, Resources.drawable.ic_editor_comment) { comments.show() }) }
-        add(MenuAction(Resources.string.editors_spell_check, Resources.drawable.ic_editor_spellcheck, isChecked = { spellCheckOn }) {
-            setSpellCheck(!spellCheckOn)
-        })
-        add(MenuAction(Resources.string.editors_document_language, Resources.drawable.ic_editor_language) { chooseDocumentLanguage() })
+        // Spreadsheets aren't spell checked
+        if (!isSpreadsheet) {
+            add(MenuAction(Resources.string.editors_spell_check, Resources.drawable.ic_editor_spellcheck, isChecked = { spellCheckOn }) {
+                setSpellCheck(!spellCheckOn)
+            })
+            add(MenuAction(Resources.string.editors_document_language, Resources.drawable.ic_editor_language) { chooseDocumentLanguage() })
+        }
         if (ui != null) {
             add(ui.statisticsAction())
             addAll(ui.reviewActions())
@@ -2378,7 +2412,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                                 if (commandSheet != null) showCommandSheet("design") else pageSettingsUi.showSlides()
                             })
                             EditorsType.CELLS -> add(MenuAction(Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) {
-                                pageSettingsUi.showSheet()
+                                if (commandSheet != null) showCommandSheet("layout") else pageSettingsUi.showSheet()
                             })
                             else -> Unit
                         }

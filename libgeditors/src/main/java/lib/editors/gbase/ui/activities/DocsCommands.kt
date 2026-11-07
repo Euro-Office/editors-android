@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import lib.editors.base.engine.CellFormat
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.ListKind
+import lib.editors.base.engine.SheetState
 import lib.editors.base.engine.TextFormat
 import lib.editors.gbase.ui.commands.Command
 import lib.editors.gbase.ui.commands.CommandGroup
@@ -24,6 +26,10 @@ internal class CommandState {
     /** The selected drawings (a chart, a shape, a picture), loaded after they were selected; none: no tab of theirs. */
     var drawing by mutableStateOf<ShapePanel.Selected?>(null)
     var inTable by mutableStateOf(false)
+    /** Spreadsheets: the active cell's format. */
+    var cellFormat by mutableStateOf(CellFormat())
+    /** Spreadsheets: the active sheet (its active cell, frozen panes). */
+    var sheet by mutableStateOf<SheetState?>(null)
 }
 
 /** An editor's commands for the command sheet: its tabs, and the floating bar's while it is closed. */
@@ -319,13 +325,15 @@ internal class DocsCommands(
         }
     }
 
-    private fun size(points: Double) = if (points <= 0) "—" else if (points % 1.0 == 0.0) points.toInt().toString() else points.toString()
-
     companion object {
         const val DRAWING_TAB = "drawing"
         const val TABLE_TAB = "table"
         private const val HIGHLIGHT = "FFFF00"
-        // Word's sizes
-        private val SIZES = listOf(8.0, 9.0, 10.0, 11.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 36.0, 48.0, 72.0)
+
+        /** A font size in points as shown ("—": text of several sizes). */
+        fun size(points: Double) = if (points <= 0) "—" else if (points % 1.0 == 0.0) points.toInt().toString() else points.toString()
+
+        /** Word's font sizes. */
+        val SIZES = listOf(8.0, 9.0, 10.0, 11.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 36.0, 48.0, 72.0)
     }
 }
