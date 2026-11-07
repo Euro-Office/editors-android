@@ -384,35 +384,35 @@ internal class SpreadsheetUi(
         }.contentDescription = activity.getString(Resources.string.editors_cells_add_sheet)
     }
 
+    /** Shows a sheet's menu in the editor's sheet of actions; null: as a popup at its tab. */
+    var showActions: ((List<MenuAction>) -> Unit)? = null
+
     private fun sheetMenu(anchor: View, index: Int) {
         val current = sheet ?: return
         val visible = current.sheets.withIndex().filter { !it.value.hidden }.map { it.index }
         val position = visible.indexOf(index)
-        PopupMenu(activity, anchor).apply {
-            menu.add(0, 0, 0, Resources.string.editors_cells_rename_sheet)
-            if (position > 0) menu.add(0, 1, 1, Resources.string.editors_cells_move_left)
-            if (position >= 0 && position < visible.size - 1) menu.add(0, 2, 2, Resources.string.editors_cells_move_right)
-            if (visible.size > 1) {
-                menu.add(0, 3, 3, Resources.string.editors_cells_hide_sheet)
-                menu.add(0, 4, 4, Resources.string.editors_cells_delete_sheet)
+        val actions = buildList {
+            add(MenuAction(Resources.string.editors_cells_rename_sheet) { renameSheet(current.sheets[index].name) })
+            if (position > 0) add(MenuAction(Resources.string.editors_cells_move_left) { edit { moveSheet(visible[position - 1]) } })
+            if (position >= 0 && position < visible.size - 1) {
+                // Before the sheet after the next one, or at the end
+                add(MenuAction(Resources.string.editors_cells_move_right) { edit { moveSheet(visible.getOrNull(position + 2) ?: current.sheets.size) } })
             }
-            if (current.sheets.any { it.hidden }) menu.add(0, 5, 5, Resources.string.editors_cells_show_sheets)
-            setOnMenuItemClickListener { item ->
-                when (item.itemId) {
-                    0 -> renameSheet(current.sheets[index].name)
-                    1 -> edit { moveSheet(visible[position - 1]) }
-                    // Before the sheet after the next one, or at the end
-                    2 -> edit { moveSheet(visible.getOrNull(position + 2) ?: current.sheets.size) }
-                    3 -> edit { hideSheet() }
-                    4 -> MaterialAlertDialogBuilder(activity)
+            if (visible.size > 1) {
+                add(MenuAction(Resources.string.editors_cells_hide_sheet) { edit { hideSheet() } })
+                add(MenuAction(Resources.string.editors_cells_delete_sheet) {
+                    MaterialAlertDialogBuilder(activity)
                         .setMessage(activity.getString(Resources.string.editors_cells_delete_sheet_confirm, current.sheets[index].name))
                         .setPositiveButton(Resources.string.editors_delete) { _, _ -> edit { deleteSheet() } }
                         .setNegativeButton(android.R.string.cancel, null)
                         .show()
-                    5 -> showHiddenSheets(current)
-                }
-                true
+                })
             }
+            if (current.sheets.any { it.hidden }) add(MenuAction(Resources.string.editors_cells_show_sheets) { showHiddenSheets(current) })
+        }
+        showActions?.let { show -> return show(actions) }
+        PopupMenu(activity, anchor).apply {
+            menu.addActions(actions)
         }.show()
     }
 

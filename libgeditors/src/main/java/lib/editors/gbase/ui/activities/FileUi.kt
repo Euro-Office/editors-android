@@ -3,7 +3,6 @@ package lib.editors.gbase.ui.activities
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.content.ClipData
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
@@ -12,12 +11,10 @@ import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
 import android.print.PrintDocumentInfo
 import android.print.PrintManager
-import android.view.Gravity
 import android.view.View
 import android.webkit.MimeTypeMap
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.PopupMenu
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.Toast
@@ -73,14 +70,6 @@ internal class FileUi(
             })
             add(MenuAction(Resources.string.editors_document_language, Resources.drawable.ic_editor_language) { chooseDocumentLanguage() })
         }
-    }
-
-    fun showMenu(anchor: View) {
-        // At the bar's end, where its button is
-        PopupMenu(activity, anchor, Gravity.END).apply {
-            menu.addActions(actions())
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setForceShowIcon(true)
-        }.show()
     }
 
     private fun saveAs() {

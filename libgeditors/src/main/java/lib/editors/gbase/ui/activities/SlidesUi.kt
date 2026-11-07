@@ -59,6 +59,9 @@ internal class SlidesUi(
 
     private val density = context.resources.displayMetrics.density
     private val thumbnailWidth = dp(if (vertical) 144 else 96)
+
+    /** The strip's width beside the slides: a thumbnail with its frame and margins. */
+    val sideWidth: Int get() = thumbnailWidth + dp(6) + dp(8)
     private var slides: List<SlideInfo> = emptyList()
     private var currentSlide = 0
     private val thumbnails = LinearLayout(context).apply {
@@ -173,6 +176,9 @@ internal class SlidesUi(
     // ---------------------------------------------------------------------------------
     // Menu
 
+    /** Shows a slide's menu in the editor's sheet of actions; null: as a popup at the slide. */
+    var showActions: ((List<MenuAction>) -> Unit)? = null
+
     private fun showSlideMenu(anchor: View, index: Int) {
         val hidden = slides.getOrNull(index)?.hidden == true
         val actions = listOf<Pair<Int, () -> Unit>>(
@@ -186,6 +192,8 @@ internal class SlidesUi(
             Resources.string.editors_slides_notes to { editNotes(index) },
             Resources.string.editors_slides_delete to { edit { deleteSlide() } }
         )
+        // In the editor's bottom sheet, as its other menus
+        showActions?.let { show -> return show(actions.map { (label, run) -> MenuAction(label, run = run) }) }
         PopupMenu(context, anchor).apply {
             actions.forEachIndexed { i, (label, _) -> menu.add(Menu.NONE, i, i, label) }
             setOnMenuItemClickListener { actions[it.itemId].second(); true }
