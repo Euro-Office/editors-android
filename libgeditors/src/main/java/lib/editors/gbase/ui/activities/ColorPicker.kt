@@ -1,7 +1,7 @@
 package lib.editors.gbase.ui.activities
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
@@ -17,24 +17,55 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.InsetDrawable
 import android.graphics.drawable.LayerDrawable
-import android.text.Editable
-import android.text.InputFilter
-import android.text.InputType
-import android.text.TextWatcher
-import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewGroup
-import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.Space
-import android.widget.TextView
 import androidx.appcompat.widget.TooltipCompat
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import lib.editors.base.engine.ThemeColors
 import lib.editors.gbase.R
+import lib.editors.gbase.ui.commands.SettingsCaption
+import lib.editors.gbase.ui.commands.composePanel
+import lib.editors.gbase.ui.commands.showComposeDialog
 import lib.editors.resources.R as Resources
 
 /**
@@ -128,132 +159,132 @@ internal class ColorPicker(
     fun choose(title: String, current: String?, none: Int?, onBack: () -> Unit, onColor: (String?) -> Unit) {
         val palette = colors
         val recent = recent()
-        var marked = false
         fun pick(value: String?) {
             onColor(value)
             onBack()
         }
-        // A row of swatches, as many as the theme's columns
-        fun LinearLayout.swatchRow(values: List<String>) {
-            addView(LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                for (value in values) {
-                    val hex = palette.hexOf(value).orEmpty()
-                    val selected = !marked && current != null && hex.equals(current, ignoreCase = true)
-                    marked = marked || selected
-                    addView(View(context).apply {
-                        background = InsetDrawable(swatchDrawable(context, hex, selected), dp(2))
-                        contentDescription = describe(value, palette, none)
-                        isSelected = selected
-                        setOnClickListener {
-                            if (!value.startsWith(THEME_PREFIX)) remember(value)
-                            pick(value)
+        // The first swatch of the current color is marked (theme colors may repeat it)
+        val marked = (if (palette.theme.isEmpty()) emptyList() else (0 until ThemeColors.THEME_SHADES).flatMap { shade ->
+            (0 until ThemeColors.THEME_COLUMNS).map { ThemeColors.themeColor(it, shade) }
+        } + palette.standard + recent).firstOrNull { current != null && palette.hexOf(it).orEmpty().equals(current, ignoreCase = true) }
+        val content = composePanel(context) {
+            Column(Modifier.padding(bottom = 24.dp)) {
+                if (none != null) {
+                    ListItem(
+                        headlineContent = { Text(stringResource(none)) },
+                        leadingContent = { Swatch("", current == "", 28.dp) },
+                        colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+                        modifier = Modifier.clickable { pick(null) }
+                    )
+                }
+                @Composable
+                fun SwatchRow(values: List<String>) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                        for (value in values) {
+                            val description = describe(value, palette, none)
+                            Box(
+                                Modifier.weight(1f).height(40.dp).clickable {
+                                    if (!value.startsWith(THEME_PREFIX)) remember(value)
+                                    pick(value)
+                                }.semantics { contentDescription = description },
+                                contentAlignment = Alignment.Center
+                            ) { Swatch(palette.hexOf(value).orEmpty(), value == marked, 30.dp) }
                         }
-                    }, LinearLayout.LayoutParams(0, dp(34), 1f))
-                }
-                repeat(ThemeColors.THEME_COLUMNS - values.size) { addView(Space(context), LinearLayout.LayoutParams(0, dp(34), 1f)) }
-            })
-        }
-        val content = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
-            if (none != null) {
-                addView(TextView(context).apply {
-                    setText(none)
-                    textSize = 15f
-                    gravity = Gravity.CENTER_VERTICAL
-                    minHeight = dp(48)
-                    compoundDrawablePadding = dp(12)
-                    setCompoundDrawablesRelative(swatchDrawable(context, "", current == "").apply { setBounds(0, 0, dp(28), dp(28)) }, null, null, null)
-                    setBackgroundResource(R.drawable.editor_tool_background)
-                    setOnClickListener { pick(null) }
-                })
-            }
-            if (palette.theme.isNotEmpty()) {
-                caption(Resources.string.editors_color_theme)
-                for (shade in 0 until ThemeColors.THEME_SHADES) {
-                    swatchRow((0 until ThemeColors.THEME_COLUMNS).map { ThemeColors.themeColor(it, shade) })
-                }
-            }
-            caption(Resources.string.editors_color_standard)
-            swatchRow(palette.standard.take(ThemeColors.THEME_COLUMNS))
-            if (recent.isNotEmpty()) {
-                caption(Resources.string.editors_color_recent)
-                swatchRow(recent)
-            }
-            addView(TextView(context).apply {
-                setText(Resources.string.editors_color_custom)
-                textSize = 15f
-                gravity = Gravity.CENTER_VERTICAL
-                minHeight = dp(48)
-                setPaddingRelative(0, dp(8), 0, 0)
-                setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, ContextCompat.getDrawable(context, Resources.drawable.ic_editor_chevron_right), null)
-                setBackgroundResource(R.drawable.editor_tool_background)
-                setOnClickListener {
-                    customColor(current) { hex ->
-                        remember(hex)
-                        pick(hex)
+                        repeat(ThemeColors.THEME_COLUMNS - values.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
-            })
+                if (palette.theme.isNotEmpty()) {
+                    SettingsCaption(Resources.string.editors_color_theme)
+                    for (shade in 0 until ThemeColors.THEME_SHADES) {
+                        SwatchRow((0 until ThemeColors.THEME_COLUMNS).map { ThemeColors.themeColor(it, shade) })
+                    }
+                }
+                SettingsCaption(Resources.string.editors_color_standard)
+                SwatchRow(palette.standard.take(ThemeColors.THEME_COLUMNS))
+                if (recent.isNotEmpty()) {
+                    SettingsCaption(Resources.string.editors_color_recent)
+                    SwatchRow(recent)
+                }
+                ListItem(
+                    headlineContent = { Text(stringResource(Resources.string.editors_color_custom)) },
+                    leadingContent = { Icon(painterResource(Resources.drawable.ic_editor_palette), null) },
+                    trailingContent = { Icon(painterResource(Resources.drawable.ic_editor_chevron_right), null) },
+                    colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+                    modifier = Modifier.padding(top = 8.dp).clickable {
+                        customColor(current) { hex ->
+                            remember(hex)
+                            pick(hex)
+                        }
+                    }
+                )
+            }
         }
         panels.show(title, content, onBack) {}
     }
 
     // A color by its hue, saturation and brightness, or its hex code
     private fun customColor(current: String?, onChosen: (String) -> Unit) {
+        val activity = context as? Activity ?: return
         val start = current?.takeIf { it.length == 6 }?.let { runCatching { Color.parseColor("#$it") }.getOrNull() } ?: Color.parseColor("#0070C0")
-        val spectrum = SpectrumView(context).apply { color = start }
-        val preview = View(context).apply { background = swatchDrawable(context, hexOf(start), false) }
-        var typing = false
-        val code = EditText(context).apply {
-            hint = context.getString(Resources.string.editors_color_hex)
-            contentDescription = hint
-            setText(hexOf(start))
-            maxLines = 1
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            filters = arrayOf(InputFilter.LengthFilter(6))
-            addTextChangedListener(object : TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                override fun afterTextChanged(s: Editable?) {
-                    val color = s?.toString()?.takeIf { it.length == 6 }?.let { runCatching { Color.parseColor("#$it") }.getOrNull() } ?: return
-                    typing = true
-                    spectrum.color = color
-                    preview.background = swatchDrawable(context, hexOf(color), false)
-                    typing = false
-                }
-            })
+        showComposeDialog(activity) { dismiss ->
+            var color by remember { mutableIntStateOf(start) }
+            var code by remember { mutableStateOf(hexOf(start)) }
+            AlertDialog(
+                onDismissRequest = dismiss,
+                title = { Text(stringResource(Resources.string.editors_color_custom)) },
+                text = {
+                    Column {
+                        AndroidView(
+                            factory = { SpectrumView(it).apply { this.color = start; onChange = { picked -> color = picked; code = hexOf(picked) } } },
+                            update = { spectrum -> if (spectrum.color != color) spectrum.color = color },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = code,
+                                onValueChange = { typed ->
+                                    code = typed.uppercase().filter { it.isLetterOrDigit() }.take(6)
+                                    code.takeIf { it.length == 6 }?.let { runCatching { Color.parseColor("#$it") }.getOrNull() }?.let { color = it }
+                                },
+                                label = { Text(stringResource(Resources.string.editors_color_hex)) },
+                                prefix = { Text("#") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false),
+                                modifier = Modifier.weight(1f)
+                            )
+                            Box(Modifier.padding(start = 12.dp)) { Swatch(hexOf(color), false, 36.dp) }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        dismiss()
+                        onChosen(hexOf(color))
+                    }) { Text(stringResource(android.R.string.ok)) }
+                },
+                dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(android.R.string.cancel)) } }
+            )
         }
-        spectrum.onChange = { color ->
-            if (!typing) code.setText(hexOf(color))
-        }
-        val layout = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(24), dp(16), dp(24), 0)
-            addView(spectrum)
-            addView(LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPaddingRelative(0, dp(12), 0, 0)
-                addView(TextView(context).apply { text = "#" })
-                addView(code, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                addView(preview, LinearLayout.LayoutParams(dp(36), dp(36)).apply { marginStart = dp(12) })
-            })
-        }
-        MaterialAlertDialogBuilder(context)
-            .setTitle(Resources.string.editors_color_custom)
-            .setView(layout)
-            .setPositiveButton(android.R.string.ok) { _, _ -> onChosen(hexOf(spectrum.color)) }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
     }
 
-    private fun LinearLayout.caption(text: Int) {
-        addView(TextView(context).apply {
-            setText(text)
-            setPaddingRelative(0, dp(12), 0, dp(4))
-        })
+    // A color "RRGGBB" as a circle, [selected] ringed in the accent; "" crossed out
+    @Composable
+    private fun Swatch(hex: String, selected: Boolean, size: Dp) {
+        val outline = MaterialTheme.colorScheme.outlineVariant
+        val ring = MaterialTheme.colorScheme.primary
+        val mark = MaterialTheme.colorScheme.onSurfaceVariant
+        val fill = runCatching { androidx.compose.ui.graphics.Color(Color.parseColor("#$hex")) }.getOrNull()
+        Canvas(Modifier.size(size)) {
+            val radius = this.size.minDimension / 2
+            val inner = if (selected) radius - 4.dp.toPx() else radius
+            if (fill != null) drawCircle(fill, inner)
+            drawCircle(outline, inner, style = Stroke(1.dp.toPx()))
+            if (selected) drawCircle(ring, radius - 1.dp.toPx(), style = Stroke(2.dp.toPx()))
+            if (fill == null) {
+                val inset = this.size.minDimension * 0.25f
+                drawLine(mark, Offset(this.size.width - inset, inset), Offset(inset, this.size.height - inset), strokeWidth = 1.5.dp.toPx())
+            }
+        }
     }
 
     // What TalkBack says: the theme's color's place ("Accent 1") and the color

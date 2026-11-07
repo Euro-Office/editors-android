@@ -1,25 +1,28 @@
 package lib.editors.gbase.ui.activities
 
 import android.content.Context
-import android.content.res.ColorStateList
-import android.graphics.Typeface
-import android.view.ViewGroup
-import android.widget.GridLayout
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.TextView
-import androidx.appcompat.widget.TooltipCompat
-import androidx.core.content.ContextCompat
-import lib.editors.gbase.R
-import lib.editors.resources.R as Resources
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import lib.editors.gbase.ui.commands.PictureCell
+import lib.editors.gbase.ui.commands.SettingsCaption
+import lib.editors.gbase.ui.commands.composePanel
 
 /**
  * Pictures to choose one from, in groups (chart types, shapes, SmartArt; see [InsertCatalog]), in
- * a panel (see [PanelHost]). Their names are read by screen readers and shown on a long press.
+ * a panel (see [PanelHost]). Their names are read by screen readers.
  */
 internal class IconPicker(private val context: Context, private val panels: PanelHost) {
-
-    private val density = context.resources.displayMetrics.density
 
     /**
      * Shows [groups] under [title], [selected] highlighted; [onPick] gets the chosen one's value.
@@ -31,49 +34,27 @@ internal class IconPicker(private val context: Context, private val panels: Pane
         onBack: (() -> Unit)? = null, onPick: (T) -> Unit
     ) {
         lateinit var panel: PanelHost.Panel
-        val cell = dp(if (pictures) 96 else 64)
-        val columns = ((panels.width - dp(16)) / cell).coerceAtLeast(3)
-        val content = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(8), 0, dp(8), dp(16))
-        }
-        val tint = if (pictures) null else ColorStateList.valueOf(ContextCompat.getColor(context, Resources.color.editors_icon))
-        for (group in groups) {
-            content.addView(TextView(context).apply {
-                setText(group.label)
-                setTextColor(ContextCompat.getColor(context, Resources.color.editors_accent))
-                setTypeface(typeface, Typeface.BOLD)
-                textSize = 14f
-                setPaddingRelative(dp(8), dp(16), dp(8), dp(4))
-            })
-            val grid = GridLayout(context).apply { columnCount = columns }
-            for (item in group.items) {
-                grid.addView(ImageView(context).apply {
-                    setImageResource(item.icon)
-                    imageTintList = tint
-                    scaleType = ImageView.ScaleType.FIT_CENTER
-                    val padding = dp(if (pictures) 8 else 12)
-                    setPadding(padding, padding, padding, padding)
-                    setBackgroundResource(R.drawable.editor_tool_background)
-                    isSelected = item.value == selected
-                    val label = context.getString(item.label)
-                    contentDescription = label
-                    TooltipCompat.setTooltipText(this, label)
-                    setOnClickListener {
-                        if (onBack == null) panel.dismiss()
-                        onPick(item.value)
-                        onBack?.invoke()
+        val cell = if (pictures) 96.dp else 64.dp
+        val content = composePanel(context) {
+            Column(Modifier.padding(bottom = 16.dp)) {
+                for (group in groups) {
+                    SettingsCaption(group.label)
+                    FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for (item in group.items) {
+                            PictureCell(item.value == selected, stringResource(item.label), onClick = {
+                                if (onBack == null) panel.dismiss()
+                                onPick(item.value)
+                                onBack?.invoke()
+                            }, modifier = Modifier.size(cell)) {
+                                val painter = painterResource(item.icon)
+                                // Pictures in their own colors; icons in the text's
+                                if (pictures) Image(painter, null, Modifier.fillMaxSize()) else Icon(painter, null, Modifier.fillMaxSize().padding(4.dp))
+                            }
+                        }
                     }
-                    layoutParams = GridLayout.LayoutParams().apply {
-                        width = cell
-                        height = cell
-                    }
-                })
+                }
             }
-            content.addView(grid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         panel = panels.show(context.getString(title), content, onBack) {}
     }
-
-    private fun dp(value: Int) = (value * density).toInt()
 }

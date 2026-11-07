@@ -3,26 +3,49 @@ package lib.editors.gbase.ui.activities
 import android.app.Activity
 import android.content.Context
 import android.graphics.Typeface
-import android.text.Editable
-import android.text.TextWatcher
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.view.inputmethod.EditorInfo
-import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.core.widget.NestedScrollView
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import lib.editors.gbase.R
+import lib.editors.gbase.ui.commands.composePanel
 import lib.editors.resources.R as Resources
 
 /**
@@ -114,84 +137,73 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
         searchHint: String? = null, sections: List<Section> = emptyList(), allTitle: String? = null, onChoose: (Int) -> Unit
     ) {
         lateinit var panel: Panel
-        fun row(index: Int) = optionRow(options[index], index == selected) {
+        val choose = { index: Int ->
             onChoose(index)
             if (onBack != null) onBack() else panel.dismiss()
         }
-        val list = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(0, 0, 0, dp(16))
+        val shownSections = sections.filter { it.options.isNotEmpty() }
+        val content = composePanel(context) {
+            ChoiceList(options, selected, searchHint, shownSections, allTitle, choose)
         }
-        val first = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        for (section in sections.filter { it.options.isNotEmpty() }) {
-            first.addView(sectionHeading(section.title))
-            section.options.forEach { first.addView(row(it)) }
-        }
-        if (first.childCount > 0 && allTitle != null) first.addView(sectionHeading(allTitle))
-        val rows = options.indices.map { row(it) }
-        if (searchHint != null) {
-            list.addView(EditText(context).apply {
-                hint = searchHint
-                isSingleLine = true
-                imeOptions = EditorInfo.IME_ACTION_SEARCH
-                setCompoundDrawablesRelativeWithIntrinsicBounds(ContextCompat.getDrawable(context, Resources.drawable.ic_editor_search), null, null, null)
-                compoundDrawablePadding = dp(8)
-                addTextChangedListener(object : TextWatcher {
-                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                    override fun afterTextChanged(text: Editable?) {
-                        val query = text.toString().trim()
-                        first.isVisible = query.isEmpty()
-                        rows.forEachIndexed { index, view -> view.isVisible = options[index].contains(query, ignoreCase = true) }
-                    }
-                })
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                marginStart = dp(12)
-                marginEnd = dp(12)
-            })
-        }
-        list.addView(first)
-        rows.forEach { list.addView(it) }
-        panel = show(title, list, onBack) {}
-        // The chosen one in view, if there is nothing before the list
-        if (selected > 0 && first.childCount == 0) {
-            list.post { (list.parent as? NestedScrollView)?.scrollTo(0, rows[selected].top - dp(48)) }
-        }
+        panel = show(title, content, onBack) {}
     }
 
-    private fun sectionHeading(text: String) = TextView(context).apply {
-        this.text = text
-        setTextColor(ContextCompat.getColor(context, Resources.color.editors_accent))
-        setTypeface(typeface, Typeface.BOLD)
-        textSize = 14f
-        setPaddingRelative(dp(16), dp(16), dp(16), dp(4))
-    }
-
-    private fun optionRow(option: String, selected: Boolean, onClick: () -> Unit): View =
-        LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(48)
-            setPaddingRelative(dp(16), 0, dp(12), 0)
-            setBackgroundResource(R.drawable.editor_tool_background)
-            isSelected = selected
-            addView(TextView(context).apply {
-                text = option
-                textSize = 16f
-                if (selected) {
-                    setTextColor(ContextCompat.getColor(context, Resources.color.editors_accent))
-                    setTypeface(typeface, Typeface.BOLD)
-                }
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            })
-            if (selected) {
-                addView(ImageView(context).apply {
-                    setImageResource(Resources.drawable.ic_editor_check)
-                    contentDescription = null
-                }, LinearLayout.LayoutParams(dp(24), dp(24)))
+    // The options as rows with radio buttons, the chosen one scrolled to (if nothing is before them)
+    @Composable
+    private fun ChoiceList(options: List<String>, selected: Int, searchHint: String?, sections: List<Section>, allTitle: String?, onChoose: (Int) -> Unit) {
+        var query by remember { mutableStateOf("") }
+        val view = LocalView.current
+        var scrolled by remember { mutableStateOf(false) }
+        Column(Modifier.padding(bottom = 16.dp)) {
+            if (searchHint != null) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text(searchHint) },
+                    leadingIcon = { Icon(painterResource(Resources.drawable.ic_editor_search), null) },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.extraLarge,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                )
             }
-            setOnClickListener { onClick() }
+            val searching = query.isNotBlank()
+            if (!searching) {
+                for (section in sections) {
+                    Heading(section.title)
+                    section.options.forEach { Option(options[it], it == selected) { onChoose(it) } }
+                }
+                if (sections.isNotEmpty() && allTitle != null) Heading(allTitle)
+            }
+            options.forEachIndexed { index, option ->
+                if (searching && !option.contains(query.trim(), ignoreCase = true)) return@forEachIndexed
+                val chosen = index == selected
+                Option(option, chosen, Modifier.onGloballyPositioned { coordinates ->
+                    // The chosen one in view once, a row above it showing
+                    if (chosen && !scrolled && sections.isEmpty() && searchHint == null) {
+                        scrolled = true
+                        val top = coordinates.positionInParent().y.toInt()
+                        (view.parent as? NestedScrollView)?.post { (view.parent as? NestedScrollView)?.scrollTo(0, top - dp(56)) }
+                    }
+                }) { onChoose(index) }
+            }
         }
+    }
+
+    @Composable
+    private fun Heading(text: String) {
+        Text(text, Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+    }
+
+    @Composable
+    private fun Option(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+        ListItem(
+            headlineContent = { Text(text) },
+            leadingContent = { RadioButton(selected = selected, onClick = null) },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            modifier = modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+        )
+    }
 
     private fun showSheet(
         open: BottomSheetDialog?, openFrame: FrameLayout?, title: String, content: View, onBack: (() -> Unit)?, modal: Boolean,

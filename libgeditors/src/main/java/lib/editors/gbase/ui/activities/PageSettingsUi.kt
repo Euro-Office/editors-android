@@ -1,15 +1,25 @@
 package lib.editors.gbase.ui.activities
 
 import android.content.Context
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.view.Gravity
-import android.view.View
-import android.view.ViewGroup
-import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.TextView
-import androidx.core.content.ContextCompat
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -19,7 +29,7 @@ import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.PageSize
 import lib.editors.base.engine.SheetSetup
-import lib.editors.gbase.R
+import lib.editors.gbase.ui.commands.composePanel
 import kotlin.math.abs
 import lib.editors.resources.R as Resources
 
@@ -42,52 +52,31 @@ internal class PageSettingsUi(
     fun chooseColorScheme(onBack: () -> Unit) = read({ colorSchemes() }) { found -> showColorSchemes(found, onBack) }
 
     private fun showColorSchemes(found: ColorSchemes, onBack: () -> Unit) {
-        val list = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(0, 0, 0, dp(16))
-        }
-        found.schemes.forEachIndexed { index, scheme ->
-            val current = index == found.current
-            list.addView(LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                minimumHeight = dp(52)
-                setPaddingRelative(dp(16), 0, dp(12), 0)
-                setBackgroundResource(R.drawable.editor_tool_background)
-                isSelected = current
-                contentDescription = scheme.name
-                // The accents, as web-apps shows a scheme
-                addView(LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                    for (color in scheme.colors.drop(ACCENTS_FROM).take(ACCENTS)) {
-                        addView(View(context).apply {
-                            background = GradientDrawable().apply {
-                                cornerRadius = dp(3).toFloat()
-                                setColor(android.graphics.Color.parseColor("#$color"))
+        val content = composePanel(context) {
+            Column(Modifier.padding(bottom = 16.dp)) {
+                found.schemes.forEachIndexed { index, scheme ->
+                    val current = index == found.current
+                    ListItem(
+                        headlineContent = { Text(scheme.name) },
+                        leadingContent = { RadioButton(selected = current, onClick = null) },
+                        // The accents, as web-apps shows a scheme
+                        trailingContent = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                for (color in scheme.colors.drop(ACCENTS_FROM).take(ACCENTS)) {
+                                    Box(Modifier.size(width = 12.dp, height = 22.dp).clip(RoundedCornerShape(3.dp)).background(Color(android.graphics.Color.parseColor("#$color"))))
+                                }
                             }
-                        }, LinearLayout.LayoutParams(dp(14), dp(22)).apply { marginEnd = dp(2) })
-                    }
-                })
-                addView(TextView(context).apply {
-                    text = scheme.name
-                    textSize = 16f
-                    setPaddingRelative(dp(12), 0, 0, 0)
-                    if (current) {
-                        setTextColor(ContextCompat.getColor(context, Resources.color.editors_accent))
-                        setTypeface(typeface, Typeface.BOLD)
-                    }
-                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                })
-                if (current) addView(ImageView(context).apply { setImageResource(Resources.drawable.ic_editor_check) }, LinearLayout.LayoutParams(dp(24), dp(24)))
-                setOnClickListener {
-                    if (!current) edit { setColorScheme(index) }
-                    onBack()
+                        },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        modifier = Modifier.selectable(selected = current, role = Role.RadioButton) {
+                            if (!current) edit { setColorScheme(index) }
+                            onBack()
+                        }
+                    )
                 }
-            })
+            }
         }
-        panels.show(context.getString(Resources.string.editors_color_scheme), list, onBack) {}
+        panels.show(context.getString(Resources.string.editors_color_scheme), content, onBack) {}
     }
 
     /** Presentations: the slides' size and the color scheme. */

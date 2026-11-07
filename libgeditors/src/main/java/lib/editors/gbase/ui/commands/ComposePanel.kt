@@ -2,14 +2,21 @@ package lib.editors.gbase.ui.commands
 
 import android.content.Context
 import android.view.View
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /**
@@ -29,4 +36,22 @@ fun SettingsCaption(text: Int) {
         stringResource(text), Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
         color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge
     )
+}
+
+/**
+ * A picture to choose (a shape, a chart's style), [selected] ringed in the accent; [description]
+ * is said by screen readers.
+ */
+@Composable
+fun PictureCell(selected: Boolean, description: String, onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Surface(
+        selected = selected,
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        modifier = modifier.semantics { contentDescription = description }
+    ) {
+        Box(Modifier.padding(6.dp), contentAlignment = Alignment.Center) { content() }
+    }
 }
