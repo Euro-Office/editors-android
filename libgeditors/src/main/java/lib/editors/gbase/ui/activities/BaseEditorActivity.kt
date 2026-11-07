@@ -1651,7 +1651,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                             CommandGroup(listOf(
                                 layout(),
                                 Command.Page(Resources.string.editors_slide_design, null) { chooseDesign(back) },
-                                Command.Page(Resources.string.editors_slides_transition, null) { slidesUi?.chooseTransition(back) }
+                                Command.Page(Resources.string.editors_slides_transition, null, commands = { slidesUi?.transitionCommands().orEmpty() }, open = { slidesUi?.loadTransition() })
                             )),
                             CommandGroup(listOf(
                                 Command.Page(Resources.string.editors_slide_background, Resources.drawable.ic_editor_shading,
@@ -2375,7 +2375,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     if (editing && !isPdfEditor) {
                         when (editorsType) {
                             EditorsType.PRESENTATION -> add(MenuAction(Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) {
-                                pageSettingsUi.showSlides()
+                                if (commandSheet != null) showCommandSheet("design") else pageSettingsUi.showSlides()
                             })
                             EditorsType.CELLS -> add(MenuAction(Resources.string.editors_doc_page_setup, Resources.drawable.ic_editor_page_setup) {
                                 pageSettingsUi.showSheet()

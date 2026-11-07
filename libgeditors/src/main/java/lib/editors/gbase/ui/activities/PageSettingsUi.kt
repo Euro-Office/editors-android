@@ -1,7 +1,6 @@
 package lib.editors.gbase.ui.activities
 
 import android.content.Context
-import android.widget.LinearLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +32,8 @@ import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.PageSize
 import lib.editors.base.engine.SheetSetup
 import lib.editors.gbase.ui.commands.Command
+import lib.editors.gbase.ui.commands.CommandGroup
+import lib.editors.gbase.ui.commands.CommandPanel
 import lib.editors.gbase.ui.commands.composePanel
 import kotlin.math.abs
 import lib.editors.resources.R as Resources
@@ -49,8 +50,6 @@ internal class PageSettingsUi(
     private val panels: PanelHost,
     private val edit: (EditorDocument.() -> EditorState) -> Unit
 ) {
-
-    private val density = context.resources.displayMetrics.density
 
     /** The color schemes, each with its name and accent colors, the current one marked; then [onBack]. */
     fun chooseColorScheme(onBack: () -> Unit) = read({ colorSchemes() }) { found -> showColorSchemes(found, onBack) }
@@ -84,10 +83,17 @@ internal class PageSettingsUi(
     }
 
     /** Presentations: the slides' size and the color scheme. */
-    fun showSlides() = read({ slideSize() }) { size -> SlidesPanel(size).show() }
+    fun showSlides() = showCommands { back -> listOf(CommandGroup(slideCommands(back))) }
 
     /** Spreadsheets: the active sheet's gridlines, its pages' orientation and size, and the color scheme. */
-    fun showSheet() = read({ sheetSetup() }) { setup -> SheetPanel(setup).show() }
+    fun showSheet() = showCommands(::sheetCommands)
+
+    // Commands in a panel; their pages come back to it
+    private fun showCommands(commands: (back: () -> Unit) -> List<CommandGroup>) {
+        lateinit var show: () -> Unit
+        show = { panels.show(context.getString(Resources.string.editors_doc_page_setup), composePanel(context) { CommandPanel { commands(show) } }) {} }
+        show()
+    }
 
     // The slides' size, for the Design tab's commands (loaded as they are built; null before)
     private var slideSize by mutableStateOf<PageSize?>(null)
@@ -109,68 +115,37 @@ internal class PageSettingsUi(
         )
     }
 
-    private inner class SlidesPanel(private val size: PageSize) : PanelBuilder<PageSize>(context) {
-        fun show() {
-            val content = column {
-                caption(Resources.string.editors_slide_size)
-                scrollRow {
-                    choice("16:9", { abs(it.widthMm / it.heightMm - 16.0 / 9) < 0.01 }) { change { setSlideSize(wide = true) } }
-                    choice("4:3", { abs(it.widthMm / it.heightMm - 4.0 / 3) < 0.01 }) { change { setSlideSize(wide = false) } }
-                }
-                action(Resources.string.editors_color_scheme) { chooseColorScheme { showSlides() } }
-            }
-            panels.show(context.getString(Resources.string.editors_doc_page_setup), content) {}
-            updaters.forEach { it(size) }
-        }
+    // The active sheet's setup, for the commands (loaded as they are built; null before)
+    private var sheetSetup by mutableStateOf<SheetSetup?>(null)
 
-        private fun change(command: EditorDocument.() -> EditorState) {
+    /** Spreadsheets: gridlines, the pages' orientation and size, and the color scheme, as commands; pages go [back]. */
+    fun sheetCommands(back: () -> Unit): List<CommandGroup> {
+        read({ sheetSetup() }) { sheetSetup = it }
+        fun change(command: EditorDocument.() -> EditorState) {
             edit(command)
-            read({ slideSize() }) { changed -> updaters.forEach { it(changed) } }
+            read({ sheetSetup() }) { sheetSetup = it }
         }
-    }
-
-    private inner class SheetPanel(private val setup: SheetSetup) : PanelBuilder<SheetSetup>(context) {
-        fun show() {
-            val content = column {
-                caption(Resources.string.editors_cells_view)
-                scrollRow {
-                    choice(context.getString(Resources.string.editors_cells_gridlines), { it.gridlines }, Resources.drawable.ic_editor_border_all) {
-                        change { setGridlines(!sheetSetup().gridlines) }
-                    }
+        return listOf(
+            CommandGroup(listOf(
+                Command.Toggle(Resources.string.editors_cells_gridlines, Resources.drawable.ic_editor_border_all, { sheetSetup?.gridlines == true }) {
+                    val on = sheetSetup?.gridlines == true
+                    change { setGridlines(!on) }
                 }
-                caption(Resources.string.editors_doc_orientation)
-                scrollRow {
-                    choice(context.getString(Resources.string.editors_doc_portrait), { !it.landscape }, Resources.drawable.ic_editor_page_portrait) {
-                        change { setSheetPage(landscape = false) }
+            )),
+            CommandGroup(listOf(
+                Command.Segments(Resources.string.editors_doc_orientation, listOf(
+                    Command.Toggle(Resources.string.editors_doc_portrait, null, { sheetSetup?.landscape == false }) { change { setSheetPage(landscape = false) } },
+                    Command.Toggle(Resources.string.editors_doc_landscape, null, { sheetSetup?.landscape == true }) { change { setSheetPage(landscape = true) } }
+                )),
+                Command.Choice(Resources.string.editors_doc_size, Resources.drawable.ic_editor_page_setup, PAPER_SIZES.map { it.first }, {
+                    val setup = sheetSetup
+                    if (setup == null) -1 else PAPER_SIZES.indexOfFirst { (_, width, height) ->
+                        abs(minOf(setup.width, setup.height) - width) < 1 && abs(maxOf(setup.width, setup.height) - height) < 1
                     }
-                    choice(context.getString(Resources.string.editors_doc_landscape), { it.landscape }, Resources.drawable.ic_editor_page_landscape) {
-                        change { setSheetPage(landscape = true) }
-                    }
-                }
-                caption(Resources.string.editors_doc_size)
-                scrollRow {
-                    for ((name, width, height) in PAPER_SIZES) {
-                        choice(name, { abs(minOf(it.width, it.height) - width) < 1 && abs(maxOf(it.width, it.height) - height) < 1 }) {
-                            change { setSheetPage(width = width, height = height) }
-                        }
-                    }
-                }
-                action(Resources.string.editors_color_scheme) { chooseColorScheme { showSheet() } }
-            }
-            panels.show(context.getString(Resources.string.editors_doc_page_setup), content) {}
-            updaters.forEach { it(setup) }
-        }
-
-        private fun change(command: EditorDocument.() -> EditorState) {
-            edit(command)
-            read({ sheetSetup() }) { changed -> updaters.forEach { it(changed) } }
-        }
-    }
-
-    private fun column(build: LinearLayout.() -> Unit) = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
-        setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
-        build()
+                }) { index -> change { setSheetPage(width = PAPER_SIZES[index].second, height = PAPER_SIZES[index].third) } },
+                Command.Page(Resources.string.editors_color_scheme, null) { chooseColorScheme(back) }
+            ))
+        )
     }
 
     // Reads from the document on the engine's thread, then shows the result
@@ -181,8 +156,6 @@ internal class PageSettingsUi(
             onResult(result)
         }
     }
-
-    private fun dp(value: Int) = (value * density).toInt()
 
     companion object {
         // Name, width and height (portrait) in mm
