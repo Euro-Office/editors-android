@@ -1042,8 +1042,12 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         listOf(R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight).forEach { findViewById<View>(it).isEnabled = !drawingSelected }
         if (isPdfEditor && editing) {
             val textBox = state.pdf?.textBox == true
-            if (textBox != pdfTextBox) documentView.selectionActions = pdfSelectionActions(textBox)
+            val textBoxChanged = textBox != pdfTextBox
+            if (textBoxChanged) documentView.selectionActions = pdfSelectionActions(textBox)
             pdfTextBox = textBox
+            pdfSelection = state.selection.isNotEmpty()
+            // Its text's tab comes or goes
+            if (textBoxChanged) refreshCommandTabs(if (textBox) "home" else null)
             pdfDrawing = state.pdf?.drawing == true
             pdfPageEditable = state.pdf?.canEditPage == true
             updatePdfTools()
@@ -1821,6 +1825,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // (comments), signatures and others' annotations, saved into the PDF
 
     private var penOn = false
+    // The pen drawing (PENS' color), while one is
+    private var penColor: String? = null
+    // Text of the page is selected: it can be marked up
+    private var pdfSelection = false
     // A text box or its text is selected (PdfState.textBox)
     private var pdfTextBox = false
     // The text of the page shown can be made editable (PdfState.canEditPage)
@@ -1874,7 +1882,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolPen).isVisible = true
         findViewById<View>(R.id.toolPen).setOnClickListener { showPenMenu(it) }
         findViewById<View>(R.id.toolSign).isVisible = true
-        findViewById<View>(R.id.toolSign).setOnClickListener { SignaturePad(this) { picture, aspect -> placeSignature(picture, aspect) }.show() }
+        findViewById<View>(R.id.toolSign).setOnClickListener { showSignaturePad() }
         findViewById<View>(R.id.toolTextBox).isVisible = true
         findViewById<View>(R.id.toolTextBox).setOnClickListener { addTextBox() }
         findViewById<View>(R.id.toolEditText).setOnClickListener { editPageText() }
@@ -1886,16 +1894,97 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         documentView.drawingActions = listOf(getString(Resources.string.editors_format) to { showFormat() })
         topBar.undo.onClick = { edit { undo() } }
         topBar.redo.onClick = { edit { redo() } }
+        if (!resources.getBoolean(R.bool.editor_side_panels)) {
+            setUpPdfCommandSheet()
+            showSheetTopBar()
+        }
     }
+
+    // PDFs: Insert (text boxes, signatures, the page's text made editable), Draw (pens), Review
+    // (marking selected text up, comments) and View; Home for a text box's text, the tab of
+    // selected pictures and shapes
+    private fun setUpPdfCommandSheet() {
+        lateinit var docs: DocsCommands
+        val forSelection = { pdfSelection && !pdfTextBox }
+        fun markup(label: Int, kind: PdfMarkupKind, color: String) = Command.Action(label, null, forSelection) { edit { markup(kind, color) } }
+        docs = DocsCommands(
+            this, commandState, { command -> edit(command = command) }, panels, formatPanel, colorPicker, DocsCommands.Features.SLIDES,
+            DocsCommands.Hooks(
+                chooseList = ::chooseListPreset,
+                chooseStyle = { _, _ -> },
+                chooseTableStyle = ::chooseTableStyle,
+                showHome = { pdfTextBox },
+                tabs = {
+                    listOf(
+                        CommandTab("insert", Resources.string.editors_insert, listOf(CommandGroup(listOf(
+                            Command.Action(Resources.string.editors_text_box, Resources.drawable.ic_editor_text_box) { addTextBox() },
+                            Command.Action(Resources.string.editors_sign, Resources.drawable.ic_editor_sign) { showSignaturePad() },
+                            Command.Action(Resources.string.editors_pdf_edit_text, Resources.drawable.ic_editor_edit_text, { pdfPageEditable }) { editPageText() }
+                        )))),
+                        CommandTab("draw", Resources.string.editors_pdf_pen, listOf(
+                            CommandGroup(PENS.map { (label, color, width) ->
+                                Command.Toggle(label, null, { penOn && penColor == color }) { setPen(if (penColor == color && penOn) null else color, width) }
+                            }),
+                            CommandGroup(listOf(Command.Action(Resources.string.editors_pdf_pen_stop, null, { penOn }) { setPen(null, 0.0) }))
+                        )),
+                        CommandTab("review", Resources.string.editors_tab_review, listOfNotNull(
+                            CommandGroup(listOf(
+                                markup(Resources.string.editors_pdf_highlight, PdfMarkupKind.HIGHLIGHT, HIGHLIGHT_COLOR),
+                                markup(Resources.string.editors_pdf_underline, PdfMarkupKind.UNDERLINE, UNDERLINE_COLOR),
+                                markup(Resources.string.editors_pdf_strikeout, PdfMarkupKind.STRIKEOUT, STRIKEOUT_COLOR)
+                            )),
+                            commentsUi?.let { comments ->
+                                CommandGroup(listOfNotNull(
+                                    commentAction()?.let { (_, add) -> Command.Action(Resources.string.editors_comment, Resources.drawable.ic_editor_comment, forSelection) { add() } },
+                                    Command.Action(Resources.string.editors_comments, null) { comments.show() }
+                                ))
+                            }
+                        )),
+                        CommandTab("view", Resources.string.editors_tab_view, docs.groups(listOfNotNull(
+                            searchBar?.let { bar -> MenuAction(Resources.string.editors_search, Resources.drawable.ic_editor_search) { bar.show() } }
+                        )))
+                    )
+                },
+                reloadDrawing = ::reloadDrawing,
+                drawingCommands = shapePanel::commands
+            )
+        )
+        installCommandSheet(object : EditorCommands {
+            override fun tabs() = docs.tabs()
+
+            // Drawing, marking up, inserting; a text box's text
+            override fun barCommands(openSheet: (tab: String) -> Unit): List<Command> = listOf(
+                Command.Toggle(Resources.string.editors_pdf_pen, Resources.drawable.ic_editor_pen, { penOn }) {
+                    if (penOn) setPen(null, 0.0) else openSheet("draw")
+                },
+                Command.Action(Resources.string.editors_pdf_highlight, Resources.drawable.ic_editor_highlight, forSelection) {
+                    edit { markup(PdfMarkupKind.HIGHLIGHT, HIGHLIGHT_COLOR) }
+                },
+                Command.Action(Resources.string.editors_text_box, Resources.drawable.ic_editor_text_box) { addTextBox() },
+                Command.Action(Resources.string.editors_sign, Resources.drawable.ic_editor_sign) { showSignaturePad() },
+                Command.Toggle(Resources.string.editors_bold, Resources.drawable.ic_editor_bold, { commandState.format.bold }, { pdfTextBox }) {
+                    edit { setBold(!commandState.format.bold) }
+                },
+                Command.Toggle(Resources.string.editors_italic, Resources.drawable.ic_editor_italic, { commandState.format.italic }, { pdfTextBox }) {
+                    edit { setItalic(!commandState.format.italic) }
+                },
+                Command.Toggle(Resources.string.editors_underline, Resources.drawable.ic_editor_underline, { commandState.format.underline }, { pdfTextBox }) {
+                    edit { setUnderline(!commandState.format.underline) }
+                }
+            )
+        })
+    }
+
+    private fun showSignaturePad() = SignaturePad(this) { picture, aspect -> placeSignature(picture, aspect) }.show()
 
     // Selected text of the page is marked up; in text boxes it is formatted
     private fun pdfSelectionActions(textBox: Boolean): List<Pair<String, () -> Unit>> = if (textBox) listOf(
         getString(Resources.string.editors_pdf_underline) to { edit { setUnderline(true) } },
         getString(Resources.string.editors_pdf_strikeout) to { edit { setStrikeout(true) } }
     ) else listOfNotNull(
-        getString(Resources.string.editors_pdf_highlight) to { edit { markup(PdfMarkupKind.HIGHLIGHT, "FFEB3B") } },
-        getString(Resources.string.editors_pdf_underline) to { edit { markup(PdfMarkupKind.UNDERLINE, "3366D9") } },
-        getString(Resources.string.editors_pdf_strikeout) to { edit { markup(PdfMarkupKind.STRIKEOUT, "D92626") } },
+        getString(Resources.string.editors_pdf_highlight) to { edit { markup(PdfMarkupKind.HIGHLIGHT, HIGHLIGHT_COLOR) } },
+        getString(Resources.string.editors_pdf_underline) to { edit { markup(PdfMarkupKind.UNDERLINE, UNDERLINE_COLOR) } },
+        getString(Resources.string.editors_pdf_strikeout) to { edit { markup(PdfMarkupKind.STRIKEOUT, STRIKEOUT_COLOR) } },
         commentAction()
     )
 
@@ -1933,13 +2022,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     // Freehand drawing: pens of a few colors and a marker; one finger draws, two scroll
     private fun showPenMenu(anchor: View) {
-        val pens = listOf(
-            Triple(Resources.string.editors_color_black, "000000", 0.7),
-            Triple(Resources.string.editors_color_red, "E53935", 0.7),
-            Triple(Resources.string.editors_color_blue, "1E63D6", 0.7),
-            Triple(Resources.string.editors_color_green, "2E9E44", 0.7),
-            Triple(Resources.string.editors_pdf_marker, "FFEB3B", 4.0)
-        )
+        val pens = PENS
         val menu = PopupMenu(this, anchor)
         pens.forEachIndexed { index, pen -> menu.menu.add(0, index, index, pen.first) }
         if (penOn) menu.menu.add(0, pens.size, pens.size, Resources.string.editors_pdf_pen_stop)
@@ -1953,6 +2036,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun setPen(color: String?, widthMm: Double) {
         penOn = color != null
+        penColor = color
+        commandSheet?.stateChanged()
         documentView.penMode = penOn
         findViewById<View>(R.id.toolPen).isSelected = penOn
         if (color != null) {
@@ -2559,6 +2644,18 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         const val EXTRA_REOPEN_SAVED = "lib.editors.gbase.REOPEN_SAVED"
         const val EXTRA_REOPEN_COPIES = "lib.editors.gbase.REOPEN_COPIES"
         const val EXTRA_REOPEN_EDITING = "lib.editors.gbase.REOPEN_EDITING"
+        // Freehand drawing: pens of a few colors and a marker (their width in mm)
+        private val PENS = listOf(
+            Triple(Resources.string.editors_color_black, "000000", 0.7),
+            Triple(Resources.string.editors_color_red, "E53935", 0.7),
+            Triple(Resources.string.editors_color_blue, "1E63D6", 0.7),
+            Triple(Resources.string.editors_color_green, "2E9E44", 0.7),
+            Triple(Resources.string.editors_pdf_marker, "FFEB3B", 4.0)
+        )
+        // Marking up the page's text
+        private const val HIGHLIGHT_COLOR = "FFEB3B"
+        private const val UNDERLINE_COLOR = "3366D9"
+        private const val STRIKEOUT_COLOR = "D92626"
         private val TEXT_TOOLS = listOf(R.id.toolBold, R.id.toolItalic, R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight)
         // Toolbar buttons also when viewing
         private val FILLING_HIDDEN_TOOLS = listOf(

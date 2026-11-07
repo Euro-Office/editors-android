@@ -73,6 +73,8 @@ internal class DocsCommands(
         val homeFirst: () -> List<Command> = { emptyList() },
         /** The editor's tabs after Home. */
         val tabs: () -> List<CommandTab>,
+        /** Home is there (PDFs: while a text box is selected). */
+        val showHome: () -> Boolean = { true },
         /** The selected drawing from the engine anew: what was set in its tab shows. */
         val reloadDrawing: () -> Unit,
         /** The selected drawings' commands (see [ShapePanel.commands]). */
@@ -106,7 +108,7 @@ internal class DocsCommands(
             CommandTab(DRAWING_TAB, drawing.title, hooks.drawingCommands({ state.drawing }, changeDrawing, toDrawing), contextual = true)
         },
         if (state.inTable) CommandTab(TABLE_TAB, Resources.string.editors_doc_table_menu, table(), contextual = true) else null,
-        CommandTab("home", Resources.string.editors_tab_home, home())
+        if (hooks.showHome()) CommandTab("home", Resources.string.editors_tab_home, home()) else null
     ) + hooks.tabs()).filter { it.groups.isNotEmpty() || it.content != null }
 
     private fun home() = listOfNotNull(
