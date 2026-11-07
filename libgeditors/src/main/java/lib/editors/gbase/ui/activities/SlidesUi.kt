@@ -173,6 +173,9 @@ internal class SlidesUi(
     // ---------------------------------------------------------------------------------
     // Menu
 
+    /** Shows a slide's menu in the editor's sheet of actions; null: as a popup at the slide. */
+    var showActions: ((List<MenuAction>) -> Unit)? = null
+
     private fun showSlideMenu(anchor: View, index: Int) {
         val hidden = slides.getOrNull(index)?.hidden == true
         val actions = listOf<Pair<Int, () -> Unit>>(
@@ -186,6 +189,8 @@ internal class SlidesUi(
             Resources.string.editors_slides_notes to { editNotes(index) },
             Resources.string.editors_slides_delete to { edit { deleteSlide() } }
         )
+        // In the editor's bottom sheet, as its other menus
+        showActions?.let { show -> return show(actions.map { (label, run) -> MenuAction(label, run = run) }) }
         PopupMenu(context, anchor).apply {
             actions.forEachIndexed { i, (label, _) -> menu.add(Menu.NONE, i, i, label) }
             setOnMenuItemClickListener { actions[it.itemId].second(); true }

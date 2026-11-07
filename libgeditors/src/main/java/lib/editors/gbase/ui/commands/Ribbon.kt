@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -113,7 +114,11 @@ fun Ribbon(
                             shown.groups.forEachIndexed { index, group ->
                                 if (index > 0) VerticalDivider(Modifier.fillMaxHeight().padding(vertical = 10.dp, horizontal = 6.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    for (command in group.commands) key(command, stateRevision) { RibbonCommand(command, labeled, onOpenPage) }
+                                    for (command in group.commands) key(command) {
+                                        // A choice's menu stays open while the editor's state comes
+                                        val menuOpen = remember { mutableStateOf(false) }
+                                        key(stateRevision) { RibbonCommand(command, labeled, onOpenPage, menuOpen) }
+                                    }
                                 }
                             }
                         }
@@ -126,7 +131,7 @@ fun Ribbon(
 }
 
 @Composable
-private fun RibbonCommand(command: Command, labeled: Boolean, onOpenPage: (Command.Page) -> Unit) {
+private fun RibbonCommand(command: Command, labeled: Boolean, onOpenPage: (Command.Page) -> Unit, menuOpen: MutableState<Boolean>) {
     val enabled = command.isEnabled()
     val label = stringResource(command.label)
     when (command) {
@@ -154,7 +159,7 @@ private fun RibbonCommand(command: Command, labeled: Boolean, onOpenPage: (Comma
         // A combo box: the value, opening where to choose another
         is Command.Value -> ComboButton(command.value(), label, enabled, command.open)
         is Command.Choice -> {
-            var open by remember { mutableStateOf(false) }
+            var open by menuOpen
             val selected = command.selected()
             Box {
                 ComboButton(command.options.getOrNull(selected)?.let { "$label: $it" } ?: label, label, enabled) { open = true }

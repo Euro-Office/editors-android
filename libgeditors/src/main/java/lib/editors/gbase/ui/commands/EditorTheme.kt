@@ -1,10 +1,12 @@
 package lib.editors.gbase.ui.commands
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.res.colorResource
 import lib.editors.resources.R as Resources
 
@@ -18,5 +20,8 @@ fun EditorTheme(content: @Composable () -> Unit) {
     } else {
         lightColorScheme(primary = accent, onPrimary = onAccent)
     }
-    MaterialTheme(colorScheme = colors, content = content)
+    MaterialTheme(colorScheme = colors) {
+        // Icons and text outside a Surface (panels' pictures) in the theme's, not black
+        CompositionLocalProvider(LocalContentColor provides colors.onSurface, content = content)
+    }
 }

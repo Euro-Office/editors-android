@@ -338,7 +338,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     override fun paste() = editListener.onPaste()
                 }, loadFunctions = { onLoaded ->
                     lifecycleScope.launch { onLoaded(withContext(EditorEngine.dispatcher) { openedDocument.functions() }) }
-                })
+                }).also { it.showActions = actionSheet::show }
                 sheetView.requestFocus()
             } else {
                 documentView.setPages(opened.second, ::renderTile, lifecycleScope)
@@ -353,9 +353,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             }
             showToolbar(editable = false)
             topBar.file.isVisible = true
-            // Phones: in a bottom sheet, as Office's "…"
+            // In a bottom sheet, as Office's "…" on phones
             topBar.file.onClick = {
-                if (resources.getBoolean(R.bool.editor_side_panels)) fileUi.showMenu(findViewById(R.id.editorTopBar)) else actionSheet.show(fileUi.actions())
+                actionSheet.show(fileUi.actions())
             }
             // Comments: written when editing or with comment access (KEY_EDIT_ACCESS), read otherwise
             val comments = CommentsUi(
@@ -391,6 +391,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                     previews = previewPicker,
                     panels = panels
                 )
+                ui.showActions = actionSheet::show
                 addStrip(ui.strip)
                 slidesUi = ui
                 documentView.onDrawingsDroppedOnPage = { slide, offsetMm -> edit { moveToSlide(slide, offsetMm) } }
