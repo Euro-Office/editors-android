@@ -1,5 +1,6 @@
 package lib.editors.gbase.ui.activities
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.app.Activity
 import android.graphics.Typeface
 import android.view.View
@@ -9,7 +10,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import lib.editors.base.engine.CsvDelimiter
 import lib.editors.base.engine.TextEncoding
 import lib.editors.base.engine.TextOptions
@@ -93,7 +93,7 @@ internal class TextOptionsDialog(
         delimiters.onItemSelectedListener = listener
         updatePreview()
 
-        AlertDialog.Builder(activity)
+        MaterialAlertDialogBuilder(activity)
             .setTitle(if (isCsv) Resources.string.editors_text_options_csv else Resources.string.editors_text_options)
             .setView(ScrollView(activity).apply { addView(layout) })
             .setPositiveButton(Resources.string.editors_text_reopen) { _, _ ->

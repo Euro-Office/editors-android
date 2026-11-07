@@ -101,7 +101,9 @@ SPDX-License-Identifier = "CC-BY-SA-4.0"
 # Material Design icons (https://fonts.google.com/icons)
 [[annotations]]
 path = [
+    "libresources/src/main/res/drawable/ic_editor_add.xml",
     "libresources/src/main/res/drawable/ic_editor_align_center.xml",
+    "libresources/src/main/res/drawable/ic_editor_border_color.xml",
     "libresources/src/main/res/drawable/ic_editor_align_left.xml",
     "libresources/src/main/res/drawable/ic_editor_align_right.xml",
     "libresources/src/main/res/drawable/ic_editor_back.xml",
@@ -136,7 +138,9 @@ path = [
     "libresources/src/main/res/drawable/ic_editor_pen.xml",
     "libresources/src/main/res/drawable/ic_editor_people.xml",
     "libresources/src/main/res/drawable/ic_editor_redo.xml",
+    "libresources/src/main/res/drawable/ic_editor_remove.xml",
     "libresources/src/main/res/drawable/ic_editor_save.xml",
+    "libresources/src/main/res/drawable/ic_editor_shading.xml",
     "libresources/src/main/res/drawable/ic_editor_shapes.xml",
     "libresources/src/main/res/drawable/ic_editor_shape.xml",
     "libresources/src/main/res/drawable/ic_editor_sign.xml",

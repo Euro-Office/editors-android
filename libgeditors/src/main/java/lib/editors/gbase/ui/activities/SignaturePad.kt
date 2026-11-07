@@ -1,5 +1,6 @@
 package lib.editors.gbase.ui.activities
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
@@ -24,7 +25,7 @@ internal class SignaturePad(private val context: Context, private val onSigned: 
     fun show() {
         val pad = PadView(context)
         val padding = (16 * context.resources.displayMetrics.density).toInt()
-        val dialog = AlertDialog.Builder(context)
+        val dialog = MaterialAlertDialogBuilder(context)
             .setTitle(Resources.string.editors_sign_draw)
             .setView(FrameLayout(context).apply {
                 setPaddingRelative(padding, 0, padding, 0)

@@ -1,28 +1,64 @@
 package lib.editors.gbase.ui.activities
 
 import android.content.Context
-import android.text.Editable
-import android.text.InputType
-import android.text.TextWatcher
-import android.view.Gravity
-import android.view.KeyEvent
 import android.view.View
-import android.view.ViewGroup
-import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
-import android.widget.EditText
-import android.widget.ImageButton
-import android.widget.LinearLayout
-import android.widget.TextView
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.dp
 import androidx.core.view.isVisible
 import lib.editors.base.engine.SearchState
-import lib.editors.gbase.R
+import lib.editors.gbase.ui.commands.EditorTheme
 import lib.editors.resources.R as Resources
 
 /**
- * Find and replace, above the document: the text to find, the matches, previous and next, and
- * (behind the options button) match case, whole words and, if the document can be edited, the
- * replacement. Results come back through [update].
+ * Find and replace, above the document (Compose Material 3): the text to find, the matches,
+ * previous and next, and (behind the options button) match case, whole words and, if the document
+ * can be edited, the replacement. Results come back through [update].
  */
 internal class SearchBar(private val context: Context, private val target: Target) {
 
@@ -33,43 +69,33 @@ internal class SearchBar(private val context: Context, private val target: Targe
         fun close()
     }
 
-    private val density = context.resources.displayMetrics.density
-    private var matchCase = false
-    private var wholeWords = false
+    private var findText by mutableStateOf(TextFieldValue(""))
+    private var replaceText by mutableStateOf("")
+    private var counter by mutableStateOf("")
+    private var showsOptions by mutableStateOf(false)
+    private var matchCase by mutableStateOf(false)
+    private var wholeWords by mutableStateOf(false)
+    private var canReplace by mutableStateOf(false)
+    // Each showing focuses the field anew
+    private var shown by mutableIntStateOf(0)
     // The search the results are for; typing starts a new one
     private var searched: String? = null
 
-    private lateinit var findText: EditText
-    private lateinit var replaceText: EditText
-    private lateinit var counter: TextView
-    private lateinit var options: View
-    private lateinit var matchCaseButton: TextView
-    private lateinit var wholeWordsButton: TextView
-    private val replaceViews = mutableListOf<View>()
-
-    val view: View = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
-        // As the toolbar
-        val background = android.util.TypedValue()
-        context.theme.resolveAttribute(android.R.attr.colorBackground, background, true)
-        setBackgroundColor(background.data)
-        elevation = 4 * density
+    val view: View = ComposeView(context).apply {
+        setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
         isVisible = false
-        addView(mainRow())
-        options = optionsRow()
-        addView(options)
-        Accessibility.pane(this, context.getString(Resources.string.editors_search))
+        setContent { EditorTheme { Bar() } }
     }
 
     val isShown get() = view.isVisible
 
     fun show() {
         // Replacing only while the document can be edited
-        replaceViews.forEach { it.isVisible = target.canReplace }
+        canReplace = target.canReplace
         view.isVisible = true
-        findText.requestFocus()
-        findText.selectAll()
-        context.getSystemService(InputMethodManager::class.java)?.showSoftInput(findText, 0)
+        // The text found before, selected: typing replaces it
+        findText = findText.copy(selection = TextRange(0, findText.text.length))
+        shown++
     }
 
     fun hide() {
@@ -77,17 +103,17 @@ internal class SearchBar(private val context: Context, private val target: Targe
         context.getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(view.windowToken, 0)
         view.isVisible = false
         searched = null
-        counter.text = ""
+        counter = ""
         target.close()
     }
 
     /** The matches after a search; null when there is none. */
     fun update(search: SearchState?) {
         if (search == null || searched == null) {
-            counter.text = ""
+            counter = ""
             return
         }
-        counter.text = when {
+        counter = when {
             search.replaced >= 0 -> context.getString(Resources.string.editors_search_replaced, search.replaced)
             search.count == 0 -> context.getString(Resources.string.editors_search_none)
             search.current >= 0 -> context.getString(Resources.string.editors_search_count, search.current + 1, search.count)
@@ -96,114 +122,107 @@ internal class SearchBar(private val context: Context, private val target: Targe
     }
 
     private fun find(forward: Boolean) {
-        val text = findText.text.toString()
+        val text = findText.text
         if (text.isEmpty()) return
         searched = text
         target.find(text, matchCase, wholeWords, forward)
     }
 
     private fun replace(all: Boolean) {
-        val text = findText.text.toString()
+        val text = findText.text
         if (text.isEmpty()) return
         searched = text
-        target.replace(text, replaceText.text.toString(), matchCase, wholeWords, all)
+        target.replace(text, replaceText, matchCase, wholeWords, all)
+    }
+
+    // A changed search isn't the one the results are for
+    private fun changed() {
+        searched = null
+        counter = ""
     }
 
     // ---------------------------------------------------------------------------------
-    // Views
 
-    private fun dp(value: Int) = (value * density).toInt()
-
-    private fun mainRow() = LinearLayout(context).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPaddingRelative(dp(8), 0, 0, 0)
-        findText = field(Resources.string.editors_search_find).apply {
-            imeOptions = EditorInfo.IME_ACTION_SEARCH
-            setOnEditorActionListener { _, actionId, event ->
-                // Hardware Enter comes as a key down and up and may follow as an action: only the down counts
-                val isAction = event == null && actionId == EditorInfo.IME_ACTION_SEARCH
-                val isEnter = event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN
-                if (isAction || isEnter) find(forward = true)
-                isAction || event?.keyCode == KeyEvent.KEYCODE_ENTER
-            }
-            addTextChangedListener(object : TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                override fun afterTextChanged(s: Editable?) {
-                    if (s.toString() != searched) {
-                        searched = null
-                        counter.text = ""
+    @Composable
+    private fun Bar() {
+        val title = stringResource(Resources.string.editors_search)
+        val focus = remember { FocusRequester() }
+        LaunchedEffect(shown) {
+            if (shown > 0) focus.requestFocus()
+        }
+        Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.semantics { paneTitle = title }) {
+            Column(Modifier.padding(bottom = 8.dp)) {
+                Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = findText,
+                        onValueChange = {
+                            if (it.text != findText.text) changed()
+                            findText = it
+                        },
+                        placeholder = { Text(stringResource(Resources.string.editors_search_find)) },
+                        leadingIcon = { Icon(painterResource(Resources.drawable.ic_editor_search), null) },
+                        suffix = if (counter.isNotEmpty()) {
+                            { Text(counter, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.bodySmall) }
+                        } else null,
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.extraLarge,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { find(forward = true) }),
+                        modifier = Modifier.weight(1f).padding(vertical = 4.dp).focusRequester(focus)
+                            // Hardware Enter finds the next one
+                            .onPreviewKeyEvent { event ->
+                                val enter = event.key == Key.Enter || event.key == Key.NumPadEnter
+                                if (enter && event.type == KeyEventType.KeyDown) find(forward = true)
+                                enter
+                            }
+                    )
+                    IconButton(onClick = { find(forward = false) }) {
+                        Icon(painterResource(Resources.drawable.ic_editor_up), stringResource(Resources.string.editors_search_previous))
+                    }
+                    IconButton(onClick = { find(forward = true) }) {
+                        Icon(painterResource(Resources.drawable.ic_editor_down), stringResource(Resources.string.editors_search_next))
+                    }
+                    IconToggleButton(checked = showsOptions, onCheckedChange = { showsOptions = it }) {
+                        Icon(painterResource(Resources.drawable.ic_editor_find_replace), stringResource(Resources.string.editors_search_options))
+                    }
+                    IconButton(onClick = ::hide) {
+                        Icon(painterResource(Resources.drawable.ic_editor_close), stringResource(Resources.string.editors_search_close))
                     }
                 }
-            })
+                AnimatedVisibility(showsOptions) { Options() }
+            }
         }
-        addView(findText)
-        counter = TextView(context).apply {
-            setPaddingRelative(dp(4), 0, dp(4), 0)
-            Accessibility.live(this)
-        }
-        addView(counter)
-        addView(iconButton(Resources.drawable.ic_editor_up, Resources.string.editors_search_previous) { find(forward = false) })
-        addView(iconButton(Resources.drawable.ic_editor_down, Resources.string.editors_search_next) { find(forward = true) })
-        addView(iconButton(Resources.drawable.ic_editor_find_replace, Resources.string.editors_search_options) {
-            options.isVisible = !options.isVisible
-        })
-        addView(iconButton(Resources.drawable.ic_editor_close, Resources.string.editors_search_close) { hide() })
     }
 
-    private fun optionsRow() = LinearLayout(context).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPaddingRelative(dp(8), 0, dp(8), dp(4))
-        isVisible = false
-        matchCaseButton = textButton(context.getString(Resources.string.editors_search_match_case)) {
-            matchCase = !matchCase
-            matchCaseButton.isSelected = matchCase
-            searched = null
+    @Composable
+    private fun Options() {
+        Column(Modifier.padding(horizontal = 12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = matchCase, onClick = {
+                    matchCase = !matchCase
+                    changed()
+                }, label = { Text(stringResource(Resources.string.editors_search_match_case)) })
+                FilterChip(selected = wholeWords, onClick = {
+                    wholeWords = !wholeWords
+                    changed()
+                }, label = { Text(stringResource(Resources.string.editors_search_whole_words)) })
+            }
+            if (canReplace) {
+                OutlinedTextField(
+                    value = replaceText,
+                    onValueChange = { replaceText = it },
+                    placeholder = { Text(stringResource(Resources.string.editors_search_replace_with)) },
+                    leadingIcon = { Icon(painterResource(Resources.drawable.ic_editor_find_replace), null) },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.extraLarge,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                )
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { replace(all = false) }) { Text(stringResource(Resources.string.editors_search_replace)) }
+                    TextButton(onClick = { replace(all = true) }) { Text(stringResource(Resources.string.editors_search_replace_all)) }
+                }
+            }
         }
-        addView(matchCaseButton)
-        Accessibility.toggle(matchCaseButton)
-        wholeWordsButton = textButton(context.getString(Resources.string.editors_search_whole_words)) {
-            wholeWords = !wholeWords
-            wholeWordsButton.isSelected = wholeWords
-            searched = null
-        }
-        addView(wholeWordsButton)
-        Accessibility.toggle(wholeWordsButton)
-        replaceText = field(Resources.string.editors_search_replace_with)
-        addView(replaceText)
-        replaceViews += replaceText
-        replaceViews += textButton(context.getString(Resources.string.editors_search_replace)) { replace(all = false) }.also { addView(it) }
-        replaceViews += textButton(context.getString(Resources.string.editors_search_replace_all)) { replace(all = true) }.also { addView(it) }
-    }
-
-    private fun field(hint: Int) = EditText(context).apply {
-        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        setHint(hint)
-        isSingleLine = true
-        inputType = InputType.TYPE_CLASS_TEXT
-        textSize = 16f
-    }
-
-    private fun iconButton(icon: Int, description: Int, onClick: () -> Unit) = ImageButton(context).apply {
-        layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
-        setImageResource(icon)
-        contentDescription = context.getString(description)
-        setPaddingRelative(dp(10), dp(12), dp(10), dp(12))
-        scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
-        setBackgroundResource(R.drawable.editor_tool_background)
-        setOnClickListener { onClick() }
-    }
-
-    private fun textButton(text: String, onClick: () -> Unit) = TextView(context).apply {
-        this.text = text
-        gravity = Gravity.CENTER
-        textSize = 14f
-        minWidth = dp(48)
-        minHeight = dp(48)
-        setPaddingRelative(dp(8), 0, dp(8), 0)
-        setBackgroundResource(R.drawable.editor_tool_background)
-        setOnClickListener { onClick() }
     }
 }

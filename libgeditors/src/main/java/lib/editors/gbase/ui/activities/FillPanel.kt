@@ -3,26 +3,53 @@ package lib.editors.gbase.ui.activities
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.BitmapShader
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Shader
-import android.graphics.drawable.BitmapDrawable
-import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.InsetDrawable
-import android.graphics.drawable.LayerDrawable
-import android.graphics.drawable.ShapeDrawable
-import android.graphics.drawable.shapes.RectShape
 import android.util.Base64
-import android.view.Gravity
-import android.view.View
-import android.view.ViewGroup
-import android.widget.GridLayout
-import android.widget.HorizontalScrollView
-import android.widget.LinearLayout
-import android.widget.TextView
-import androidx.core.content.ContextCompat
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.ImageShader
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.scale
+import androidx.core.graphics.set
+import androidx.core.graphics.toColorInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -33,11 +60,17 @@ import lib.editors.base.engine.FillResources
 import lib.editors.base.engine.FillTarget
 import lib.editors.base.engine.GradientStop
 import lib.editors.base.engine.ShapeFill
-import lib.editors.gbase.R
+import lib.editors.gbase.ui.commands.Command
+import lib.editors.gbase.ui.commands.CommandGroup
+import lib.editors.gbase.ui.commands.CommandPanel
+import lib.editors.gbase.ui.commands.StepperControls
+import lib.editors.gbase.ui.commands.composePanel
+import kotlin.math.cos
+import kotlin.math.sin
 import lib.editors.resources.R as Resources
 
 /**
- * The fill of the selected shapes or the slide's background, in a panel (see [PanelHost]) as
+ * The fill of the selected shapes or the slide's background as commands (see [commands]), as
  * web-apps' shape settings have it: a color, a gradient (linear at an angle or radial, its stops'
  * colors and positions), a pattern with its two colors, a texture or a picture (stretched or
  * tiled). Each change applies at once.
@@ -63,27 +96,27 @@ internal class FillPanel(
 
     private val density = context.resources.displayMetrics.density
     private var fillResources: FillResources? = null
-    private var textures: List<Bitmap?> = emptyList()
+    private var textures: List<ImageBitmap?> = emptyList()
 
-    private lateinit var target: FillTarget
-    private lateinit var onBack: () -> Unit
-    private var fill: ShapeFill = ShapeFill.None
-    private var kind = Kind.COLOR
+    // The target loaded (the commands show none before)
+    private var target by mutableStateOf<FillTarget?>(null)
+    // What the commands show: they are drawn anew as they change
+    private var fill by mutableStateOf<ShapeFill>(ShapeFill.None)
+    private var kind by mutableStateOf(Kind.COLOR)
     // The last picture chosen here: tiling it again needs no new one
     private var picture: ShapeFill.Picture? = null
 
-    /** Shows the fill of [target], then goes back with [onBack]. */
-    fun show(target: FillTarget, onBack: () -> Unit) {
+    /** Loads the fill of [target] (and the patterns, textures and theme colors) for [commands]; then [onLoaded]. */
+    fun load(target: FillTarget, onLoaded: () -> Unit = {}) {
         val document = document() ?: return
-        this.target = target
-        this.onBack = onBack
+        this.target = null
         scope.launch {
             val (current, loaded) = withContext(EditorEngine.dispatcher) {
                 runCatching { document.fill(target) }.getOrNull() to (fillResources ?: runCatching { document.fillResources() }.getOrNull())
             }
             if (fillResources == null && loaded != null) {
                 fillResources = loaded
-                textures = loaded.textures.map(::decodeDataUrl)
+                textures = loaded.textures.map { decodeDataUrl(it)?.asImageBitmap() }
             }
             fill = current ?: ShapeFill.None
             kind = when (fill) {
@@ -93,185 +126,233 @@ internal class FillPanel(
                 is ShapeFill.Picture -> Kind.PICTURE
                 else -> Kind.COLOR
             }
-            colorPicker.load { render() }
+            colorPicker.load {
+                this@FillPanel.target = target
+                onLoaded()
+            }
         }
     }
 
-    // The panel again, for the current fill and kind
-    private fun render() {
-        val content = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
-            addView(pills(Kind.entries.map { context.getString(it.label) }, Kind.entries.indexOf(kind)) { index ->
-                kind = Kind.entries[index]
-                render()
-            })
-            when (kind) {
-                Kind.COLOR -> colorSettings()
-                Kind.GRADIENT -> gradientSettings()
-                Kind.PATTERN -> patternSettings()
-                Kind.TEXTURE -> textureSettings()
-                Kind.PICTURE -> pictureSettings()
-            }
+    /** Shows the fill of [target] in a panel of its own, then goes back with [onBack]. */
+    fun show(target: FillTarget, onBack: () -> Unit) {
+        fun render() {
+            panels.show(context.getString(Resources.string.editors_fill_more), composePanel(context) { CommandPanel { commands(::render) } }, onBack) {}
         }
-        panels.show(context.getString(Resources.string.editors_fill_more), content, onBack) {}
+        load(target, ::render)
+    }
+
+    /** The fill's kind and its settings; pages opened from them (all colors) go [back]. */
+    fun commands(back: () -> Unit): List<CommandGroup> {
+        val target = target ?: return emptyList()
+        val kinds = Command.Choice(Resources.string.editors_shape_fill, Resources.drawable.ic_editor_shading, Kind.entries.map { context.getString(it.label) }, { kind.ordinal }) { index ->
+            choose(Kind.entries[index])
+        }
+        val settings = when (kind) {
+            Kind.COLOR -> colorCommands(target, back)
+            Kind.GRADIENT -> gradientCommands(back)
+            Kind.PATTERN -> patternCommands(back)
+            Kind.TEXTURE -> listOf(Command.Custom(Resources.string.editors_fill_texture) { Textures() })
+            Kind.PICTURE -> pictureCommands()
+        }
+        return listOf(CommandGroup(listOf(kinds)), CommandGroup(settings))
+    }
+
+    // A kind chosen: gradients and patterns apply one at once, the others once one is chosen
+    private fun choose(chosen: Kind) {
+        kind = chosen
+        if (chosen == Kind.GRADIENT && fill !is ShapeFill.Gradient) apply(defaultGradient())
+        if (chosen == Kind.PATTERN && fill !is ShapeFill.Pattern) apply(ShapeFill.Pattern(0, "theme:1", "theme:0"))
     }
 
     private fun apply(newFill: ShapeFill) {
         fill = newFill
+        val target = target ?: return
         edit { setFill(target, newFill) }
     }
 
-    // ---------------------------------------------------------------------------------
+    private fun hex(color: String, default: String) = colorPicker.colors.hexOf(color) ?: default
 
-    private fun LinearLayout.colorSettings() {
-        val none = if (target == FillTarget.SHAPE) Resources.string.editors_color_none else null
-        val row = colorPicker.Row(Resources.string.editors_fill_color, none, ::render) { color ->
-            apply(if (color == null) ShapeFill.None else ShapeFill.Solid(color))
+    // A color as the sheet shows one, "#rrggbb"
+    private fun shown(color: String?) = color?.let { colorPicker.colors.hexOf(it) }?.ifEmpty { null }?.let { "#$it" }
+
+    // A row with the color, all of them in its page
+    private fun colorCommand(label: Int, color: () -> String?, none: Int?, back: () -> Unit, onColor: (String?) -> Unit): Command {
+        val choose = {
+            colorPicker.choose(context.getString(label), color()?.let { colorPicker.colors.hexOf(it) }, none, back, onColor)
         }
-        row.mark(when (val current = fill) {
-            is ShapeFill.Solid -> current.color
-            ShapeFill.None -> ""
-            else -> null
-        })
-        addView(row.view)
+        return Command.Split(label, Resources.drawable.ic_editor_shading, { shown(color()) }, apply = choose, more = choose)
     }
 
-    private fun LinearLayout.gradientSettings() {
-        val gradient = fill as? ShapeFill.Gradient ?: defaultGradient().also { apply(it) }
-        addView(View(context).apply { background = gradientDrawable(gradient) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply {
-            topMargin = dp(12)
-            bottomMargin = dp(4)
+    // ---------------------------------------------------------------------------------
+
+    private fun colorCommands(target: FillTarget, back: () -> Unit): List<Command> {
+        val none = if (target == FillTarget.SHAPE) Resources.string.editors_color_none else null
+        return listOf(colorCommand(Resources.string.editors_fill_color, { (fill as? ShapeFill.Solid)?.color }, none, back) { color ->
+            apply(if (color == null) ShapeFill.None else ShapeFill.Solid(color))
         })
-        addView(pills(listOf(context.getString(Resources.string.editors_fill_linear), context.getString(Resources.string.editors_fill_radial)), if (gradient.radial) 1 else 0) {
-            apply(gradient.copy(radial = it == 1))
-            render()
-        })
-        if (!gradient.radial) {
-            caption(Resources.string.editors_fill_angle)
-            stepper(Resources.string.editors_fill_angle, context.getString(Resources.string.editors_fill_degrees, gradient.angle)) { up ->
-                apply(gradient.copy(angle = Math.floorMod(gradient.angle + if (up) ANGLE_STEP else -ANGLE_STEP, 360)))
-                render()
-            }
+    }
+
+    private fun gradientCommands(back: () -> Unit): List<Command> {
+        val gradient = fill as? ShapeFill.Gradient ?: defaultGradient()
+        val stops = gradient.stops.mapIndexed { index, stop ->
+            Command.Custom(Resources.string.editors_fill_stops) { Stop(gradient, index, stop, back) }
         }
-        caption(Resources.string.editors_fill_stops)
-        gradient.stops.forEachIndexed { index, stop ->
-            addView(LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                // The stop's color: all colors in the panel's place
-                addView(View(context).apply {
-                    background = InsetDrawable(swatchDrawable(context, colorPicker.colors.hexOf(stop.color).orEmpty(), false), dp(6))
-                    contentDescription = context.getString(Resources.string.editors_fill_stop, index + 1) + ", " +
-                        Accessibility.colorName(context, colorPicker.colors.hexOf(stop.color).orEmpty())
-                    setOnClickListener {
-                        colorPicker.choose(context.getString(Resources.string.editors_fill_stop, index + 1), colorPicker.colors.hexOf(stop.color), null, ::render) { color ->
+        return listOfNotNull(
+            Command.Custom(Resources.string.editors_fill_gradient) { GradientPreview(gradient) },
+            Command.Segments(Resources.string.editors_fill_gradient, listOf(
+                Command.Toggle(Resources.string.editors_fill_linear, null, { !gradient.radial }) { apply(gradient.copy(radial = false)) },
+                Command.Toggle(Resources.string.editors_fill_radial, null, { gradient.radial }) { apply(gradient.copy(radial = true)) }
+            )),
+            if (gradient.radial) null else Command.Stepper(Resources.string.editors_fill_angle, value = { context.getString(Resources.string.editors_fill_degrees, gradient.angle) },
+                down = { apply(gradient.copy(angle = Math.floorMod(gradient.angle - ANGLE_STEP, 360))) },
+                up = { apply(gradient.copy(angle = Math.floorMod(gradient.angle + ANGLE_STEP, 360))) })
+        ) + stops + listOfNotNull(
+            if (gradient.stops.size < MAX_STOPS) Command.Action(Resources.string.editors_fill_add_stop, Resources.drawable.ic_editor_add) {
+                // Between the two stops furthest apart, in the color of the first of them
+                val (first, second) = gradient.stops.zipWithNext().maxByOrNull { (a, b) -> b.position - a.position } ?: return@Action
+                val stop = GradientStop(first.color, (first.position + second.position) / 2)
+                apply(gradient.copy(stops = (gradient.stops + stop).sortedBy { it.position }))
+            } else null
+        )
+    }
+
+    private fun patternCommands(back: () -> Unit): List<Command> {
+        val pattern = fill as? ShapeFill.Pattern ?: return emptyList()
+        return listOf(
+            Command.Custom(Resources.string.editors_fill_pattern) { Patterns(pattern) },
+            colorCommand(Resources.string.editors_fill_foreground, { pattern.foreground }, null, back) { color -> if (color != null) apply(pattern.copy(foreground = color)) },
+            colorCommand(Resources.string.editors_fill_background, { pattern.background }, null, back) { color -> if (color != null) apply(pattern.copy(background = color)) }
+        )
+    }
+
+    private fun pictureCommands(): List<Command> {
+        val current = fill as? ShapeFill.Picture
+        return listOfNotNull(
+            Command.Action(Resources.string.editors_fill_choose_picture, Resources.drawable.ic_editor_image) {
+                pickPicture { name, width, height ->
+                    val chosen = ShapeFill.Picture(name, width, height, tile = current?.tile == true)
+                    picture = chosen
+                    apply(chosen)
+                }
+            },
+            current?.let {
+                // The engine keeps the shape's picture when given none
+                fun tile(on: Boolean) {
+                    val tiled = (picture ?: ShapeFill.Picture()).copy(tile = on)
+                    picture = tiled
+                    apply(tiled)
+                }
+                Command.Segments(Resources.string.editors_fill_tile, listOf(
+                    Command.Toggle(Resources.string.editors_fill_stretch, null, { !it.tile }) { tile(false) },
+                    Command.Toggle(Resources.string.editors_fill_tile, null, { it.tile }) { tile(true) }
+                ))
+            }
+        )
+    }
+
+    // ---------------------------------------------------------------------------------
+    // What the commands don't draw
+
+    @Composable
+    private fun GradientPreview(gradient: ShapeFill.Gradient) {
+        val colors = gradient.stops.map { stop -> stop.position / 100f to Color(("#" + hex(stop.color, "FFFFFF")).toColorInt()) }.toTypedArray()
+        Box(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).height(40.dp).clip(RoundedCornerShape(8.dp))
+                .drawBehind {
+                    val brush = if (gradient.radial) {
+                        Brush.radialGradient(*colors, center = center, radius = maxOf(size.width, size.height) / 2)
+                    } else {
+                        // The direction at the angle, across the bar
+                        val radians = Math.toRadians(gradient.angle.toDouble())
+                        val dx = (cos(radians) * size.width / 2).toFloat()
+                        val dy = (sin(radians) * size.height / 2).toFloat()
+                        Brush.linearGradient(*colors, start = center - Offset(dx, dy), end = center + Offset(dx, dy))
+                    }
+                    drawRect(brush)
+                }
+        )
+    }
+
+    // A stop: its color (all colors in a page), its position, removing it
+    @Composable
+    private fun Stop(gradient: ShapeFill.Gradient, index: Int, stop: GradientStop, back: () -> Unit) {
+        val name = stringResource(Resources.string.editors_fill_stop, index + 1)
+        val hex = hex(stop.color, "")
+        val description = name + ", " + Accessibility.colorName(context, hex)
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp).height(56.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(32.dp).clip(CircleShape).background(runCatching { Color("#$hex".toColorInt()) }.getOrDefault(Color.Transparent))
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                    .clickable {
+                        colorPicker.choose(name, colorPicker.colors.hexOf(stop.color), null, back) { color ->
                             if (color != null) apply(gradient.copy(stops = gradient.stops.toMutableList().also { it[index] = stop.copy(color = color) }))
                         }
                     }
-                }, LinearLayout.LayoutParams(dp(48), dp(48)))
-                stepper(Resources.string.editors_fill_stop_position, context.getString(Resources.string.editors_fill_percent, stop.position)) { up ->
-                    val position = (stop.position + if (up) POSITION_STEP else -POSITION_STEP).coerceIn(0, 100)
-                    apply(gradient.copy(stops = gradient.stops.toMutableList().also { it[index] = stop.copy(position = position) }.sortedBy { it.position }))
-                    render()
-                }
-                if (gradient.stops.size > 2) {
-                    addView(TextView(context).apply {
-                        text = "×"
-                        textSize = 20f
-                        gravity = Gravity.CENTER
-                        contentDescription = context.getString(Resources.string.editors_fill_remove_stop)
-                        setBackgroundResource(R.drawable.editor_tool_background)
-                        setOnClickListener {
-                            apply(gradient.copy(stops = gradient.stops.filterIndexed { i, _ -> i != index }))
-                            render()
-                        }
-                    }, LinearLayout.LayoutParams(dp(48), dp(48)))
-                }
+                    .semantics { contentDescription = description }
+            )
+            Text(name, Modifier.weight(1f).padding(start = 16.dp), style = MaterialTheme.typography.bodyLarge)
+            StepperControls(stringResource(Resources.string.editors_fill_stop_position), stringResource(Resources.string.editors_fill_percent, stop.position), true, {
+                move(gradient, index, -POSITION_STEP)
+            }, {
+                move(gradient, index, POSITION_STEP)
             })
-        }
-        if (gradient.stops.size < MAX_STOPS) {
-            addView(button(Resources.string.editors_fill_add_stop) {
-                // Between the two stops furthest apart, in the color of the first of them
-                val pairs = gradient.stops.zipWithNext()
-                val (first, second) = pairs.maxByOrNull { (a, b) -> b.position - a.position } ?: return@button
-                val stop = GradientStop(first.color, (first.position + second.position) / 2)
-                apply(gradient.copy(stops = (gradient.stops + stop).sortedBy { it.position }))
-                render()
-            })
+            if (gradient.stops.size > 2) {
+                IconButton(onClick = { apply(gradient.copy(stops = gradient.stops.filterIndexed { i, _ -> i != index })) }) {
+                    Icon(painterResource(Resources.drawable.ic_editor_close), stringResource(Resources.string.editors_fill_remove_stop))
+                }
+            }
         }
     }
 
-    private fun LinearLayout.patternSettings() {
+    private fun move(gradient: ShapeFill.Gradient, index: Int, by: Int) {
+        val stop = gradient.stops[index]
+        val position = (stop.position + by).coerceIn(0, 100)
+        apply(gradient.copy(stops = gradient.stops.toMutableList().also { it[index] = stop.copy(position = position) }.sortedBy { it.position }))
+    }
+
+    @Composable
+    private fun Patterns(pattern: ShapeFill.Pattern) {
         val patterns = fillResources?.patterns.orEmpty()
-        val pattern = fill as? ShapeFill.Pattern ?: ShapeFill.Pattern(0, "theme:1", "theme:0").also { apply(it) }
-        val foreground = colorPicker.colors.hexOf(pattern.foreground) ?: "000000"
-        val background = colorPicker.colors.hexOf(pattern.background) ?: "FFFFFF"
-        addView(grid(patterns.size, CELL_DP) { index, cell ->
-            cell.background = LayerDrawable(arrayOf(patternDrawable(patterns[index], foreground, background), selection(index == pattern.pattern)))
-            cell.contentDescription = context.getString(Resources.string.editors_fill_pattern) + " " + (index + 1)
-            cell.setOnClickListener {
-                apply(pattern.copy(pattern = index))
-                render()
-            }
-        })
-        caption(Resources.string.editors_fill_foreground)
-        addView(colorPicker.Row(Resources.string.editors_fill_foreground, null, ::render) { color ->
-            if (color != null) {
-                apply(pattern.copy(foreground = color))
-                render()
-            }
-        }.also { it.mark(foreground) }.view)
-        caption(Resources.string.editors_fill_background)
-        addView(colorPicker.Row(Resources.string.editors_fill_background, null, ::render) { color ->
-            if (color != null) {
-                apply(pattern.copy(background = color))
-                render()
-            }
-        }.also { it.mark(background) }.view)
+        val foreground = hex(pattern.foreground, "000000")
+        val background = hex(pattern.background, "FFFFFF")
+        val name = stringResource(Resources.string.editors_fill_pattern)
+        Cells(patterns.size, CELL_DP.dp, { pattern.pattern == it }, { "$name ${it + 1}" }, { index ->
+            remember(index, foreground, background) { ShaderBrush(ImageShader(patternBitmap(patterns[index], foreground, background), TileMode.Repeated, TileMode.Repeated)) }
+        }) { apply(pattern.copy(pattern = it)) }
     }
 
-    private fun LinearLayout.textureSettings() {
+    @Composable
+    private fun Textures() {
         val names = context.resources.getStringArray(Resources.array.editors_fill_textures)
         val current = (fill as? ShapeFill.Texture)?.texture ?: -1
-        addView(grid(textures.size, TEXTURE_DP) { index, cell ->
-            val texture = textures[index]
-            cell.background = LayerDrawable(arrayOf(
-                texture?.let { BitmapDrawable(context.resources, it).apply { setTileModeXY(Shader.TileMode.REPEAT, Shader.TileMode.REPEAT) } }
-                    ?: GradientDrawable(), selection(index == current)
-            ))
-            cell.contentDescription = names.getOrNull(index) ?: (context.getString(Resources.string.editors_fill_texture) + " " + (index + 1))
-            androidx.appcompat.widget.TooltipCompat.setTooltipText(cell, cell.contentDescription)
-            cell.setOnClickListener {
-                apply(ShapeFill.Texture(index))
-                render()
-            }
-        })
+        val other = stringResource(Resources.string.editors_fill_texture)
+        Cells(textures.size, TEXTURE_DP.dp, { it == current }, { names.getOrNull(it) ?: "$other ${it + 1}" }, { index ->
+            textures[index]?.let { remember(it) { ShaderBrush(ImageShader(it, TileMode.Repeated, TileMode.Repeated)) } }
+        }) { apply(ShapeFill.Texture(it)) }
     }
 
-    private fun LinearLayout.pictureSettings() {
-        val current = fill as? ShapeFill.Picture
-        addView(button(Resources.string.editors_fill_choose_picture) {
-            pickPicture { name, width, height ->
-                val chosen = ShapeFill.Picture(name, width, height, tile = current?.tile == true)
-                picture = chosen
-                apply(chosen)
-                render()
+    // [count] cells of [size], as many in a row as fit, each filled by its [brush]
+    @Composable
+    private fun Cells(count: Int, size: Dp, isSelected: (Int) -> Boolean, describe: (Int) -> String, brush: @Composable (Int) -> Brush?, onChoose: (Int) -> Unit) {
+        FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (index in 0 until count) {
+                val selected = isSelected(index)
+                val fill = brush(index)
+                val shape = RoundedCornerShape(8.dp)
+                val description = describe(index)
+                Box(
+                    Modifier.size(size).clip(shape)
+                        .drawBehind { if (fill != null) drawRect(fill) }
+                        .border(if (selected) BorderStroke(3.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape)
+                        .clickable { onChoose(index) }
+                        .semantics {
+                            contentDescription = description
+                            this.selected = selected
+                        }
+                )
             }
-        })
-        if (current != null) {
-            addView(pills(listOf(context.getString(Resources.string.editors_fill_stretch), context.getString(Resources.string.editors_fill_tile)), if (current.tile) 1 else 0) {
-                // The engine keeps the shape's picture when given none
-                val tiled = (picture ?: ShapeFill.Picture()).copy(tile = it == 1)
-                picture = tiled
-                apply(tiled)
-                render()
-            })
         }
     }
-
-    // ---------------------------------------------------------------------------------
-    // Views
 
     // From the current solid color (or the theme's first accent) to white
     private fun defaultGradient(): ShapeFill.Gradient {
@@ -279,137 +360,20 @@ internal class FillPanel(
         return ShapeFill.Gradient(listOf(GradientStop(from, 0), GradientStop("FFFFFF", 100)), angle = 90)
     }
 
-    private fun gradientDrawable(gradient: ShapeFill.Gradient): Drawable {
-        val colors = gradient.stops.map { Color.parseColor("#" + (colorPicker.colors.hexOf(it.color) ?: "FFFFFF")) }.toIntArray()
-        val positions = gradient.stops.map { it.position / 100f }.toFloatArray()
-        return ShapeDrawable(RectShape()).apply {
-            shaderFactory = object : ShapeDrawable.ShaderFactory() {
-                override fun resize(width: Int, height: Int): Shader = if (gradient.radial) {
-                    android.graphics.RadialGradient(width / 2f, height / 2f, maxOf(width, height) / 2f, colors, positions, Shader.TileMode.CLAMP)
-                } else {
-                    // The direction at the angle, across the bar
-                    val radians = Math.toRadians(gradient.angle.toDouble())
-                    val dx = (Math.cos(radians) * width / 2).toFloat()
-                    val dy = (Math.sin(radians) * height / 2).toFloat()
-                    android.graphics.LinearGradient(width / 2f - dx, height / 2f - dy, width / 2f + dx, height / 2f + dy, colors, positions, Shader.TileMode.CLAMP)
-                }
-            }
-        }
-    }
-
-    // The 8 x 8 pattern ("0" foreground, "1" background) in its colors, repeated in steps of 3 dp
-    private fun patternDrawable(bits: String, foreground: String, background: String): Drawable {
-        val fg = Color.parseColor("#$foreground")
-        val bg = Color.parseColor("#$background")
-        val tile = Bitmap.createBitmap(PATTERN_SIZE, PATTERN_SIZE, Bitmap.Config.ARGB_8888)
-        for (i in 0 until PATTERN_SIZE * PATTERN_SIZE) tile.setPixel(i % PATTERN_SIZE, i / PATTERN_SIZE, if (bits.getOrNull(i) == '0') fg else bg)
-        val scaled = Bitmap.createScaledBitmap(tile, PATTERN_SIZE * dp(3).coerceAtLeast(1), PATTERN_SIZE * dp(3).coerceAtLeast(1), false)
-        return ShapeDrawable(RectShape()).apply {
-            paint.shader = BitmapShader(scaled, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
-            paint.style = Paint.Style.FILL
-        }
-    }
-
-    private fun selection(selected: Boolean) = GradientDrawable().apply {
-        setColor(Color.TRANSPARENT)
-        val color = ContextCompat.getColor(context, if (selected) Resources.color.editors_selection_handle else Resources.color.editors_sheet_header_line)
-        setStroke(dp(if (selected) 3 else 1), color)
-    }
-
-    // count cells of size dp, as many in a row as fit
-    private fun grid(count: Int, size: Int, bind: (Int, View) -> Unit): View {
-        val cell = dp(size)
-        val columns = ((panels.width - dp(32)) / (cell + dp(8))).coerceAtLeast(3)
-        return GridLayout(context).apply {
-            columnCount = columns
-            setPaddingRelative(0, dp(8), 0, dp(8))
-            for (index in 0 until count) {
-                addView(View(context).apply {
-                    Accessibility.toggle(this)
-                    bind(index, this)
-                }, GridLayout.LayoutParams().apply {
-                    width = cell
-                    height = cell
-                    setMargins(dp(4), dp(4), dp(4), dp(4))
-                })
-            }
-        }
-    }
-
-    // One of several choices: buttons, the chosen one marked
-    private fun pills(labels: List<String>, selected: Int, onChoose: (Int) -> Unit): View {
-        val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-        labels.forEachIndexed { index, label ->
-            row.addView(TextView(context).apply {
-                text = label
-                textSize = 14f
-                gravity = Gravity.CENTER
-                minHeight = dp(48)
-                setPaddingRelative(dp(12), 0, dp(12), 0)
-                setBackgroundResource(R.drawable.editor_tool_background)
-                Accessibility.toggle(this)
-                isSelected = index == selected
-                setOnClickListener { if (index != selected) onChoose(index) }
-            })
-        }
-        return HorizontalScrollView(context).apply {
-            isHorizontalScrollBarEnabled = false
-            addView(row)
-        }
-    }
-
-    private fun LinearLayout.caption(text: Int) {
-        addView(TextView(context).apply {
-            setText(text)
-            setPaddingRelative(0, dp(12), 0, dp(4))
-        })
-    }
-
-    private fun button(text: Int, onClick: () -> Unit) = TextView(context).apply {
-        setText(text)
-        textSize = 15f
-        gravity = Gravity.CENTER_VERTICAL
-        minHeight = dp(48)
-        setPaddingRelative(dp(4), 0, dp(4), 0)
-        setTextColor(ContextCompat.getColor(context, Resources.color.editors_accent))
-        setBackgroundResource(R.drawable.editor_tool_background)
-        setOnClickListener { onClick() }
-    }
-
-    // A value between buttons that lower and raise it, named [name] to TalkBack
-    private fun LinearLayout.stepper(name: Int, value: String, change: (up: Boolean) -> Unit) {
-        val label = context.getString(name)
-        fun button(sign: String, up: Boolean, description: Int) = TextView(context).apply {
-            text = sign
-            textSize = 18f
-            gravity = Gravity.CENTER
-            minWidth = dp(48)
-            minHeight = dp(48)
-            setBackgroundResource(R.drawable.editor_tool_background)
-            contentDescription = label + ", " + context.getString(description)
-            setOnClickListener { change(up) }
-        }
-        addView(LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(button("−", false, Resources.string.editors_format_less))
-            addView(TextView(context).apply {
-                text = value
-                gravity = Gravity.CENTER
-                textSize = 15f
-                minWidth = dp(64)
-                contentDescription = "$label $value"
-            })
-            addView(button("+", true, Resources.string.editors_format_more))
-        })
+    // The 8 x 8 pattern ("0" foreground, "1" background) in its colors, its pixels 3 dp
+    private fun patternBitmap(bits: String, foreground: String, background: String): ImageBitmap {
+        val fg = "#$foreground".toColorInt()
+        val bg = "#$background".toColorInt()
+        val tile = createBitmap(PATTERN_SIZE, PATTERN_SIZE)
+        for (i in 0 until PATTERN_SIZE * PATTERN_SIZE) tile[i % PATTERN_SIZE, i / PATTERN_SIZE] = if (bits.getOrNull(i) == '0') fg else bg
+        val side = PATTERN_SIZE * (3 * density).toInt().coerceAtLeast(1)
+        return tile.scale(side, side, filter = false).asImageBitmap()
     }
 
     private fun decodeDataUrl(url: String): Bitmap? = runCatching {
         val bytes = Base64.decode(url.substring(url.indexOf(',') + 1), Base64.DEFAULT)
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     }.getOrNull()
-
-    private fun dp(value: Int) = (value * density).toInt()
 
     private companion object {
         const val ANGLE_STEP = 15

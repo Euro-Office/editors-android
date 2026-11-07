@@ -1,18 +1,36 @@
 package lib.editors.gbase.ui.activities
 
 import android.content.Context
-import android.graphics.Canvas
-import android.graphics.DashPathEffect
-import android.graphics.Paint
-import android.graphics.RectF
-import android.view.Gravity
-import android.view.View
-import android.view.ViewGroup
-import android.widget.GridLayout
 import android.widget.LinearLayout
-import android.widget.TextView
-import androidx.appcompat.widget.TooltipCompat
-import androidx.core.content.ContextCompat
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -23,10 +41,13 @@ import lib.editors.base.engine.DrawingOrder
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
+import lib.editors.base.engine.FillTarget
 import lib.editors.base.engine.OutlineDash
 import lib.editors.base.engine.ShapeShadow
 import lib.editors.base.engine.ShapeTextDirection
-import lib.editors.gbase.R
+import lib.editors.gbase.ui.commands.Command
+import lib.editors.gbase.ui.commands.CommandGroup
+import lib.editors.gbase.ui.commands.composePanel
 import lib.editors.resources.R as Resources
 
 /**
@@ -51,7 +72,9 @@ internal class ShapePanel(
     /** Grouping and ungrouping (not in PDFs). */
     private val withGroups: Boolean = true,
     /** All kinds of fills (see [FillPanel]), back to the format panel; null without them. */
-    private val chooseFill: ((onBack: () -> Unit) -> Unit)? = null
+    private val chooseFill: ((onBack: () -> Unit) -> Unit)? = null,
+    /** All kinds of fills as commands, for the command sheet; null without them. */
+    private val fills: FillPanel? = null
 ) : PanelBuilder<DrawingColors>(context) {
 
     /** The selected drawings: a [chart] or others with [colors]. */
@@ -179,6 +202,107 @@ internal class ShapePanel(
         updaters.forEach { it(colors) }
     }
 
+    /**
+     * The selected drawings' commands, for their tab in the command sheet: a chart's settings,
+     * the fill, opacity, outline and shadow, the text's direction, arranging. They show
+     * [current] (the drawings loaded anew after each [change]); pages opened from them go [back].
+     */
+    fun commands(current: () -> Selected?, change: (EditorDocument.() -> EditorState) -> Unit, back: () -> Unit): List<CommandGroup> {
+        val selected = current() ?: return emptyList()
+        val colors = { current()?.colors ?: selected.colors }
+        fun chooseFillColor() = colorPicker.choose(context.getString(Resources.string.editors_shape_fill), colors().fill, Resources.string.editors_color_none, back) { color ->
+            change { setShapeFill(color) }
+        }
+        val fill = listOfNotNull(
+            // Charts: the part the fill and outline go to
+            selected.colors.chartPart?.let {
+                Command.Segments(Resources.string.editors_chart_area, CHART_PARTS.map { (part, label) ->
+                    Command.Toggle(label, null, { colors().chartPart == part }) { change { setChartPart(part) } }
+                })
+            },
+            Command.Split(Resources.string.editors_shape_fill, Resources.drawable.ic_editor_shading, { colors().fill?.ifEmpty { null }?.let { "#$it" } },
+                apply = ::chooseFillColor, more = ::chooseFillColor),
+            fills?.let { panel ->
+                Command.Page(Resources.string.editors_fill_more, null, commands = { panel.commands(back) }, open = { panel.load(FillTarget.SHAPE) })
+            },
+            Command.Stepper(Resources.string.editors_shape_opacity, value = { context.getString(Resources.string.editors_fill_percent, colors().opacity) },
+                down = { change { setShapeOpacity(((colors().opacity + OPACITY_STEP - 1) / OPACITY_STEP * OPACITY_STEP - OPACITY_STEP).coerceIn(0, 100)) } },
+                up = { change { setShapeOpacity((colors().opacity / OPACITY_STEP * OPACITY_STEP + OPACITY_STEP).coerceIn(0, 100)) } }),
+            Command.Page(Resources.string.editors_shape_outline, Resources.drawable.ic_editor_border_color, commands = { outlineCommands(colors(), change, back) }),
+            // Not of charts (sdkjs gives them none)
+            selected.colors.shadow?.let {
+                Command.Value(Resources.string.editors_shape_shadow, value = { colors().shadow?.let { context.getString(SHADOWS.getValue(it)) }.orEmpty() }) {
+                    chooseShadow(colors().shadow, back) { shadow -> change { setShapeShadow(shadow) } }
+                }
+            }
+        )
+        val text = if (selected.hasText) listOf(
+            Command.Segments(Resources.string.editors_text_orientation, TEXT_DIRECTIONS.map { (label, direction) ->
+                Command.Toggle(label, null, { colors().textDirection == direction }) { change { setTextDirection(direction) } }
+            })
+        ) else emptyList()
+        val arrange = listOf(
+            Command.Action(Resources.string.editors_shape_front, null) { change { arrange(DrawingOrder.TO_FRONT) } },
+            Command.Action(Resources.string.editors_shape_back, null) { change { arrange(DrawingOrder.TO_BACK) } }
+        ) + if (withGroups) listOf(
+            Command.Action(Resources.string.editors_shape_group, null) { change { group(true) } },
+            Command.Action(Resources.string.editors_shape_ungroup, null) { change { group(false) } }
+        ) else emptyList()
+        return listOfNotNull(
+            selected.chart?.let { chart -> CommandGroup(chartCommands(chart, { current()?.chart }, change, back)) },
+            CommandGroup(fill),
+            text.takeIf { it.isNotEmpty() }?.let { CommandGroup(it) },
+            CommandGroup(arrange)
+        )
+    }
+
+    // A chart's type, style, titles, layout, axes (the vertical one first) and data
+    private fun chartCommands(chart: ChartState, live: () -> ChartState?, change: (EditorDocument.() -> EditorState) -> Unit, back: () -> Unit): List<Command> {
+        val type = InsertCatalog.CHARTS.flatMap { it.items }.firstOrNull { it.value == chart.type }
+        val axes = listOf(true, false).sortedBy { chartSettings.axisName(chart, it) != Resources.string.editors_chart_axis_vertical_settings }
+            .filter { if (it) chart.valueAxis != null else chart.categoryAxis != null }
+            .map { value ->
+                Command.Page(chartSettings.axisName(chart, value), null, commands = { live()?.let { chartSettings.axisCommands(it, value, change) }.orEmpty() })
+            }
+        return listOfNotNull(
+            Command.Value(Resources.string.editors_chart_type, type?.icon, value = { type?.let { context.getString(it.label) }.orEmpty() }) {
+                chartUi.chooseType(Resources.string.editors_chart_type, chart.type, onBack = back) { change { setChartType(it) } }
+            },
+            if (chart.styles > 0) Command.Value(Resources.string.editors_chart_style, value = { chart.style?.toString().orEmpty() }) {
+                chartSettings.chooseStyle(chart, back)
+            } else null,
+            Command.Page(Resources.string.editors_chart_titles, null, commands = { live()?.let { chartUi.titleCommands(it, change) }.orEmpty() }),
+            if (chart.layout != null) {
+                Command.Page(Resources.string.editors_chart_layout, null, commands = { live()?.let { chartSettings.layoutCommands(it, change) }.orEmpty() })
+            } else null
+        ) + axes + Command.Value(Resources.string.editors_chart_data, value = { chart.range.removePrefix("=") }) {
+            if (chart.dataInCells) chartUi.editRange(chart, back) else chartUi.editData(back)
+        }
+    }
+
+    // The outline's color ("none" without one), size and dashes, each keeping the others
+    private fun outlineCommands(colors: DrawingColors, change: (EditorDocument.() -> EditorState) -> Unit, back: () -> Unit): List<CommandGroup> {
+        val width = colors.outlineWidthMm?.takeIf { it > 0 } ?: DEFAULT_OUTLINE_POINTS * MM_PER_POINT
+        val color = colors.outline?.ifEmpty { null } ?: DEFAULT_OUTLINE_COLOR
+        fun chooseColor() = colorPicker.choose(context.getString(Resources.string.editors_shape_outline_color), colors.outline, Resources.string.editors_color_none, back) { chosen ->
+            change { setShapeOutline(chosen, width, colors.outlineDash) }
+        }
+        return listOf(CommandGroup(listOf(
+            Command.Split(Resources.string.editors_shape_outline_color, Resources.drawable.ic_editor_border_color, { colors.outline?.ifEmpty { null }?.let { "#$it" } },
+                apply = ::chooseColor, more = ::chooseColor),
+            Command.Stepper(Resources.string.editors_shape_outline_size, value = { points(width) }, down = {
+                val points = OUTLINE_POINTS.lastOrNull { it < width / MM_PER_POINT - 0.01 } ?: OUTLINE_POINTS.first()
+                change { setShapeOutline(color, points * MM_PER_POINT, colors.outlineDash) }
+            }, up = {
+                val points = OUTLINE_POINTS.firstOrNull { it > width / MM_PER_POINT + 0.01 } ?: OUTLINE_POINTS.last()
+                change { setShapeOutline(color, points * MM_PER_POINT, colors.outlineDash) }
+            }),
+            Command.Value(Resources.string.editors_shape_border_type, value = { context.getString(DASHES.getValue(colors.outlineDash)) }) {
+                chooseDash(colors.outlineDash, back) { dash -> change { setShapeOutline(color, width, dash) } }
+            }
+        )))
+    }
+
     // The outline being set in its panel (the drawings' colors, changed there)
     private var outline = DrawingColors(null, null)
 
@@ -232,23 +356,27 @@ internal class ShapePanel(
 
     // The dashes by pictures of them, the current one marked; a tap takes one and goes [back]
     private fun chooseDash(current: OutlineDash, back: () -> Unit, onDash: (OutlineDash) -> Unit) {
-        val list = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
-            for ((dash, name) in DASHES) {
-                addView(DashView(context, dash).apply {
-                    contentDescription = context.getString(name)
-                    isSelected = dash == current
-                    Accessibility.toggle(this)
-                    setBackgroundResource(R.drawable.editor_tool_background)
-                    setOnClickListener {
-                        onDash(dash)
-                        back()
+        val content = composePanel(context) {
+            Column(Modifier.padding(vertical = 8.dp)) {
+                for ((dash, name) in DASHES) {
+                    val description = stringResource(name)
+                    Row(
+                        Modifier.fillMaxWidth().height(48.dp)
+                            .selectable(selected = dash == current, role = Role.RadioButton) {
+                                onDash(dash)
+                                back()
+                            }
+                            .semantics { contentDescription = description }
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = dash == current, onClick = null)
+                        DashLine(dash, MaterialTheme.colorScheme.onSurface, Modifier.weight(1f).height(48.dp).padding(start = 16.dp))
                     }
-                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+                }
             }
         }
-        panels.show(context.getString(Resources.string.editors_shape_border_type), list, back) {}
+        panels.show(context.getString(Resources.string.editors_shape_border_type), content, back) {}
     }
 
     // The shadows by pictures of them (where they fall, as a 3 x 3 grid) and "none", the current
@@ -258,82 +386,41 @@ internal class ShapePanel(
             onShadow(shadow)
             back()
         }
-        val content = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(16), dp(8), dp(16), dp(24))
-            addView(TextView(context).apply {
-                setText(Resources.string.editors_shadow_none)
-                textSize = 15f
-                gravity = Gravity.CENTER_VERTICAL
-                minHeight = dp(48)
-                setPaddingRelative(dp(8), 0, 0, 0)
-                isSelected = current == ShapeShadow.NONE
-                Accessibility.toggle(this)
-                setBackgroundResource(R.drawable.editor_tool_background)
-                setOnClickListener { choose(ShapeShadow.NONE) }
-            })
-            addView(GridLayout(context).apply {
-                columnCount = 3
-                for (shadow in SHADOW_GRID) {
-                    addView(ShadowView(context, shadow).apply {
-                        contentDescription = context.getString(SHADOWS.getValue(shadow))
-                        TooltipCompat.setTooltipText(this, contentDescription)
-                        isSelected = shadow == current
-                        Accessibility.toggle(this)
-                        setBackgroundResource(R.drawable.editor_tool_background)
-                        setOnClickListener { choose(shadow) }
-                    }, GridLayout.LayoutParams().apply {
-                        width = dp(72)
-                        height = dp(72)
-                    })
+        val content = composePanel(context) {
+            Column(Modifier.padding(vertical = 8.dp)) {
+                ListItem(
+                    headlineContent = { Text(stringResource(Resources.string.editors_shadow_none)) },
+                    leadingContent = { RadioButton(selected = current == ShapeShadow.NONE, onClick = null) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.selectable(selected = current == ShapeShadow.NONE, role = Role.RadioButton) { choose(ShapeShadow.NONE) }
+                )
+                for (row in SHADOW_GRID.chunked(3)) {
+                    Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (shadow in row) {
+                            val selected = shadow == current
+                            val description = stringResource(SHADOWS.getValue(shadow))
+                            Surface(
+                                selected = selected,
+                                onClick = { choose(shadow) },
+                                shape = MaterialTheme.shapes.medium,
+                                color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+                                border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+                                modifier = Modifier.size(72.dp).padding(vertical = 4.dp).semantics { contentDescription = description }
+                            ) {
+                                ShadowPicture(shadow, MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
                 }
-            })
+            }
         }
         panels.show(context.getString(Resources.string.editors_shape_shadow), content, back) {}
-    }
-
-    // A square with its shadow falling to a side (or around it, centered)
-    private class ShadowView(context: Context, shadow: ShapeShadow) : View(context) {
-        private val density = context.resources.displayMetrics.density
-        private val shape = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ContextCompat.getColor(context, Resources.color.editors_accent) }
-        private val shade = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ContextCompat.getColor(context, Resources.color.editors_icon); alpha = 110 }
-        private val offset = SHADOW_OFFSETS.getValue(shadow)
-        private val box = RectF()
-
-        override fun onDraw(canvas: Canvas) {
-            val size = 28 * density
-            val left = (width - size) / 2f
-            val top = (height - size) / 2f
-            val step = 5 * density
-            // Centered: a little larger all around
-            val spread = if (offset.first == 0 && offset.second == 0) 3 * density else 0f
-            box.set(left + offset.first * step - spread, top + offset.second * step - spread, left + size + offset.first * step + spread, top + size + offset.second * step + spread)
-            canvas.drawRect(box, shade)
-            box.set(left, top, left + size, top + size)
-            canvas.drawRect(box, shape)
-        }
-    }
-
-    // A dash as a line across the view, its pattern in multiples of the line's width (OOXML's)
-    private class DashView(context: Context, dash: OutlineDash) : View(context) {
-        private val lineWidth = 3 * context.resources.displayMetrics.density
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = lineWidth
-            color = ContextCompat.getColor(context, Resources.color.editors_icon)
-            DASH_PATTERNS[dash]?.let { pattern -> pathEffect = DashPathEffect(pattern.map { it * lineWidth }.toFloatArray(), 0f) }
-        }
-
-        override fun onDraw(canvas: Canvas) {
-            val margin = 16 * resources.displayMetrics.density
-            canvas.drawLine(margin, height / 2f, width - margin, height / 2f, paint)
-        }
     }
 
     private fun trimPoints(value: Double): String =
         if (value == Math.floor(value)) value.toInt().toString() else "%.2f".format(value).trimEnd('0').trimEnd('.')
 
-    private companion object {
+    internal companion object {
         const val MM_PER_POINT = 25.4 / 72
         const val DEFAULT_OUTLINE_POINTS = 0.75
         const val DEFAULT_OUTLINE_COLOR = "000000"
@@ -385,5 +472,31 @@ internal class ShapePanel(
             Resources.string.editors_text_rotate_up to ShapeTextDirection.ROTATED_UP,
             Resources.string.editors_text_rotate_down to ShapeTextDirection.ROTATED_DOWN
         )
+    }
+}
+
+// A square with its shadow falling to a side (or around it, centered)
+@Composable
+private fun ShadowPicture(shadow: ShapeShadow, shape: Color, shade: Color) {
+    val (dx, dy) = ShapePanel.SHADOW_OFFSETS.getValue(shadow)
+    Canvas(Modifier.fillMaxSize()) {
+        val size = 28.dp.toPx()
+        val left = (this.size.width - size) / 2f
+        val top = (this.size.height - size) / 2f
+        val step = 5.dp.toPx()
+        // Centered: a little larger all around
+        val spread = if (dx == 0 && dy == 0) 3.dp.toPx() else 0f
+        drawRect(shade.copy(alpha = 0.45f), Offset(left + dx * step - spread, top + dy * step - spread), Size(size + 2 * spread, size + 2 * spread))
+        drawRect(shape, Offset(left, top), Size(size, size))
+    }
+}
+
+// A dash as a line across, its pattern in multiples of the line's width (OOXML's)
+@Composable
+private fun DashLine(dash: OutlineDash, color: Color, modifier: Modifier) {
+    Canvas(modifier) {
+        val width = 3.dp.toPx()
+        val effect = ShapePanel.DASH_PATTERNS[dash]?.let { pattern -> PathEffect.dashPathEffect(pattern.map { it * width }.toFloatArray()) }
+        drawLine(color, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = width, pathEffect = effect)
     }
 }

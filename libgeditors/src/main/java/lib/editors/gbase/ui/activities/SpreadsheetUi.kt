@@ -1,5 +1,6 @@
 package lib.editors.gbase.ui.activities
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -16,7 +17,6 @@ import android.widget.ListPopupWindow
 import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import lib.editors.base.engine.EditorDocument
@@ -342,7 +342,7 @@ internal class SpreadsheetUi(
                 Resources.string.editors_cells_freeze to { edit { freezePanes(sheet?.frozenCol ?: 0, index + 1) } }
             )
         } + listOf(Resources.string.editors_cells_unfreeze to { edit { freezePanes(0, 0) } })
-        AlertDialog.Builder(activity)
+        MaterialAlertDialogBuilder(activity)
             .setTitle(if (isColumn) columnName(index) else (index + 1).toString())
             .setItems(items.map { activity.getString(it.first) }.toTypedArray()) { _, position -> items[position].second() }
             .show()
@@ -404,7 +404,7 @@ internal class SpreadsheetUi(
                     // Before the sheet after the next one, or at the end
                     2 -> edit { moveSheet(visible.getOrNull(position + 2) ?: current.sheets.size) }
                     3 -> edit { hideSheet() }
-                    4 -> AlertDialog.Builder(activity)
+                    4 -> MaterialAlertDialogBuilder(activity)
                         .setMessage(activity.getString(Resources.string.editors_cells_delete_sheet_confirm, current.sheets[index].name))
                         .setPositiveButton(Resources.string.editors_delete) { _, _ -> edit { deleteSheet() } }
                         .setNegativeButton(android.R.string.cancel, null)
@@ -424,7 +424,7 @@ internal class SpreadsheetUi(
             selectAll()
         }
         val padding = (20 * activity.resources.displayMetrics.density).toInt()
-        AlertDialog.Builder(activity)
+        MaterialAlertDialogBuilder(activity)
             .setTitle(Resources.string.editors_cells_rename_sheet)
             .setView(FrameLayout(activity).apply {
                 setPaddingRelative(padding, 0, padding, 0)
@@ -440,7 +440,7 @@ internal class SpreadsheetUi(
 
     private fun showHiddenSheets(current: SheetState) {
         val hidden = current.sheets.withIndex().filter { it.value.hidden }
-        AlertDialog.Builder(activity)
+        MaterialAlertDialogBuilder(activity)
             .setTitle(Resources.string.editors_cells_show_sheets)
             .setItems(hidden.map { it.value.name }.toTypedArray()) { _, which -> edit { showSheet(hidden[which].index) } }
             .show()

@@ -7,19 +7,29 @@ import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
-import android.view.Gravity
 import android.view.Menu
 import android.view.View
-import android.widget.LinearLayout
 import android.widget.PopupMenu
-import android.widget.TextView
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import lib.editors.base.engine.ChartState
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorState
-import lib.editors.gbase.R
-import lib.editors.resources.R as Resources
+import lib.editors.gbase.ui.commands.StepperControls
 import java.io.File
 import java.util.UUID
+import lib.editors.resources.R as Resources
 
 /**
  * Inserting pictures, shapes, charts and tables: the toolbar's "Insert" menu (the selected
@@ -66,45 +76,19 @@ internal class DrawingUi(
     // The table's size above pictures of the styles; a style inserts it
     private fun chooseTable() {
         val picker = tablePicker ?: return
-        var cols = 3
-        var rows = 3
-        val density = context.resources.displayMetrics.density
-        fun dp(value: Int) = (value * density).toInt()
-        val header = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPaddingRelative(dp(8), 0, dp(8), dp(8))
-            fun stepper(label: Int, get: () -> Int, set: (Int) -> Unit) {
-                addView(TextView(context).apply {
-                    setText(label)
-                    setPaddingRelative(0, 0, dp(4), 0)
-                })
-                val value = TextView(context).apply {
-                    text = get().toString()
-                    gravity = Gravity.CENTER
-                    minWidth = dp(32)
+        var cols by mutableIntStateOf(3)
+        var rows by mutableIntStateOf(3)
+        val header: @Composable () -> Unit = {
+            @Composable
+            fun Size(label: Int, value: Int, set: (Int) -> Unit) {
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(label), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                    StepperControls(stringResource(label), value.toString(), true,
+                        { set((value - 1).coerceIn(1, MAX_TABLE_SIZE)) }, { set((value + 1).coerceIn(1, MAX_TABLE_SIZE)) })
                 }
-                fun button(text: String, step: Int, description: String) = TextView(context).apply {
-                    this.text = text
-                    textSize = 18f
-                    gravity = Gravity.CENTER
-                    minWidth = dp(44)
-                    minHeight = dp(44)
-                    contentDescription = description
-                    setBackgroundResource(R.drawable.editor_tool_background)
-                    setOnClickListener {
-                        set((get() + step).coerceIn(1, MAX_TABLE_SIZE))
-                        value.text = get().toString()
-                    }
-                }
-                val name = context.getString(label)
-                addView(button("−", -1, "$name −"))
-                addView(value)
-                addView(button("+", 1, "$name +"))
-                addView(View(context), LinearLayout.LayoutParams(dp(16), 1))
             }
-            stepper(Resources.string.editors_doc_columns, { cols }, { cols = it })
-            stepper(Resources.string.editors_doc_rows, { rows }, { rows = it })
+            Size(Resources.string.editors_doc_columns, cols) { cols = it }
+            Size(Resources.string.editors_doc_rows, rows) { rows = it }
         }
         picker.show(context.getString(Resources.string.editors_table_insert), "tableStyles", header = header) { style ->
             edit { insertTable(cols, rows, style.id) }

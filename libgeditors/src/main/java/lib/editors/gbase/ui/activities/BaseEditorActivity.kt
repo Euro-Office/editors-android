@@ -1,6 +1,8 @@
 package lib.editors.gbase.ui.activities
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -9,6 +11,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.OpenableColumns
+import android.text.InputType
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
@@ -16,8 +19,8 @@ import android.view.KeyboardShortcutGroup
 import android.view.KeyboardShortcutInfo
 import android.view.Menu
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
-import android.text.InputType
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -25,26 +28,42 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.view.ViewGroup
-import androidx.activity.OnBackPressedCallback
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.addCallback
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
-import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
-import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -55,32 +74,34 @@ import kotlinx.coroutines.withContext
 import lib.editors.base.convert.DocumentConverter
 import lib.editors.base.engine.Alignment
 import lib.editors.base.engine.CoEditingConnection
-import lib.editors.base.engine.DrawingFileResult
 import lib.editors.base.engine.Comment
+import lib.editors.base.engine.DocumentResult
+import lib.editors.base.engine.DrawingFileResult
+import lib.editors.base.engine.DrawingFrame
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorSpelling
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.FillTarget
-import lib.editors.base.engine.ListKind
-import lib.editors.base.engine.Preview
-import lib.editors.base.engine.Misspelling
-import lib.editors.base.engine.SheetState
-import lib.editors.base.engine.SpellService
-import lib.editors.base.engine.DocumentResult
 import lib.editors.base.engine.FormField
+import lib.editors.base.engine.ListKind
+import lib.editors.base.engine.Misspelling
 import lib.editors.base.engine.PageSize
+import lib.editors.base.engine.PagedDocument
 import lib.editors.base.engine.PdfImage
 import lib.editors.base.engine.PdfMarkup
 import lib.editors.base.engine.PdfMarkupKind
-import lib.editors.base.engine.PagedDocument
+import lib.editors.base.engine.Preview
+import lib.editors.base.engine.SheetState
+import lib.editors.base.engine.SpellService
 import lib.editors.base.engine.TextBlock
 import lib.editors.base.engine.TextOptions
 import lib.editors.base.engine.TouchAction
 import lib.editors.base.engine.WRITABLE_FORMATS
 import lib.editors.gbase.R
 import lib.editors.gbase.ui.clipboard.EditorClipboard
-import lib.editors.gbase.ui.views.BadgeButton
+import lib.editors.gbase.ui.commands.PasswordField
+import lib.editors.gbase.ui.commands.showComposeDialog
 import lib.editors.gbase.ui.views.DocumentView
 import lib.editors.gbase.ui.views.SheetView
 import lib.toolkit.base.managers.utils.CrashLog
@@ -88,8 +109,8 @@ import lib.toolkit.base.managers.utils.EditType
 import lib.toolkit.base.managers.utils.EditorDictionaries
 import lib.toolkit.base.managers.utils.EditorsContract
 import lib.toolkit.base.managers.utils.EditorsType
-import lib.editors.resources.R as Resources
 import java.io.File
+import lib.editors.resources.R as Resources
 
 /**
  * Base for the editor activities the app launches by class name (see [EditorsContract]).
@@ -136,6 +157,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // The engine opened a PDF in sdkjs' PDF editor (DocsActivity and PdfActivity): PDF tools instead of the document editor's
     private var isPdfEditor = false
     private val hiddenTools = mutableListOf<View>()
+    private val hiddenTopButtons = mutableListOf<EditorTopBar.Button>()
+    private val topBar by lazy { EditorTopBar(findViewById(R.id.editorTopBar)) }
     private var documentUi: DocumentUi? = null
     private var commentsUi: CommentsUi? = null
     private var formsUi: FormsUi? = null
@@ -209,7 +232,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             documentView.addOnLayoutChangeListener(mobileViewResize)
         }
 
-        findViewById<View>(R.id.toolClose).setOnClickListener { onBack() }
+        topBar.close.onClick = ::onBack
         linkBar = createLinkBar()
         Accessibility.pane(linkBar, getString(Resources.string.editors_link))
         // Read as switches: on while selected
@@ -236,7 +259,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 finish()
                 return@launch
             }
-            findViewById<TextView>(R.id.editorTitle).text = file.name
+            topBar.title = file.name
             if (editorsType == EditorsType.PDF && !file.extension.equals("pdf", ignoreCase = true)) {
                 openDrawingFile(uri, file, password = "")
                 return@launch
@@ -324,10 +347,10 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 documentView.readOnly = true
             }
             showToolbar(editable = false)
-            findViewById<View>(R.id.toolFile).isVisible = true
+            topBar.file.isVisible = true
             // Phones: in a bottom sheet, as Office's "…"
-            findViewById<View>(R.id.toolFile).setOnClickListener {
-                if (resources.getBoolean(R.bool.editor_side_panels)) fileUi.showMenu(it) else actionSheet.show(fileUi.actions())
+            topBar.file.onClick = {
+                if (resources.getBoolean(R.bool.editor_side_panels)) fileUi.showMenu(findViewById(R.id.editorTopBar)) else actionSheet.show(fileUi.actions())
             }
             // Comments: written when editing or with comment access (KEY_EDIT_ACCESS), read otherwise
             val comments = CommentsUi(
@@ -345,8 +368,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             // Tapping a comment's mark shows it
             if (isSpreadsheet) findViewById<SheetView>(R.id.sheetView).onCellComment = comments::showThread
             else documentView.onCommentMarker = comments::showThread
-            findViewById<View>(R.id.toolComments).isVisible = true
-            findViewById<View>(R.id.toolComments).setOnClickListener { comments.show() }
+            topBar.comments.isVisible = true
+            topBar.comments.onClick = comments::show
             // Commenting the selected text or cells from their menu
             commentAction()?.let { action ->
                 if (isSpreadsheet) findViewById<SheetView>(R.id.sheetView).cellActions = listOf(action)
@@ -366,8 +389,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 addStrip(ui.strip)
                 slidesUi = ui
                 documentView.onDrawingsDroppedOnPage = { slide, offsetMm -> edit { moveToSlide(slide, offsetMm) } }
-                findViewById<View>(R.id.toolSlideshow).isVisible = true
-                findViewById<View>(R.id.toolSlideshow).setOnClickListener { ui.startSlideshow() }
+                topBar.slideshow.isVisible = true
+                topBar.slideshow.onClick = ui::startSlideshow
             }
             addSearchBar(object : SearchBar.Target {
                 override val canReplace get() = editing
@@ -406,8 +429,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             if (isEditable && (editorConfig != null || !startsInView() || fillsForms() || startsFilling() || isPdfEditor || wasEditing)) {
                 enableEditing()
             } else if (isEditable) {
-                findViewById<View>(R.id.toolEdit).isVisible = true
-                findViewById<View>(R.id.toolEdit).setOnClickListener { enableEditing() }
+                topBar.edit.isVisible = true
+                topBar.edit.onClick = ::enableEditing
             }
             if (editorConfig != null) startCoEditing(if (isEditable) editorConfig else viewerConfig(editorConfig))
         }
@@ -432,7 +455,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         val root = findViewById<ViewGroup>(R.id.editorRoot)
         val bar = layoutInflater.inflate(R.layout.editor_coediting_bar, root, false) as TextView
         root.addView(bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
-        coEditingUi = CoEditingUi(this, bar, findViewById(R.id.toolCoEditors)) { stopEditing() }
+        coEditingUi = CoEditingUi(this, bar, topBar.coEditors) { stopEditing() }
         lifecycleScope.launch {
             val imagesDir = File(withContext(EditorEngine.dispatcher) { document.imagesDirectory() })
             coConnection = CoEditingConnection(server, key, File(cacheDir, "coediting"), imagesDir) { events.trySend(it) }
@@ -512,7 +535,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             return
         }
         editing = true
-        findViewById<View>(R.id.toolEdit).isVisible = false
+        topBar.edit.isVisible = false
         showToolbar(editable = true)
         if (isSpreadsheet) spreadsheetUi?.enableEditing() else documentView.readOnly = false
         slidesUi?.editable = true
@@ -785,46 +808,35 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     // A new password, typed twice: the document is saved with it from now on
     private fun askNewPassword() {
-        fun field(hint: Int) = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            isSingleLine = true
-            setHint(hint)
+        val title = if (documentPassword.isEmpty()) Resources.string.editors_password_protect else Resources.string.editors_password_change
+        showComposeDialog(this) { dismiss ->
+            var password by remember { mutableStateOf("") }
+            var repeated by remember { mutableStateOf("") }
+            // OK once both are the same
+            val matches = password == repeated
+            val canSave = password.isNotEmpty() && matches
+            val save = {
+                dismiss()
+                changePassword(password)
+            }
+            val focus = remember { FocusRequester() }
+            LaunchedEffect(Unit) { focus.requestFocus() }
+            AlertDialog(
+                onDismissRequest = dismiss,
+                title = { Text(stringResource(title)) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(Resources.string.editors_password_new_message))
+                        PasswordField(password, { password = it }, Resources.string.editors_password_new, Modifier.focusRequester(focus))
+                        PasswordField(repeated, { repeated = it }, Resources.string.editors_password_repeat,
+                            error = if (!matches && repeated.isNotEmpty()) Resources.string.editors_password_mismatch else null,
+                            onDone = { if (canSave) save() })
+                    }
+                },
+                confirmButton = { TextButton(onClick = save, enabled = canSave) { Text(stringResource(android.R.string.ok)) } },
+                dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(android.R.string.cancel)) } }
+            )
         }
-        val password = field(Resources.string.editors_password_new)
-        val repeated = field(Resources.string.editors_password_repeat)
-        val mismatch = TextView(this).apply {
-            setText(Resources.string.editors_password_mismatch)
-            setTextColor(ContextCompat.getColor(context, Resources.color.editors_error))
-            isVisible = false
-        }
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val padding = (20 * resources.displayMetrics.density).toInt()
-            setPaddingRelative(padding, 0, padding, 0)
-            addView(password)
-            addView(repeated)
-            addView(mismatch)
-        }
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(if (documentPassword.isEmpty()) Resources.string.editors_password_protect else Resources.string.editors_password_change)
-            .setMessage(Resources.string.editors_password_new_message)
-            .setView(container)
-            .setPositiveButton(android.R.string.ok) { _, _ -> changePassword(password.text.toString()) }
-            .setNegativeButton(android.R.string.cancel, null)
-            .create()
-        // OK once both are the same
-        fun check() {
-            val typed = password.text.toString()
-            val matches = typed == repeated.text.toString()
-            mismatch.isVisible = !matches && repeated.text.isNotEmpty()
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.isEnabled = typed.isNotEmpty() && matches
-        }
-        password.doAfterTextChanged { check() }
-        repeated.doAfterTextChanged { check() }
-        dialog.setOnShowListener { check() }
-        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
-        dialog.show()
-        password.requestFocus()
     }
 
     // The password to save with ("" for none); the document is modified until it is saved
@@ -838,26 +850,31 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     }
 
     private fun askPassword(wrong: Boolean, onPassword: (String) -> Unit) {
-        val input = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            isSingleLine = true
+        showComposeDialog(this) { dismiss ->
+            var password by remember { mutableStateOf("") }
+            val open = {
+                dismiss()
+                onPassword(password)
+            }
+            val cancel = {
+                dismiss()
+                finish()
+            }
+            val focus = remember { FocusRequester() }
+            LaunchedEffect(Unit) { focus.requestFocus() }
+            AlertDialog(
+                onDismissRequest = cancel,
+                title = { Text(stringResource(Resources.string.editors_password_title)) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(if (wrong) Resources.string.editors_password_wrong else Resources.string.editors_password_message))
+                        PasswordField(password, { password = it }, Resources.string.editors_password_title, Modifier.focusRequester(focus), onDone = open)
+                    }
+                },
+                confirmButton = { TextButton(onClick = open) { Text(stringResource(Resources.string.editors_open)) } },
+                dismissButton = { TextButton(onClick = cancel) { Text(stringResource(android.R.string.cancel)) } }
+            )
         }
-        val container = FrameLayout(this).apply {
-            val padding = (20 * resources.displayMetrics.density).toInt()
-            setPaddingRelative(padding, 0, padding, 0)
-            addView(input)
-        }
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(Resources.string.editors_password_title)
-            .setMessage(if (wrong) Resources.string.editors_password_wrong else Resources.string.editors_password_message)
-            .setView(container)
-            .setPositiveButton(Resources.string.editors_open) { _, _ -> onPassword(input.text.toString()) }
-            .setNegativeButton(android.R.string.cancel) { _, _ -> finish() }
-            .setOnCancelListener { finish() }
-            .create()
-        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
-        dialog.show()
-        input.requestFocus()
     }
 
     private fun isEditable(): Boolean {
@@ -1026,8 +1043,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             pdfPageEditable = state.pdf?.canEditPage == true
             updatePdfTools()
         }
-        findViewById<View>(R.id.toolUndo).isEnabled = toolbar.canUndo
-        findViewById<View>(R.id.toolRedo).isEnabled = toolbar.canRedo
+        topBar.undo.isEnabled = toolbar.canUndo
+        topBar.redo.isEnabled = toolbar.canRedo
         // In a table (also one on a slide, which is a drawing): the table's and its text's settings
         val inTable = state.structure?.inTable == true
         formatsDrawings = if (isPdfEditor) state.pdf?.drawing == true else isEditable() && !fillsForms() && drawingSelected && !inTable
@@ -1041,7 +1058,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         commandState.format = textFormat
         commandState.drawingSelected = drawingSelected && !inTable
         commandState.canUndo = toolbar.canUndo
+        commandSheet?.stateChanged()
         commandState.canRedo = toolbar.canRedo
+        updateSelection(if (drawingSelected && !inTable) selectionKey(state.drawings) else null, inTable)
         state.sheet?.let {
             cellFormatPanel.update(it.cellFormat.copy(bold = toolbar.bold, italic = toolbar.italic, underline = toolbar.underline, alignment = toolbar.alignment), drawingSelected)
         }
@@ -1169,13 +1188,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                 chooseDesign = ::chooseDesign,
                 chooseTransition = { back -> slidesUi?.chooseTransition(back) }
             ),
-            chooseTableStyle = if (isSpreadsheet || editorsType == EditorsType.PDF) null else {
-                { back ->
-                    previewPicker.show(getString(Resources.string.editors_table_style), "tableStyles", keepOpen = true, onBack = back) { style ->
-                        edit { setTableStyle(style.id) }
-                    }
-                }
-            },
+            chooseTableStyle = if (isSpreadsheet || editorsType == EditorsType.PDF) null else ::chooseTableStyle,
             chooseFill = if (editorsType == EditorsType.PDF) null else fillPanel::show,
             chooseList = if (editorsType == EditorsType.DOCS || editorsType == EditorsType.PRESENTATION) ::chooseListPreset else null,
             withNumberingRestart = editorsType == EditorsType.DOCS,
@@ -1196,23 +1209,28 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     // A list preset of the kind by its picture, the current one marked; "None" ends the list.
     // Documents' numbering has the multilevel lists below its own.
+    private fun chooseTableStyle(onBack: () -> Unit) {
+        previewPicker.show(getString(Resources.string.editors_table_style), "tableStyles", keepOpen = true, onBack = onBack) { style ->
+            edit { setTableStyle(style.id) }
+        }
+    }
+
     private fun chooseListPreset(kind: ListKind, onBack: () -> Unit) = read({ listPresets() }) { presets ->
         val title = getString(when (kind) {
             ListKind.BULLETS -> Resources.string.editors_list_bullets
             ListKind.NUMBERS -> Resources.string.editors_list_numbering
             ListKind.MULTILEVEL -> Resources.string.editors_list_multilevel
         })
-        val none = TextView(this).apply {
-            setText(Resources.string.editors_list_none)
-            textSize = 15f
-            gravity = Gravity.CENTER_VERTICAL
-            minHeight = (48 * resources.displayMetrics.density).toInt()
-            setPaddingRelative((8 * resources.displayMetrics.density).toInt(), 0, 0, 0)
-            setBackgroundResource(R.drawable.editor_tool_background)
-            setOnClickListener {
-                edit { setList(if (kind == ListKind.BULLETS) 0 else 1, -1) }
-                onBack()
-            }
+        // No list: a row above the presets
+        val none: @Composable () -> Unit = {
+            ListItem(
+                headlineContent = { Text(stringResource(Resources.string.editors_list_none)) },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                modifier = Modifier.clickable {
+                    edit { setList(if (kind == ListKind.BULLETS) 0 else 1, -1) }
+                    onBack()
+                }
+            )
         }
         if (kind == ListKind.NUMBERS && editorsType == EditorsType.DOCS) {
             // Ids "<kind>-<index>", the kind as name
@@ -1339,7 +1357,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             ChartSettingsPanel(this, { command -> edit(command = command) }, panels, previewPicker), colorPicker, panels,
             chart = { drawingUi.chart },
             withGroups = editorsType != EditorsType.PDF,
-            chooseFill = if (editorsType == EditorsType.PDF) null else { back -> fillPanel.show(FillTarget.SHAPE, back) }
+            chooseFill = if (editorsType == EditorsType.PDF) null else { back -> fillPanel.show(FillTarget.SHAPE, back) },
+            fills = if (editorsType == EditorsType.PDF) null else fillPanel
         )
     }
 
@@ -1471,16 +1490,16 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun bindToolbar() {
         bindTextTools()
-        bindTool(R.id.toolUndo) { undo() }
-        bindTool(R.id.toolRedo) { redo() }
+        topBar.undo.onClick = { edit { undo() } }
+        topBar.redo.onClick = { edit { redo() } }
         // Slides are added and deleted at the slides (the button at their end, a slide's menu)
         findViewById<View>(R.id.toolInsert).setOnClickListener { if (commandSheet != null) showCommandSheet("insert") else drawingUi.showInsertMenu(it) }
         documentUi?.let { ui ->
             // PDF forms keep their contents (showPageTools)
-            val navigation = findViewById<View>(R.id.toolNavigation)
+            val navigation = topBar.navigation
             if (!navigation.isVisible) {
                 navigation.isVisible = true
-                navigation.setOnClickListener { ui.showNavigation() }
+                navigation.onClick = ui::showNavigation
             }
         }
         // The table at the cursor: adding and deleting rows from the text's menu too
@@ -1490,10 +1509,15 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         )
         findViewById<View>(R.id.toolFormat).isVisible = true
         findViewById<View>(R.id.toolFormat).setOnClickListener {
-            // With the command sheet: its Home tab, or the selected drawing's settings as its page
+            // With the command sheet: the tab of what is selected, else Home
             if (commandSheet == null) return@setOnClickListener showFormat()
-            showCommandSheet("home")
-            if (formatsDrawings) showFormat()
+            showCommandSheet(
+                when {
+                    commandState.drawing != null -> DocsCommands.DRAWING_TAB
+                    commandState.inTable -> DocsCommands.TABLE_TAB
+                    else -> "home"
+                }
+            )
         }
         // Selected pictures, shapes and charts: "Format" in their menu too
         val formatAction = listOf(getString(Resources.string.editors_format) to { showFormat() })
@@ -1547,7 +1571,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun showComments(comments: List<Comment>) {
         documentComments = comments
-        findViewById<BadgeButton>(R.id.toolComments).count = comments.count { !it.solved }
+        topBar.comments.count = comments.count { !it.solved }
         if (editorsType == EditorsType.PRESENTATION) {
             documentView.commentMarkers = comments.filter { it.page >= 0 }.map { DocumentView.CommentMarker(it.id, it.page, it.x, it.y) }
         }
@@ -1572,15 +1596,23 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     private var docsCommands: DocsCommands? = null
 
     private fun setUpCommandSheet(ui: DocumentUi) {
+        // Page setup from the file menu: the Layout tab
+        ui.openLayout = { showCommandSheet("layout") }
         docsCommands = DocsCommands(
             this, commandState, { command -> edit(command = command) }, panels, formatPanel, colorPicker,
             DocsCommands.Hooks(
                 chooseList = ::chooseListPreset,
                 chooseStyle = ::chooseParagraphStyle,
+                chooseTableStyle = ::chooseTableStyle,
                 insertActions = { drawingUi.insertActions() + ui.insertActions() },
-                layoutActions = { listOfNotNull(ui.pageSetupAction()) },
+                layoutCommands = ui::pageSetupCommands,
                 reviewActions = { reviewActions(ui) },
-                viewActions = { viewActions(ui) }
+                viewActions = { viewActions(ui) },
+                reloadDrawing = {
+                    loadedDrawings = null
+                    updateSelection(selectedDrawings, commandState.inTable)
+                },
+                drawingCommands = shapePanel::commands
             )
         )
         val sheet = CommandSheetHost(
@@ -1602,10 +1634,52 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // The top bar as Office's on phones: closing, the title, undo, comments and "…"; redo and
     // navigation are in the command sheet
     private fun showSheetTopBar() {
-        findViewById<ImageButton>(R.id.toolClose).setImageResource(Resources.drawable.ic_editor_close)
-        findViewById<ImageButton>(R.id.toolFile).setImageResource(Resources.drawable.ic_editor_more_horiz)
-        findViewById<View>(R.id.toolRedo).isVisible = false
-        findViewById<View>(R.id.toolNavigation).isVisible = false
+        topBar.close.icon = Resources.drawable.ic_editor_close
+        topBar.file.icon = Resources.drawable.ic_editor_more_horiz
+        topBar.redo.isVisible = false
+        topBar.navigation.isVisible = false
+    }
+
+    // The selection's tab (Office's contextual tabs): a table at the cursor, or the selected
+    // drawings once loaded; one that appears while the sheet is open (just inserted) is shown
+    // The drawings selected now and those the tab was loaded for (by where they are, not while
+    // dragged): another selection loads anew
+    private var selectedDrawings: List<Pair<Int, List<Double>>>? = null
+    private var loadedDrawings: List<Pair<Int, List<Double>>>? = null
+
+    private fun selectionKey(frames: List<DrawingFrame>) = frames.filterNot { it.tracking }.map { it.page to it.points.toList() }
+
+    private fun updateSelection(drawings: List<Pair<Int, List<Double>>>?, inTable: Boolean) {
+        if (commandSheet == null) return
+        if (inTable != commandState.inTable) {
+            commandState.inTable = inTable
+            refreshCommandTabs(if (inTable) DocsCommands.TABLE_TAB else null)
+        }
+        selectedDrawings = drawings
+        if (drawings == null) {
+            loadedDrawings = null
+            if (commandState.drawing != null) {
+                commandState.drawing = null
+                refreshCommandTabs(null)
+            }
+            return
+        }
+        if (drawings == loadedDrawings) return
+        loadedDrawings = drawings
+        shapePanel.load { selected ->
+            // Not for drawings selected no more
+            if (selectedDrawings != drawings) return@load
+            // Its tab, when there was none, or one was just inserted (another selected before)
+            val show = commandState.drawing == null || commandSheet?.shownTabId == "insert"
+            commandState.drawing = selected
+            refreshCommandTabs(if (show) DocsCommands.DRAWING_TAB else null)
+        }
+    }
+
+    private fun refreshCommandTabs(show: String?) {
+        val sheet = commandSheet?.takeIf { it.isOpen } ?: return
+        docsCommands?.let { sheet.tabs = it.tabs() }
+        if (show != null) sheet.showTab(show)
     }
 
     // The tabs anew (what they offer depends on the view, the document), at [tab] if given
@@ -1678,13 +1752,14 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun enablePdfEditing() {
         editing = true
-        findViewById<View>(R.id.toolEdit).isVisible = false
+        topBar.edit.isVisible = false
         showToolbar(editable = true)
         // The document editor's tools don't apply
         listOf(
             R.id.toolBold, R.id.toolItalic, R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight,
-            R.id.toolInsert, R.id.toolFormat, R.id.toolSlideshow
+            R.id.toolInsert, R.id.toolFormat
         ).forEach { findViewById<View>(it).isVisible = false }
+        topBar.slideshow.isVisible = false
         documentView.readOnly = false
         // Typing only goes into text boxes and form fields
         documentView.keyboardWithCursor = true
@@ -1702,8 +1777,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         // Pictures and shapes: fill, outline and order (their menu too); text: its formatting
         findViewById<View>(R.id.toolFormat).setOnClickListener { showFormat() }
         documentView.drawingActions = listOf(getString(Resources.string.editors_format) to { showFormat() })
-        findViewById<View>(R.id.toolUndo).setOnClickListener { edit { undo() } }
-        findViewById<View>(R.id.toolRedo).setOnClickListener { edit { redo() } }
+        topBar.undo.onClick = { edit { undo() } }
+        topBar.redo.onClick = { edit { redo() } }
     }
 
     // Selected text of the page is marked up; in text boxes it is formatted
@@ -1906,13 +1981,13 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.toolPages).isVisible = true
         findViewById<View>(R.id.toolPages).setOnClickListener { strip.toggle() }
         // Contents and pages: the top bar's navigation, as in documents
-        findViewById<View>(R.id.toolNavigation).isVisible = true
-        findViewById<View>(R.id.toolNavigation).setOnClickListener {
+        topBar.navigation.isVisible = true
+        topBar.navigation.onClick = {
             lifecycleScope.launch {
                 val outline = withContext(EditorEngine.dispatcher) { file.fileOutline() }
                 val labels = listOf(getString(Resources.string.editors_doc_go_to_page)) +
                     outline.map { "\u2003".repeat((it.level - 1).coerceAtLeast(0)) + it.title }
-                AlertDialog.Builder(this@BaseEditorActivity)
+                MaterialAlertDialogBuilder(this@BaseEditorActivity)
                     .setTitle(Resources.string.editors_pages_contents)
                     .setItems(labels.toTypedArray()) { _, position ->
                         if (position == 0) askPage(pages.size) else outline[position - 1].let { documentView.goToPage(it.page, it.yMm) }
@@ -1929,7 +2004,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             selectAll()
         }
         val padding = (20 * resources.displayMetrics.density).toInt()
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle(getString(Resources.string.editors_pages_go_to, pageCount))
             .setView(FrameLayout(this).apply {
                 setPaddingRelative(padding, 0, padding, 0)
@@ -1950,16 +2025,23 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         findViewById<View>(R.id.editorToolbar).isVisible = commandSheet == null
         if (!editable) {
             // The editing buttons come back when editing starts
-            for (buttons in listOf<ViewGroup>(findViewById(R.id.editorTopButtons), findViewById(R.id.editorToolButtons))) {
-                for (i in 0 until buttons.childCount) {
-                    val button = buttons.getChildAt(i)
-                    if (button.isVisible && button.id !in VIEWING_TOOLS) {
-                        hiddenTools += button
-                        button.isVisible = false
-                    }
+            for (button in topBar.buttons) {
+                if (button.isVisible && !button.viewing) {
+                    hiddenTopButtons += button
+                    button.isVisible = false
+                }
+            }
+            val buttons = findViewById<ViewGroup>(R.id.editorToolButtons)
+            for (i in 0 until buttons.childCount) {
+                val button = buttons.getChildAt(i)
+                if (button.isVisible && button.id !in VIEWING_TOOLS) {
+                    hiddenTools += button
+                    button.isVisible = false
                 }
             }
         } else {
+            hiddenTopButtons.forEach { it.isVisible = true }
+            hiddenTopButtons.clear()
             hiddenTools.forEach { it.isVisible = true }
             hiddenTools.clear()
         }
@@ -2016,9 +2098,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             return
         }
         if (pdfEdited || modified) {
-            AlertDialog.Builder(this)
+            MaterialAlertDialogBuilder(this)
                 .setTitle(Resources.string.editors_save_changes_title)
-                .setMessage(getString(Resources.string.editors_save_changes_message, findViewById<TextView>(R.id.editorTitle).text))
+                .setMessage(getString(Resources.string.editors_save_changes_message, topBar.title))
                 .setPositiveButton(Resources.string.editors_save) { _, _ -> saveAndLeave() }
                 .setNegativeButton(Resources.string.editors_discard) { _, _ -> finish() }
                 .setNeutralButton(Resources.string.editors_cancel, null)
@@ -2050,7 +2132,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             if (error == 0) {
                 finish()
             } else if (!isFinishing) {
-                AlertDialog.Builder(this)
+                MaterialAlertDialogBuilder(this)
                     .setTitle(Resources.string.editors_leave_unsaved_title)
                     .setMessage(saveErrorMessage(error))
                     .setPositiveButton(Resources.string.editors_leave) { _, _ -> finish() }
@@ -2376,10 +2458,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             R.id.toolInsert, R.id.toolFormat, R.id.toolBold, R.id.toolItalic,
             R.id.toolUnderline, R.id.toolAlignLeft, R.id.toolAlignCenter, R.id.toolAlignRight
         )
-        private val VIEWING_TOOLS = setOf(
-            R.id.toolFile, R.id.toolComments, R.id.toolSlideshow, R.id.toolEdit, R.id.toolPages, R.id.toolNavigation,
-            R.id.toolSign, R.id.toolCoEditors
-        )
+        // The bottom toolbar's while viewing (the top bar's: EditorTopBar.Button.viewing)
+        private val VIEWING_TOOLS = setOf(R.id.toolPages, R.id.toolSign)
         const val UNSUPPORTED_FORMAT = -1
         const val WRITE_ERROR = -2
     }

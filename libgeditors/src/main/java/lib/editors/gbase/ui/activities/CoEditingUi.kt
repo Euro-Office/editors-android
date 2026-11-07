@@ -1,14 +1,13 @@
 package lib.editors.gbase.ui.activities
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
-import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import lib.editors.base.engine.CoEditingState
@@ -24,7 +23,7 @@ internal class CoEditingUi(
     private val context: Context,
     /** The bar (editor_coediting_bar), above the toolbar. */
     private val bar: TextView,
-    private val button: ImageButton,
+    private val button: EditorTopBar.Button,
     /** sdkjs turned to viewing: the editor stops editing too. */
     private val onDisconnected: () -> Unit
 ) {
@@ -34,7 +33,7 @@ internal class CoEditingUi(
 
     init {
         button.isVisible = true
-        button.setOnClickListener { showPeople() }
+        button.onClick = ::showPeople
     }
 
     fun update(state: CoEditingState?) {
@@ -43,7 +42,7 @@ internal class CoEditingUi(
         this.state = state
         if (previous?.participants != state.participants) {
             val others = state.participants.count { !it.me }
-            button.contentDescription = if (others == 0) {
+            button.description = if (others == 0) {
                 context.getString(Resources.string.editors_coediting_people)
             } else {
                 context.resources.getQuantityString(Resources.plurals.editors_coediting_others, others, others)
@@ -81,7 +80,7 @@ internal class CoEditingUi(
                 setPadding(0, (8 * density).toInt(), 0, 0)
             })
         }
-        AlertDialog.Builder(context)
+        MaterialAlertDialogBuilder(context)
             .setTitle(Resources.string.editors_coediting_people)
             .setView(list)
             .setPositiveButton(Resources.string.editors_close, null)

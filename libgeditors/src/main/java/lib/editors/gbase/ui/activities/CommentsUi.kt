@@ -1,22 +1,51 @@
 package lib.editors.gbase.ui.activities
 
 import android.content.Context
-import android.graphics.Typeface
-import android.text.Editable
-import android.text.InputType
-import android.text.TextWatcher
 import android.text.format.DateUtils
-import android.view.Gravity
-import android.view.View
-import android.widget.ArrayAdapter
-import android.widget.EditText
-import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.ListPopupWindow
-import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.isVisible
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.PopupProperties
+import app.documents.shared.MessengerClient
+import app.documents.shared.models.SharedUser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -27,17 +56,16 @@ import lib.editors.base.engine.Comment
 import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
-import lib.editors.gbase.R
+import lib.editors.gbase.ui.commands.composePanel
+import lib.editors.gbase.ui.commands.showComposeDialog
 import lib.editors.resources.R as Resources
-import app.documents.shared.MessengerClient
-import app.documents.shared.models.SharedUser
 
 /**
- * Comments in a panel (see [PanelHost]): all comments in the document's order; a tap on one, or
- * on it in the document, shows it with its replies, where it is, and the way to the previous
- * and next one. With [canComment], comments can be added (on the selection), answered, resolved
- * and deleted. In DocSpace files ([fileId]), "@" suggests the people the file is shared with
- * and mentioned people are notified.
+ * Comments in a panel (see [PanelHost]), in Compose: all comments in the document's order; a
+ * tap on one, or on it in the document, shows it with its replies, where it is, and the way to
+ * the previous and next one. With [canComment], comments can be added (on the selection),
+ * answered, resolved and deleted. In DocSpace files ([fileId]), "@" suggests the people the file
+ * is shared with and mentioned people are notified.
  */
 internal class CommentsUi(
     private val activity: AppCompatActivity,
@@ -53,16 +81,14 @@ internal class CommentsUi(
     private val onComments: (List<Comment>) -> Unit = {}
 ) {
 
-    private val density = activity.resources.displayMetrics.density
     private val preferences = activity.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
     private var dialog: PanelHost.Panel? = null
-    private val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
     private var users: List<SharedUser> = emptyList()
     private var counting: Job? = null
-    private var comments: List<Comment> = emptyList()
+    // What the panel shows: it is drawn anew as they change
+    private var comments by mutableStateOf(emptyList<Comment>())
     // The comment shown on its own (with its replies), null while the list is shown
-    private var threadId: String? = null
-    private val thread = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+    private var threadId by mutableStateOf<String?>(null)
     private val messenger: MessengerClient? = fileId?.let { id ->
         MessengerClient(activity).also { client ->
             client.init(activity)
@@ -72,14 +98,7 @@ internal class CommentsUi(
 
     /** All comments. */
     fun show() {
-        val content = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(16), 0, dp(16), dp(24))
-            if (canComment) addView(action(Resources.string.editors_comments_add) { compose(null) })
-            (list.parent as? android.view.ViewGroup)?.removeView(list)
-            addView(list)
-        }
-        open(activity.getString(Resources.string.editors_comments), content, null)
+        open(activity.getString(Resources.string.editors_comments), composePanel(activity) { CommentList() }, null)
     }
 
     /**
@@ -92,19 +111,9 @@ internal class CommentsUi(
         threadId = id
         edit { gotoComment(id) }
         comments.firstOrNull { it.id == id }?.let(reveal)
-        if (showing) {
-            render()
-            return
-        }
-        val reply = replyField()
-        val content = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(dp(16), 0, dp(16), dp(24))
-            (thread.parent as? android.view.ViewGroup)?.removeView(thread)
-            addView(thread)
-            if (canComment) addView(reply)
-        }
-        open(activity.getString(Resources.string.editors_comment_title), content, id)
+        // Shown already: drawn anew for the other comment
+        if (showing) return
+        open(activity.getString(Resources.string.editors_comment_title), composePanel(activity) { Thread() }, id)
     }
 
     // A new panel replaces the one shown, whose closing (maybe later, after its animation)
@@ -158,170 +167,159 @@ internal class CommentsUi(
     )
 
     private fun reload() {
-        scope.launch {
-            load() ?: return@launch
-            render()
-        }
+        scope.launch { load() }
     }
 
-    private fun render() {
-        val id = threadId
-        if (id != null) {
-            renderThread(id)
-            return
+    // ---------------------------------------------------------------------------------
+    // The list and a comment
+
+    @Composable
+    private fun CommentList() {
+        Column(Modifier.padding(bottom = 24.dp)) {
+            if (canComment) {
+                FilledTonalButton(onClick = { compose(null) }, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Icon(painterResource(Resources.drawable.ic_editor_comment), null, Modifier.padding(end = 8.dp))
+                    Text(stringResource(Resources.string.editors_comments_add))
+                }
+            }
+            val all = ordered()
+            if (all.isEmpty()) None()
+            all.forEachIndexed { index, comment ->
+                if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                Column(Modifier.fillMaxWidth().clickable { showThread(comment.id) }.padding(horizontal = 16.dp, vertical = 12.dp).alpha(if (comment.solved) 0.6f else 1f)) {
+                    Header(comment.user, comment.time)
+                    if (comment.quote.isNotEmpty()) Quote(comment.quote)
+                    Text(comment.text, Modifier.padding(vertical = 2.dp), style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    if (comment.replies.isNotEmpty()) {
+                        Text(
+                            pluralStringResource(Resources.plurals.editors_comments_replies, comment.replies.size, comment.replies.size),
+                            color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                }
+            }
         }
-        list.removeAllViews()
-        if (comments.isEmpty()) {
-            list.addView(TextView(activity).apply {
-                setText(Resources.string.editors_comments_none)
-                setPaddingRelative(0, dp(16), 0, dp(16))
-            })
-        }
-        ordered().forEach { list.addView(commentView(it)) }
     }
 
     // The comment, its replies and what can be done with it; above, the way through the comments
-    private fun renderThread(id: String) {
-        thread.removeAllViews()
+    @Composable
+    private fun Thread() {
+        val id = threadId ?: return
         val all = ordered()
         val index = all.indexOfFirst { it.id == id }
         val comment = all.getOrNull(index)
-        thread.addView(LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(action(Resources.string.editors_comments_all) { show() })
-            addView(android.view.View(activity), LinearLayout.LayoutParams(0, 1, 1f))
-            if (all.size > 1 && index >= 0) {
-                addView(arrow("‹", Resources.string.editors_comments_previous) { showThread(all[(index - 1 + all.size) % all.size].id) })
-                addView(TextView(activity).apply {
-                    text = activity.getString(Resources.string.editors_comments_position, index + 1, all.size)
-                    setPaddingRelative(dp(4), 0, dp(4), 0)
-                })
-                addView(arrow("›", Resources.string.editors_comments_next) { showThread(all[(index + 1) % all.size].id) })
+        Column(Modifier.padding(bottom = 24.dp)) {
+            Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = ::show) { Text(stringResource(Resources.string.editors_comments_all)) }
+                Box(Modifier.weight(1f))
+                if (all.size > 1 && index >= 0) {
+                    IconButton(onClick = { showThread(all[(index - 1 + all.size) % all.size].id) }) {
+                        // The arrow to the right, mirrored
+                        Icon(painterResource(Resources.drawable.ic_editor_chevron_right), stringResource(Resources.string.editors_comments_previous), Modifier.graphicsLayer(scaleX = -1f))
+                    }
+                    Text(stringResource(Resources.string.editors_comments_position, index + 1, all.size), style = MaterialTheme.typography.labelLarge)
+                    IconButton(onClick = { showThread(all[(index + 1) % all.size].id) }) {
+                        Icon(painterResource(Resources.drawable.ic_editor_chevron_right), stringResource(Resources.string.editors_comments_next))
+                    }
+                }
             }
-        })
-        if (comment == null) {
-            thread.addView(TextView(activity).apply {
-                setText(Resources.string.editors_comments_none)
-                setPaddingRelative(0, dp(16), 0, dp(16))
-            })
-            return
-        }
-        thread.addView(LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPaddingRelative(0, dp(8), 0, dp(4))
-            addView(header(comment.user, comment.time))
-            if (comment.quote.isNotEmpty()) addView(quote(comment.quote))
-            addView(TextView(activity).apply {
-                text = comment.text
-                textSize = 16f
-                setPaddingRelative(0, dp(4), 0, dp(4))
-            })
-            comment.replies.forEach { reply ->
-                addView(LinearLayout(activity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPaddingRelative(dp(16), dp(8), 0, 0)
-                    addView(header(reply.user, reply.time))
-                    addView(TextView(activity).apply { text = reply.text; textSize = 15f })
-                })
+            if (comment == null) {
+                None()
+                return@Column
             }
-        })
-        if (canComment) {
-            thread.addView(LinearLayout(activity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                addView(action(if (comment.solved) Resources.string.editors_comments_reopen else Resources.string.editors_comments_resolve) {
-                    edit { resolveComment(comment.id, !comment.solved) }
-                })
-                addView(action(Resources.string.editors_comments_delete) {
-                    // On to the next comment, or the list after the last one
-                    val next = all.getOrNull(index + 1) ?: all.getOrNull(index - 1)
-                    edit { deleteComment(comment.id) }
-                    if (next != null) showThread(next.id) else show()
-                })
-            })
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                Header(comment.user, comment.time)
+                if (comment.quote.isNotEmpty()) Quote(comment.quote)
+                Text(comment.text, Modifier.padding(vertical = 4.dp), style = MaterialTheme.typography.bodyLarge)
+                for (reply in comment.replies) {
+                    Column(Modifier.padding(start = 16.dp, top = 8.dp)) {
+                        Header(reply.user, reply.time)
+                        Text(reply.text, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+            if (canComment) {
+                Row(Modifier.padding(horizontal = 8.dp)) {
+                    TextButton(onClick = { edit { resolveComment(comment.id, !comment.solved) } }) {
+                        Text(stringResource(if (comment.solved) Resources.string.editors_comments_reopen else Resources.string.editors_comments_resolve))
+                    }
+                    TextButton(onClick = {
+                        // On to the next comment, or the list after the last one
+                        val next = all.getOrNull(index + 1) ?: all.getOrNull(index - 1)
+                        edit { deleteComment(comment.id) }
+                        if (next != null) showThread(next.id) else show()
+                    }) { Text(stringResource(Resources.string.editors_comments_delete)) }
+                }
+                ReplyField(comment.id)
+            }
         }
     }
 
-    // A field and a button to answer the comment shown; kept while the comment is drawn again
-    private fun replyField() = LinearLayout(activity).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPaddingRelative(0, dp(8), 0, 0)
-        val input = EditText(activity).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-            maxLines = 4
-            setHint(Resources.string.editors_comments_reply_hint)
+    // A field and a button to answer the comment shown
+    @Composable
+    private fun ReplyField(id: String) {
+        var text by remember(id) { mutableStateOf(TextFieldValue("")) }
+        val mentioned = remember(id) { mutableMapOf<String, String>() }
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            MentionField(text, { text = it }, mentioned, Resources.string.editors_comments_reply_hint, Modifier.weight(1f), maxLines = 4)
+            TextButton(onClick = {
+                val typed = text.text.trim()
+                if (typed.isNotEmpty()) post(id, typed, mentioned) { text = TextFieldValue("") }
+            }) { Text(stringResource(Resources.string.editors_comments_post)) }
         }
-        val mentioned = mutableMapOf<String, String>()
-        if (users.isNotEmpty()) suggestMentions(input, mentioned)
-        addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        addView(action(Resources.string.editors_comments_post) {
-            val text = input.text.toString().trim()
-            val id = threadId
-            if (text.isEmpty() || id == null) return@action
-            post(id, text, mentioned) { input.text.clear() }
-        })
     }
 
-    private fun arrow(text: String, description: Int, onClick: () -> Unit) = TextView(activity).apply {
-        this.text = text
-        textSize = 22f
-        gravity = Gravity.CENTER
-        minWidth = dp(48)
-        minHeight = dp(48)
-        contentDescription = activity.getString(description)
-        setBackgroundResource(R.drawable.editor_tool_background)
-        setOnClickListener { onClick() }
+    @Composable
+    private fun None() {
+        Text(stringResource(Resources.string.editors_comments_none), Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 
-    private fun quote(text: String) = TextView(activity).apply {
-        this.text = text
-        maxLines = 2
-        ellipsize = android.text.TextUtils.TruncateAt.END
-        setTypeface(typeface, Typeface.ITALIC)
-        alpha = 0.7f
+    @Composable
+    private fun Quote(text: String) {
+        Text(text, style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 
-    // A comment in the list: a tap shows it with its replies
-    private fun commentView(comment: Comment) = LinearLayout(activity).apply {
-        orientation = LinearLayout.VERTICAL
-        setPaddingRelative(dp(4), dp(12), dp(4), dp(12))
-        alpha = if (comment.solved) 0.6f else 1f
-        setBackgroundResource(R.drawable.editor_tool_background)
-        addView(header(comment.user, comment.time))
-        if (comment.quote.isNotEmpty()) addView(quote(comment.quote))
-        addView(TextView(activity).apply {
-            text = comment.text
-            textSize = 15f
-            maxLines = 3
-            ellipsize = android.text.TextUtils.TruncateAt.END
-            setPaddingRelative(0, dp(2), 0, dp(2))
-        })
-        if (comment.replies.isNotEmpty()) {
-            addView(TextView(activity).apply {
-                text = activity.resources.getQuantityString(Resources.plurals.editors_comments_replies, comment.replies.size, comment.replies.size)
-                setTextColor(activity.getColor(Resources.color.editors_selection_handle))
-            })
-        }
-        setOnClickListener { showThread(comment.id) }
-    }
-
-    private fun header(user: String, time: Long) = TextView(activity).apply {
+    @Composable
+    private fun Header(user: String, time: Long) {
         val date = if (time > 0) DateUtils.getRelativeTimeSpanString(time).toString() else ""
-        text = listOf(user.ifEmpty { activity.getString(Resources.string.editors_comments_unknown) }, date)
-            .filter { it.isNotEmpty() }.joinToString(" · ")
-        setTypeface(typeface, Typeface.BOLD)
-        textSize = 13f
+        val text = listOf(user.ifEmpty { stringResource(Resources.string.editors_comments_unknown) }, date).filter { it.isNotEmpty() }.joinToString(" · ")
+        Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
     }
 
-    private fun action(label: Int, onClick: () -> Unit) = TextView(activity).apply {
-        setText(label)
-        setTextColor(activity.getColor(Resources.color.editors_selection_handle))
-        setPaddingRelative(dp(8), dp(10), dp(8), dp(10))
-        minHeight = dp(48)
-        gravity = Gravity.CENTER_VERTICAL
-        setBackgroundResource(R.drawable.editor_tool_background)
-        setOnClickListener { onClick() }
+    /**
+     * A text field where "@" and the start of a name suggest the people the file is shared with;
+     * a choice puts "@Name " in the text and goes to [mentioned] (name to email).
+     */
+    @Composable
+    private fun MentionField(
+        value: TextFieldValue, onValue: (TextFieldValue) -> Unit, mentioned: MutableMap<String, String>, hint: Int,
+        modifier: Modifier = Modifier, minLines: Int = 1, maxLines: Int = Int.MAX_VALUE, focus: FocusRequester? = null
+    ) {
+        val cursor = value.selection.start
+        val at = value.text.lastIndexOf('@', (cursor - 1).coerceAtLeast(0))
+        val query = if (at >= 0 && cursor > at) value.text.substring(at + 1, cursor) else null
+        val matches = if (users.isEmpty() || query == null || query.length > 30 || query.contains('\n')) emptyList() else users.filter { it.filterByNameOrEmail(query) }.take(6)
+        Box(modifier) {
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValue,
+                placeholder = { Text(stringResource(hint)) },
+                minLines = minLines,
+                maxLines = maxLines,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                modifier = Modifier.fillMaxWidth().let { if (focus != null) it.focusRequester(focus) else it }
+            )
+            // Not taking the focus: typing goes on
+            DropdownMenu(expanded = matches.isNotEmpty(), onDismissRequest = {}, properties = PopupProperties(focusable = false)) {
+                for (user in matches) {
+                    DropdownMenuItem(text = { Text(user.displayName) }, onClick = {
+                        val inserted = "@${user.displayName} "
+                        onValue(TextFieldValue(value.text.replaceRange(at, cursor, inserted), TextRange(at + inserted.length)))
+                        mentioned[user.displayName] = user.email
+                    })
+                }
+            }
+        }
     }
 
     // ---------------------------------------------------------------------------------
@@ -333,27 +331,28 @@ internal class CommentsUi(
             askName { compose(replyTo) }
             return
         }
-        val input = EditText(activity).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-            minLines = 3
-            gravity = Gravity.TOP
-            setHint(if (users.isEmpty()) Resources.string.editors_comments_hint else Resources.string.editors_comments_hint_mentions)
+        showComposeDialog(activity) { dismiss ->
+            var text by remember { mutableStateOf(TextFieldValue("")) }
+            val mentioned = remember { mutableMapOf<String, String>() }
+            val focus = remember { FocusRequester() }
+            LaunchedEffect(Unit) { focus.requestFocus() }
+            AlertDialog(
+                onDismissRequest = dismiss,
+                title = { Text(stringResource(if (replyTo == null) Resources.string.editors_comments_add else Resources.string.editors_comments_reply)) },
+                text = {
+                    MentionField(text, { text = it }, mentioned,
+                        if (users.isEmpty()) Resources.string.editors_comments_hint else Resources.string.editors_comments_hint_mentions, minLines = 3, focus = focus)
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        dismiss()
+                        val typed = text.text.trim()
+                        if (typed.isNotEmpty()) post(replyTo, typed, mentioned)
+                    }) { Text(stringResource(Resources.string.editors_comments_post)) }
+                },
+                dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(android.R.string.cancel)) } }
+            )
         }
-        val mentioned = mutableMapOf<String, String>()
-        if (users.isNotEmpty()) suggestMentions(input, mentioned)
-        AlertDialog.Builder(activity)
-            .setTitle(if (replyTo == null) Resources.string.editors_comments_add else Resources.string.editors_comments_reply)
-            .setView(FrameLayout(activity).apply {
-                setPaddingRelative(dp(24), dp(8), dp(24), 0)
-                addView(input)
-            })
-            .setPositiveButton(Resources.string.editors_comments_post) { _, _ ->
-                val text = input.text.toString().trim()
-                if (text.isNotEmpty()) post(replyTo, text, mentioned)
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
-        input.requestFocus()
     }
 
     // A new comment or a reply ([replyTo]) by the user, whose name is asked once; mentions
@@ -373,67 +372,42 @@ internal class CommentsUi(
         onPosted()
     }
 
-    // "@" and the start of a name suggest people; a choice puts "@Name " in the text
-    private fun suggestMentions(input: EditText, mentioned: MutableMap<String, String>) {
-        val popup = ListPopupWindow(activity).apply {
-            anchorView = input
-            isModal = false
-        }
-        input.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable?) {
-                val text = s?.toString() ?: return
-                val cursor = input.selectionStart
-                val at = text.lastIndexOf('@', (cursor - 1).coerceAtLeast(0))
-                val query = if (at >= 0 && cursor > at) text.substring(at + 1, cursor) else null
-                if (query == null || query.contains(' ') && query.length > 30 || query.contains('\n')) {
-                    popup.dismiss()
-                    return
-                }
-                val matches = users.filter { it.filterByNameOrEmail(query) }.take(6)
-                if (matches.isEmpty()) {
-                    popup.dismiss()
-                    return
-                }
-                popup.setAdapter(ArrayAdapter(activity, android.R.layout.simple_list_item_1, matches.map { it.displayName }))
-                popup.setOnItemClickListener { _, _, position, _ ->
-                    val user = matches[position]
-                    input.text.replace(at, cursor, "@${user.displayName} ")
-                    mentioned[user.displayName] = user.email
-                    popup.dismiss()
-                }
-                popup.show()
-            }
-        })
-    }
-
     private fun askName(onName: () -> Unit) {
-        val input = EditText(activity).apply {
-            isSingleLine = true
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PERSON_NAME or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+        showComposeDialog(activity) { dismiss ->
+            var name by remember { mutableStateOf("") }
+            val focus = remember { FocusRequester() }
+            LaunchedEffect(Unit) { focus.requestFocus() }
+            AlertDialog(
+                onDismissRequest = dismiss,
+                title = { Text(stringResource(Resources.string.editors_comments_name)) },
+                text = {
+                    Column {
+                        Text(stringResource(Resources.string.editors_comments_name_message))
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp).focusRequester(focus)
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val typed = name.trim()
+                        if (typed.isEmpty()) return@TextButton
+                        dismiss()
+                        preferences.edit()
+                            .putString(KEY_NAME, typed)
+                            .putString(KEY_ID, preferences.getString(KEY_ID, null) ?: java.util.UUID.randomUUID().toString())
+                            .apply()
+                        onName()
+                    }) { Text(stringResource(android.R.string.ok)) }
+                },
+                dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(android.R.string.cancel)) } }
+            )
         }
-        AlertDialog.Builder(activity)
-            .setTitle(Resources.string.editors_comments_name)
-            .setMessage(Resources.string.editors_comments_name_message)
-            .setView(FrameLayout(activity).apply {
-                setPaddingRelative(dp(24), 0, dp(24), 0)
-                addView(input)
-            })
-            .setPositiveButton(android.R.string.ok) { _, _ ->
-                val name = input.text.toString().trim()
-                if (name.isEmpty()) return@setPositiveButton
-                preferences.edit()
-                    .putString(KEY_NAME, name)
-                    .putString(KEY_ID, preferences.getString(KEY_ID, null) ?: java.util.UUID.randomUUID().toString())
-                    .apply()
-                onName()
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
     }
-
-    private fun dp(value: Int) = (value * density).toInt()
 
     private companion object {
         const val PREFERENCES = "lib.editors.comments"

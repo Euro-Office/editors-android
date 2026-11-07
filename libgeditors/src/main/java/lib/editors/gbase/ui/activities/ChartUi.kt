@@ -9,12 +9,44 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
-import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
-import android.widget.TableLayout
-import android.widget.TableRow
 import android.widget.TextView
 import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.toMutableStateList
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -24,6 +56,9 @@ import lib.editors.base.engine.EditorDocument
 import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
 import lib.editors.gbase.R
+import lib.editors.gbase.ui.commands.Command
+import lib.editors.gbase.ui.commands.CommandGroup
+import lib.editors.gbase.ui.commands.composePanel
 import lib.editors.resources.R as Resources
 
 /**
@@ -85,6 +120,19 @@ internal class ChartUi(
         }
         panels.show(context.getString(Resources.string.editors_chart_titles), content, onBack) {}
     }
+
+    /** The titles as fields, for the command sheet; [change] sets them (an empty one is removed). */
+    fun titleCommands(chart: ChartState, change: (EditorDocument.() -> EditorState) -> Unit): List<CommandGroup> = listOf(CommandGroup(listOfNotNull(
+        Command.Field(Resources.string.editors_chart_title, { chart.titleText }) { title ->
+            change { setChartTitles(title.trim(), chart.horizontalTitle, chart.verticalTitle) }
+        },
+        if (chart.axes) Command.Field(Resources.string.editors_chart_axis_horizontal, { chart.horizontalTitle }) { title ->
+            change { setChartTitles(chart.titleText, title.trim(), chart.verticalTitle) }
+        } else null,
+        if (chart.axes) Command.Field(Resources.string.editors_chart_axis_vertical, { chart.verticalTitle }) { title ->
+            change { setChartTitles(chart.titleText, chart.horizontalTitle, title.trim()) }
+        } else null
+    )))
 
     // ---------------------------------------------------------------------------------
     // Spreadsheets: the cells the chart shows
@@ -164,70 +212,70 @@ internal class ChartUi(
 
     private fun showDataTable(initial: ChartData, onBack: () -> Unit) {
         // Cells as text: [row][column], row 0 the series names, column 0 the categories
-        val cells = mutableListOf<MutableList<String>>()
-        cells += (listOf("") + initial.series).toMutableList()
+        val cells = mutableStateListOf<SnapshotStateList<String>>()
+        cells += (listOf("") + initial.series).toMutableStateList()
         initial.categories.forEachIndexed { row, category ->
-            cells += (listOf(category) + initial.values.map { series -> series.getOrNull(row)?.let(::number) ?: "" }).toMutableList()
+            cells += (listOf(category) + initial.values.map { series -> series.getOrNull(row)?.let(::number) ?: "" }).toMutableStateList()
         }
-        val table = TableLayout(context)
-        fun rebuild() {
-            table.removeAllViews()
-            cells.forEachIndexed { r, row ->
-                table.addView(TableRow(context).apply {
-                    row.forEachIndexed { c, value ->
-                        addView(EditText(context).apply {
-                            setText(value)
-                            isSingleLine = true
-                            minWidth = dp(if (c == 0) 96 else 72)
-                            textSize = 14f
-                            gravity = if (r > 0 && c > 0) Gravity.END else Gravity.START
-                            isEnabled = !(r == 0 && c == 0)
-                            inputType = if (r > 0 && c > 0) {
-                                InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
-                            } else {
-                                InputType.TYPE_CLASS_TEXT
-                            }
-                            addTextChangedListener(object : android.text.TextWatcher {
-                                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                                override fun afterTextChanged(s: android.text.Editable?) {
-                                    cells[r][c] = s.toString()
+        fun done() {
+            val series = cells[0].drop(1)
+            val categories = cells.drop(1).map { it[0] }
+            val values = series.indices.map { s -> cells.drop(1).map { row -> row[s + 1].replace(',', '.').toDoubleOrNull() } }
+            edit { setChartData(ChartData(series, categories, values)) }
+            onBack()
+        }
+        val content = composePanel(context) {
+            Column(Modifier.padding(vertical = 8.dp)) {
+                // Rows (categories) and columns (series) added or removed at the end
+                FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DataChip(Resources.string.editors_chart_add_category, Resources.drawable.ic_editor_add) { cells += MutableList(cells[0].size) { "" }.toMutableStateList() }
+                    DataChip(Resources.string.editors_chart_remove_category, Resources.drawable.ic_editor_remove, cells.size > 2) { cells.removeAt(cells.size - 1) }
+                    DataChip(Resources.string.editors_chart_add_series, Resources.drawable.ic_editor_add) { cells.forEach { it += "" } }
+                    DataChip(Resources.string.editors_chart_remove_series, Resources.drawable.ic_editor_remove, cells[0].size > 2) { cells.forEach { it.removeAt(it.size - 1) } }
+                }
+                Column(Modifier.padding(16.dp).horizontalScroll(rememberScrollState()).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)).clip(RoundedCornerShape(8.dp))) {
+                    cells.forEachIndexed { r, row ->
+                        Row {
+                            row.forEachIndexed { c, value ->
+                                DataCell(value, header = r == 0 || c == 0, number = r > 0 && c > 0, width = if (c == 0) 112.dp else 88.dp, enabled = !(r == 0 && c == 0)) {
+                                    row[c] = it
                                 }
-                            })
-                        })
+                            }
+                        }
                     }
-                })
-            }
-        }
-        rebuild()
-        val buttons = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            fun button(label: Int, action: () -> Unit) = addView(TextView(context).apply {
-                setText(label)
-                gravity = Gravity.CENTER
-                minHeight = dp(48)
-                setPaddingRelative(dp(10), 0, dp(10), 0)
-                setTextColor(context.getColor(Resources.color.editors_selection_handle))
-                setBackgroundResource(R.drawable.editor_tool_background)
-                setOnClickListener { action(); rebuild() }
-            })
-            button(Resources.string.editors_chart_add_category) { cells += MutableList(cells[0].size) { "" } }
-            button(Resources.string.editors_chart_remove_category) { if (cells.size > 2) cells.removeAt(cells.size - 1) }
-            button(Resources.string.editors_chart_add_series) { cells.forEach { it += "" } }
-            button(Resources.string.editors_chart_remove_series) { if (cells[0].size > 2) cells.forEach { it.removeAt(it.size - 1) } }
-        }
-        val content = column().apply {
-            addView(HorizontalScrollView(context).apply { addView(buttons) })
-            addView(HorizontalScrollView(context).apply { addView(table) })
-            done {
-                val series = cells[0].drop(1)
-                val categories = cells.drop(1).map { it[0] }
-                val values = series.indices.map { s -> cells.drop(1).map { row -> row[s + 1].replace(',', '.').toDoubleOrNull() } }
-                edit { setChartData(ChartData(series, categories, values)) }
-                onBack()
+                }
+                Button(onClick = ::done, modifier = Modifier.align(Alignment.End).padding(horizontal = 16.dp)) { Text(stringResource(Resources.string.editors_done)) }
             }
         }
         panels.show(context.getString(Resources.string.editors_chart_data), content, onBack) {}
+    }
+
+    @Composable
+    private fun DataChip(label: Int, icon: Int, enabled: Boolean = true, onClick: () -> Unit) {
+        AssistChip(onClick = onClick, enabled = enabled, label = { Text(stringResource(label)) }, leadingIcon = { Icon(painterResource(icon), null, Modifier.size(18.dp)) })
+    }
+
+    // A cell of the table: the series' names and the categories set apart
+    @Composable
+    private fun DataCell(value: String, header: Boolean, number: Boolean, width: Dp, enabled: Boolean, onValue: (String) -> Unit) {
+        val colors = MaterialTheme.colorScheme
+        BasicTextField(
+            value = value,
+            onValueChange = onValue,
+            enabled = enabled,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                color = colors.onSurface,
+                textAlign = if (number) TextAlign.End else TextAlign.Start,
+                fontWeight = if (header) FontWeight.Medium else FontWeight.Normal
+            ),
+            cursorBrush = SolidColor(colors.primary),
+            keyboardOptions = KeyboardOptions(keyboardType = if (number) KeyboardType.Decimal else KeyboardType.Text),
+            modifier = Modifier.width(width).height(44.dp)
+                .background(if (header) colors.surfaceContainerHighest else colors.surface)
+                .border(0.5.dp, colors.outlineVariant)
+                .padding(horizontal = 8.dp, vertical = 12.dp)
+        )
     }
 
     // ---------------------------------------------------------------------------------

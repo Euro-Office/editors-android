@@ -2,11 +2,13 @@ package lib.editors.gbase.ui.activities
 
 import android.content.Context
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -36,12 +38,22 @@ internal class CommandSheetHost(
 ) : PanelHost.Pages {
 
     var tabs by mutableStateOf(emptyList<CommandTab>())
+    private var stateRevision by mutableIntStateOf(0)
+
+    /** The editor's state came: commands show what isn't Compose state (tracking changes) anew. */
+    fun stateChanged() {
+        stateRevision++
+    }
+
     /** The commands of the bar shown while the sheet is closed. */
     var barCommands by mutableStateOf(emptyList<Command>())
 
     private var open by mutableStateOf(false)
     private var page by mutableStateOf<SheetPage?>(null)
     private var shownTab by mutableStateOf<String?>(null)
+
+    /** The tab shown, by its id; null: the first. */
+    val shownTabId: String? get() = shownTab
 
     override val isOpen: Boolean get() = open
 
@@ -55,7 +67,7 @@ internal class CommandSheetHost(
                 if (open) {
                     CommandSheet(
                         tabs = tabs, shownId = shownTab, onShowTab = { shownTab = it }, page = page, canUndo = canUndo, canRedo = canRedo, onUndo = onUndo, onRedo = onRedo,
-                        onHide = ::close, modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight)
+                        onHide = ::close, stateRevision = stateRevision, modifier = Modifier.fillMaxWidth().height(maxHeight)
                     )
                 }
             }
@@ -80,10 +92,17 @@ internal class CommandSheetHost(
     /** What the bar's last button does: the sheet where it was by default. */
     var onMore: () -> Unit = { show() }
 
+    /** Shows the tab [id], also once the page shown now closes. */
+    fun showTab(id: String) {
+        shownTab = id
+    }
+
     /** Opens the sheet, at the tab [tab] if given (by its id), else where it was. */
     fun show(tab: String? = null) {
         if (tab != null) shownTab = tab
         if (open) return
+        // In the keyboard's place, as Office's
+        view.context.getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(view.windowToken, 0)
         open = true
     }
 
@@ -92,13 +111,25 @@ internal class CommandSheetHost(
         if (page != null) dismissPanel()
         page = null
         open = false
+        closesWithPage = false
     }
 
+    // Opened for a page (comments from the top bar): closed again with it
+    private var closesWithPage = false
+
     override fun showPage(title: String, content: View, onBack: () -> Unit) {
+        if (!open) {
+            show()
+            closesWithPage = true
+        }
         page = SheetPage(title, content, onBack)
     }
 
     override fun closePage() {
         page = null
+        if (closesWithPage) {
+            closesWithPage = false
+            open = false
+        }
     }
 }

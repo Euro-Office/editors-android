@@ -22,6 +22,8 @@
     <string name="editors_commands_tabs">Choose a tab</string>
     <string name="editors_commands_show">Show commands</string>
     <string name="editors_commands_hide">Hide commands</string>
+    <string name="editors_commands_less">Less: %1$s</string>
+    <string name="editors_commands_more">More: %1$s</string>
     <string name="editors_password_title">Password required</string>
     <string name="editors_password_message">This document is protected. Enter its password to open it.</string>
     <string name="editors_password_wrong">Wrong password. Try again.</string>
