@@ -102,8 +102,10 @@ import lib.editors.gbase.R
 import lib.editors.gbase.ui.clipboard.EditorClipboard
 import lib.editors.gbase.ui.commands.Command
 import lib.editors.gbase.ui.commands.CommandGroup
+import lib.editors.gbase.ui.commands.CommandPanel
 import lib.editors.gbase.ui.commands.CommandTab
 import lib.editors.gbase.ui.commands.PasswordField
+import lib.editors.gbase.ui.commands.composePanel
 import lib.editors.gbase.ui.commands.showComposeDialog
 import lib.editors.gbase.ui.views.DocumentView
 import lib.editors.gbase.ui.views.SheetView
@@ -549,17 +551,17 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             val root = findViewById<ViewGroup>(R.id.editorRoot)
             root.addView(ui.bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
             documentUi = ui
-            if (!resources.getBoolean(R.bool.editor_side_panels)) setUpDocsCommandSheet(ui)
+            setUpDocsCommandSheet(ui)
             // Reviewers' changes are always tracked
             if (editAccess() == EditorsContract.INTERNAL_EDIT_ACCESS_TRACKED_CHANGES) {
                 ui.trackChangesForced = true
                 edit { setTrackChanges(true) }
             }
         }
-        if (editorsType == EditorsType.PRESENTATION && !resources.getBoolean(R.bool.editor_side_panels)) setUpSlidesCommandSheet()
-        if (isSpreadsheet && !resources.getBoolean(R.bool.editor_side_panels)) setUpCellsCommandSheet()
+        if (editorsType == EditorsType.PRESENTATION) setUpSlidesCommandSheet()
+        if (isSpreadsheet) setUpCellsCommandSheet()
         bindToolbar()
-        if (commandSheet != null) showSheetTopBar()
+        if (phoneSheet != null) showSheetTopBar()
         if (fillsForms()) {
             edit { setFillMode(true) }
             // Only the form's fields take input: inserting and formatting don't apply
@@ -1604,7 +1606,9 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // Office; panels open in it as its pages
 
     private val commandState = CommandState()
-    private var commandSheet: CommandSheetHost? = null
+    // The commands: the sheet on phones, the ribbon on tablets
+    private var commandSheet: CommandHost? = null
+    private val phoneSheet get() = commandSheet as? CommandSheetHost
     private var editorCommands: EditorCommands? = null
 
     // The selected drawing anew from the engine: what was set in its tab shows
@@ -1719,6 +1723,16 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // The sheet in the bottom toolbar's place, the bar floating over the document, the panels in it
     private fun installCommandSheet(commands: EditorCommands) {
         editorCommands = commands
+        // Tablets: the ribbon under the top bar, its pages beside the document
+        if (resources.getBoolean(R.bool.editor_side_panels)) {
+            val ribbon = RibbonHost(this, build = commands::tabs, openPage = ::openCommandPage)
+            val root = findViewById<ViewGroup>(R.id.editorRoot)
+            root.addView(ribbon.view, root.indexOfChild(findViewById(R.id.editorTopBar)) + 1)
+            findViewById<View>(R.id.editorToolbar).isVisible = false
+            ribbon.tabs = commands.tabs()
+            commandSheet = ribbon
+            return
+        }
         val sheet = CommandSheetHost(
             this, { commandState.canUndo }, { commandState.canRedo }, { edit { undo() } }, { edit { redo() } }, dismissPanel = panels::dismiss
         )
@@ -1734,6 +1748,13 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         )
         panels.pages = sheet
         commandSheet = sheet
+    }
+
+    // A page of the ribbon: its commands in a panel, or what it opens itself
+    private fun openCommandPage(page: Command.Page) {
+        page.open()
+        val commands = page.commands ?: return
+        panels.show(getString(page.label), composePanel(this) { CommandPanel { commands() } }) {}
     }
 
     // The top bar as Office's on phones: closing, the title, undo, comments and "…"; redo and
@@ -1825,6 +1846,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
     // (comments), signatures and others' annotations, saved into the PDF
 
     private var penOn = false
+    // Shows or hides the pages' thumbnails (showPageTools)
+    private var togglePageStrip: (() -> Unit)? = null
     // The pen drawing (PENS' color), while one is
     private var penColor: String? = null
     // Text of the page is selected: it can be marked up
@@ -1894,10 +1917,8 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         documentView.drawingActions = listOf(getString(Resources.string.editors_format) to { showFormat() })
         topBar.undo.onClick = { edit { undo() } }
         topBar.redo.onClick = { edit { redo() } }
-        if (!resources.getBoolean(R.bool.editor_side_panels)) {
-            setUpPdfCommandSheet()
-            showSheetTopBar()
-        }
+        setUpPdfCommandSheet()
+        if (phoneSheet != null) showSheetTopBar()
     }
 
     // PDFs: Insert (text boxes, signatures, the page's text made editable), Draw (pens), Review
@@ -1941,6 +1962,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
                             }
                         )),
                         CommandTab("view", Resources.string.editors_tab_view, docs.groups(listOfNotNull(
+                            togglePageStrip?.let { toggle -> MenuAction(Resources.string.editors_pages, Resources.drawable.ic_editor_pages) { toggle() } },
                             searchBar?.let { bar -> MenuAction(Resources.string.editors_search, Resources.drawable.ic_editor_search) { bar.show() } }
                         )))
                     )
@@ -2172,6 +2194,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         documentView.onVisiblePageChanged = { strip.setCurrent(it) }
         findViewById<View>(R.id.toolPages).isVisible = true
         findViewById<View>(R.id.toolPages).setOnClickListener { strip.toggle() }
+        togglePageStrip = strip::toggle
         // Contents and pages: the top bar's navigation, as in documents
         topBar.navigation.isVisible = true
         topBar.navigation.onClick = {

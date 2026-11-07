@@ -35,13 +35,13 @@ internal class CommandSheetHost(
     private val onRedo: () -> Unit,
     /** Closes the panel shown as a page, when the sheet closes with it. */
     private val dismissPanel: () -> Unit
-) : PanelHost.Pages {
+) : PanelHost.Pages, CommandHost {
 
-    var tabs by mutableStateOf(emptyList<CommandTab>())
+    override var tabs by mutableStateOf(emptyList<CommandTab>())
     private var stateRevision by mutableIntStateOf(0)
 
     /** The editor's state came: commands show what isn't Compose state (tracking changes) anew. */
-    fun stateChanged() {
+    override fun stateChanged() {
         stateRevision++
     }
 
@@ -53,7 +53,7 @@ internal class CommandSheetHost(
     private var shownTab by mutableStateOf<String?>(null)
 
     /** The tab shown, by its id; null: the first. */
-    val shownTabId: String? get() = shownTab
+    override val shownTabId: String? get() = shownTab
 
     override val isOpen: Boolean get() = open
 
@@ -93,12 +93,12 @@ internal class CommandSheetHost(
     var onMore: () -> Unit = { show() }
 
     /** Shows the tab [id], also once the page shown now closes. */
-    fun showTab(id: String) {
+    override fun showTab(id: String) {
         shownTab = id
     }
 
     /** Opens the sheet, at the tab [tab] if given (by its id), else where it was. */
-    fun show(tab: String? = null) {
+    override fun show(tab: String?) {
         if (tab != null) shownTab = tab
         if (open) return
         // In the keyboard's place, as Office's
