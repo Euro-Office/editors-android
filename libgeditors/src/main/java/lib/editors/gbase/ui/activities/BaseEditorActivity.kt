@@ -100,6 +100,9 @@ import lib.editors.base.engine.TouchAction
 import lib.editors.base.engine.WRITABLE_FORMATS
 import lib.editors.gbase.R
 import lib.editors.gbase.ui.clipboard.EditorClipboard
+import lib.editors.gbase.ui.commands.Command
+import lib.editors.gbase.ui.commands.CommandGroup
+import lib.editors.gbase.ui.commands.CommandTab
 import lib.editors.gbase.ui.commands.PasswordField
 import lib.editors.gbase.ui.commands.showComposeDialog
 import lib.editors.gbase.ui.views.DocumentView
@@ -546,13 +549,14 @@ abstract class BaseEditorActivity : AppCompatActivity() {
             val root = findViewById<ViewGroup>(R.id.editorRoot)
             root.addView(ui.bar, root.indexOfChild(findViewById(R.id.editorToolbar)))
             documentUi = ui
-            if (!resources.getBoolean(R.bool.editor_side_panels)) setUpCommandSheet(ui)
+            if (!resources.getBoolean(R.bool.editor_side_panels)) setUpDocsCommandSheet(ui)
             // Reviewers' changes are always tracked
             if (editAccess() == EditorsContract.INTERNAL_EDIT_ACCESS_TRACKED_CHANGES) {
                 ui.trackChangesForced = true
                 edit { setTrackChanges(true) }
             }
         }
+        if (editorsType == EditorsType.PRESENTATION && !resources.getBoolean(R.bool.editor_side_panels)) setUpSlidesCommandSheet()
         bindToolbar()
         if (commandSheet != null) showSheetTopBar()
         if (fillsForms()) {
@@ -1593,28 +1597,94 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private val commandState = CommandState()
     private var commandSheet: CommandSheetHost? = null
-    private var docsCommands: DocsCommands? = null
+    private var editorCommands: EditorCommands? = null
 
-    private fun setUpCommandSheet(ui: DocumentUi) {
+    // The selected drawing anew from the engine: what was set in its tab shows
+    private fun reloadDrawing() {
+        loadedDrawings = null
+        updateSelection(selectedDrawings, commandState.inTable)
+    }
+
+    private fun setUpDocsCommandSheet(ui: DocumentUi) {
         // Page setup from the file menu: the Layout tab
         ui.openLayout = { showCommandSheet("layout") }
-        docsCommands = DocsCommands(
-            this, commandState, { command -> edit(command = command) }, panels, formatPanel, colorPicker,
+        lateinit var commands: DocsCommands
+        commands = DocsCommands(
+            this, commandState, { command -> edit(command = command) }, panels, formatPanel, colorPicker, DocsCommands.Features.DOCS,
             DocsCommands.Hooks(
                 chooseList = ::chooseListPreset,
                 chooseStyle = ::chooseParagraphStyle,
                 chooseTableStyle = ::chooseTableStyle,
-                insertActions = { drawingUi.insertActions() + ui.insertActions() },
-                layoutCommands = ui::pageSetupCommands,
-                reviewActions = { reviewActions(ui) },
-                viewActions = { viewActions(ui) },
-                reloadDrawing = {
-                    loadedDrawings = null
-                    updateSelection(selectedDrawings, commandState.inTable)
+                tabs = {
+                    listOf(
+                        CommandTab("insert", Resources.string.editors_insert, commands.groups(drawingUi.insertActions() + ui.insertActions())),
+                        CommandTab("layout", Resources.string.editors_tab_layout, ui.pageSetupCommands()),
+                        CommandTab("review", Resources.string.editors_tab_review, commands.groups(reviewActions(ui))),
+                        CommandTab("view", Resources.string.editors_tab_view, commands.groups(viewActions(ui)))
+                    )
                 },
+                reloadDrawing = ::reloadDrawing,
                 drawingCommands = shapePanel::commands
             )
         )
+        installCommandSheet(commands)
+    }
+
+    // Presentations: Home with new slides and their layout, Insert, Design (layout, design,
+    // transition, background, size), Slideshow (presenting, notes, hiding) and Review
+    private fun setUpSlidesCommandSheet() {
+        lateinit var commands: DocsCommands
+        val back = { panels.dismiss() }
+        val newSlide = { Command.Page(Resources.string.editors_slides_new, Resources.drawable.ic_editor_slide_add) { slidesUi?.chooseLayout(forNewSlide = true, onBack = back) } }
+        val layout = { Command.Page(Resources.string.editors_slides_layout, null) { slidesUi?.chooseLayout(forNewSlide = false, onBack = back) } }
+        commands = DocsCommands(
+            this, commandState, { command -> edit(command = command) }, panels, formatPanel, colorPicker, DocsCommands.Features.SLIDES,
+            DocsCommands.Hooks(
+                chooseList = ::chooseListPreset,
+                chooseStyle = { _, _ -> },
+                chooseTableStyle = ::chooseTableStyle,
+                homeFirst = { listOf(newSlide(), layout()) },
+                tabs = {
+                    listOf(
+                        CommandTab("insert", Resources.string.editors_insert, listOf(CommandGroup(listOf(newSlide()))) + commands.groups(drawingUi.insertActions())),
+                        CommandTab("design", Resources.string.editors_slide_design, listOf(
+                            CommandGroup(listOf(
+                                layout(),
+                                Command.Page(Resources.string.editors_slide_design, null) { chooseDesign(back) },
+                                Command.Page(Resources.string.editors_slides_transition, null) { slidesUi?.chooseTransition(back) }
+                            )),
+                            CommandGroup(listOf(
+                                Command.Page(Resources.string.editors_slide_background, Resources.drawable.ic_editor_shading,
+                                    commands = { fillPanel.commands(back) }, open = { fillPanel.load(FillTarget.SLIDE) })
+                            ) + pageSettingsUi.slideCommands(back))
+                        )),
+                        CommandTab("slideshow", Resources.string.editors_slides_slideshow, listOf(
+                            CommandGroup(listOf(
+                                Command.Action(Resources.string.editors_slides_slideshow, Resources.drawable.ic_editor_slideshow) { slidesUi?.startSlideshow() },
+                                Command.Action(Resources.string.editors_slides_notes, null) { slidesUi?.editCurrentNotes() },
+                                Command.Toggle(Resources.string.editors_slides_hide, null, { slidesUi?.currentHidden == true }) {
+                                    val hidden = slidesUi?.currentHidden == true
+                                    edit { hideSlide(!hidden) }
+                                }
+                            )),
+                            CommandGroup(listOf(
+                                Command.Action(Resources.string.editors_slides_duplicate, null) { edit { duplicateSlide() } },
+                                Command.Action(Resources.string.editors_slides_delete, null) { edit { deleteSlide() } }
+                            ))
+                        )),
+                        CommandTab("review", Resources.string.editors_tab_review, commands.groups(reviewActions(null)))
+                    )
+                },
+                reloadDrawing = ::reloadDrawing,
+                drawingCommands = shapePanel::commands
+            )
+        )
+        installCommandSheet(commands)
+    }
+
+    // The sheet in the bottom toolbar's place, the bar floating over the document, the panels in it
+    private fun installCommandSheet(commands: EditorCommands) {
+        editorCommands = commands
         val sheet = CommandSheetHost(
             this, { commandState.canUndo }, { commandState.canRedo }, { edit { undo() } }, { edit { redo() } }, dismissPanel = panels::dismiss
         )
@@ -1622,7 +1692,7 @@ abstract class BaseEditorActivity : AppCompatActivity() {
         root.addView(sheet.view, root.indexOfChild(findViewById(R.id.editorToolbar)) + 1)
         // The bottom toolbar's place: the bar floats over the document (above the keyboard)
         findViewById<View>(R.id.editorToolbar).isVisible = false
-        sheet.barCommands = docsCommands?.barCommands(::showCommandSheet).orEmpty()
+        sheet.barCommands = commands.barCommands(::showCommandSheet)
         sheet.onMore = { showCommandSheet("home") }
         (documentView.parent as FrameLayout).addView(
             sheet.barView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
@@ -1678,25 +1748,28 @@ abstract class BaseEditorActivity : AppCompatActivity() {
 
     private fun refreshCommandTabs(show: String?) {
         val sheet = commandSheet?.takeIf { it.isOpen } ?: return
-        docsCommands?.let { sheet.tabs = it.tabs() }
+        editorCommands?.let { sheet.tabs = it.tabs() }
         if (show != null) sheet.showTab(show)
     }
 
     // The tabs anew (what they offer depends on the view, the document), at [tab] if given
     private fun showCommandSheet(tab: String? = null) {
         val sheet = commandSheet ?: return
-        docsCommands?.let { sheet.tabs = it.tabs() }
+        editorCommands?.let { sheet.tabs = it.tabs() }
         sheet.show(tab)
     }
 
-    private fun reviewActions(ui: DocumentUi): List<MenuAction> = buildList {
+    // Text documents' with their [ui]: word count, tracking changes; presentations' without
+    private fun reviewActions(ui: DocumentUi?): List<MenuAction> = buildList {
         commentsUi?.let { comments -> add(MenuAction(Resources.string.editors_comments, Resources.drawable.ic_editor_comment) { comments.show() }) }
         add(MenuAction(Resources.string.editors_spell_check, Resources.drawable.ic_editor_spellcheck, isChecked = { spellCheckOn }) {
             setSpellCheck(!spellCheckOn)
         })
         add(MenuAction(Resources.string.editors_document_language, Resources.drawable.ic_editor_language) { chooseDocumentLanguage() })
-        add(ui.statisticsAction())
-        addAll(ui.reviewActions())
+        if (ui != null) {
+            add(ui.statisticsAction())
+            addAll(ui.reviewActions())
+        }
     }
 
     private fun viewActions(ui: DocumentUi): List<MenuAction> = buildList {

@@ -220,6 +220,12 @@ internal class SlidesUi(
         transitionPanel?.show(slides.getOrNull(currentSlide)?.transition, onBack)
     }
 
+    /** The current slide is hidden in the slideshow. */
+    val currentHidden: Boolean get() = slides.getOrNull(currentSlide)?.hidden == true
+
+    /** The current slide's speaker notes, in a dialog. */
+    fun editCurrentNotes() = editNotes(currentSlide)
+
     private fun editNotes(index: Int) {
         val input = EditText(context).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES

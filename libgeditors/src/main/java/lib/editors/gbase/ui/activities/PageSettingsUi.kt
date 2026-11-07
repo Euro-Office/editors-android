@@ -15,6 +15,9 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -29,6 +32,7 @@ import lib.editors.base.engine.EditorEngine
 import lib.editors.base.engine.EditorState
 import lib.editors.base.engine.PageSize
 import lib.editors.base.engine.SheetSetup
+import lib.editors.gbase.ui.commands.Command
 import lib.editors.gbase.ui.commands.composePanel
 import kotlin.math.abs
 import lib.editors.resources.R as Resources
@@ -84,6 +88,26 @@ internal class PageSettingsUi(
 
     /** Spreadsheets: the active sheet's gridlines, its pages' orientation and size, and the color scheme. */
     fun showSheet() = read({ sheetSetup() }) { setup -> SheetPanel(setup).show() }
+
+    // The slides' size, for the Design tab's commands (loaded as they are built; null before)
+    private var slideSize by mutableStateOf<PageSize?>(null)
+
+    /** Presentations: the slides' size (16:9 or 4:3) and the color scheme, as commands; pages go [back]. */
+    fun slideCommands(back: () -> Unit): List<Command> {
+        read({ slideSize() }) { slideSize = it }
+        fun change(command: EditorDocument.() -> EditorState) {
+            edit(command)
+            read({ slideSize() }) { slideSize = it }
+        }
+        val ratios = listOf(16.0 / 9, 4.0 / 3)
+        return listOf(
+            Command.Choice(Resources.string.editors_slide_size, null, listOf("16:9", "4:3"), {
+                val size = slideSize
+                if (size == null || size.heightMm <= 0) -1 else ratios.indexOfFirst { abs(size.widthMm / size.heightMm - it) < 0.01 }
+            }) { index -> change { setSlideSize(wide = index == 0) } },
+            Command.Page(Resources.string.editors_color_scheme, null) { chooseColorScheme(back) }
+        )
+    }
 
     private inner class SlidesPanel(private val size: PageSize) : PanelBuilder<PageSize>(context) {
         fun show() {
