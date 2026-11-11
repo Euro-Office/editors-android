@@ -38,6 +38,24 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
         fun dismiss()
     }
 
+    /** Where panels open as pages instead of in a sheet of their own: the command sheet while it is open. */
+    interface Pages {
+        val isOpen: Boolean
+
+        /** Shows [content] under [title] in place of the commands; [onBack] the page before, or the commands. */
+        fun showPage(title: String, content: View, onBack: () -> Unit)
+
+        /** Back to the commands. */
+        fun closePage()
+    }
+
+    var pages: Pages? = null
+
+    /** Closes the panel shown, if any. */
+    fun dismiss() {
+        current?.dismiss()
+    }
+
     private var current: Panel? = null
 
     // Where the panels shown since one opened were scrolled to, by their titles: a panel shown
@@ -65,6 +83,8 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
         shownScroll?.let { (shownTitle, shown) -> scrolled[shownTitle] = shown.scrollY }
         shownScroll = title to scroll
         scrolled[title]?.let { y -> scroll.post { scroll.scrollTo(0, y) } }
+        val pages = pages?.takeIf { !isSide && it.isOpen }
+        if (pages != null) return showPage(pages, title, scroll, onBack, onDismiss)
         val sheet = (current as? SheetPanel)?.takeIf { !isSide && it.sheet.isShowing }
         if (sheet != null) {
             // In the sheet that is open: no closing and opening again
@@ -203,6 +223,30 @@ internal class PanelHost(private val context: Context, private val sidePane: Vie
         if (open == null) sheet.show()
         current = panel
         return panel
+    }
+
+    // In the command sheet: a page in place of its commands, back to the panel before or to them
+    private fun showPage(pages: Pages, title: String, content: View, onBack: (() -> Unit)?, onDismiss: () -> Unit): Panel {
+        (current as? PagePanel)?.let { shown ->
+            current = null
+            shown.onDismiss()
+        }
+        current?.dismiss()
+        lateinit var panel: PagePanel
+        panel = PagePanel(pages, onDismiss)
+        pages.showPage(title, content, onBack ?: { panel.dismiss() })
+        current = panel
+        return panel
+    }
+
+    private inner class PagePanel(val pages: Pages, val onDismiss: () -> Unit) : Panel {
+        override fun dismiss() {
+            if (current !== this) return
+            current = null
+            forgetScrolling()
+            pages.closePage()
+            onDismiss()
+        }
     }
 
     private fun forgetScrolling() {

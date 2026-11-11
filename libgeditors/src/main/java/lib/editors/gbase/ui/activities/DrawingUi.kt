@@ -42,31 +42,24 @@ internal class DrawingUi(
     /** The selected chart, for its own settings in the format panel ([ShapePanel]). */
     var chart: ChartState? = null
 
+    /** Pictures, photos, tables, shapes, text boxes, charts and SmartArt: inserted. */
+    fun insertActions(): List<MenuAction> = buildList {
+        add(MenuAction(Resources.string.editors_insert_picture, Resources.drawable.ic_editor_image) { pickPicture() })
+        add(MenuAction(Resources.string.editors_insert_photo, Resources.drawable.ic_editor_camera) { takePhoto() })
+        add(MenuAction(Resources.string.editors_insert_shape, Resources.drawable.ic_editor_shapes) { chooseShape() })
+        insertTextBox?.let { insert -> add(MenuAction(Resources.string.editors_text_box, Resources.drawable.ic_editor_text_box) { insert() }) }
+        add(MenuAction(Resources.string.editors_chart_insert, Resources.drawable.ic_editor_chart) {
+            chartUi.chooseType(Resources.string.editors_chart_insert) { type -> edit { insertChart(type) } }
+        })
+        if (tablePicker != null) add(MenuAction(Resources.string.editors_table_insert, Resources.drawable.ic_editor_table) { chooseTable() })
+        add(MenuAction(Resources.string.editors_smartart_insert, Resources.drawable.ic_editor_smartart) { chartUi.chooseSmartArt() })
+    }
+
     fun showInsertMenu(anchor: View) {
         PopupMenu(context, anchor).apply {
-            menu.add(0, 0, 0, Resources.string.editors_insert_picture).setIcon(Resources.drawable.ic_editor_image)
-            menu.add(0, 1, 1, Resources.string.editors_insert_photo).setIcon(Resources.drawable.ic_editor_camera)
-            menu.add(0, 2, 2, Resources.string.editors_insert_shape).setIcon(Resources.drawable.ic_editor_shapes)
-            menu.add(0, 3, 3, Resources.string.editors_chart_insert).setIcon(Resources.drawable.ic_editor_chart)
-            menu.add(0, 4, 4, Resources.string.editors_smartart_insert).setIcon(Resources.drawable.ic_editor_smartart)
-            if (insertTextBox != null) menu.add(0, 5, 2, Resources.string.editors_text_box).setIcon(Resources.drawable.ic_editor_text_box)
-            if (tablePicker != null) menu.add(0, 6, 3, Resources.string.editors_table_insert).setIcon(Resources.drawable.ic_editor_table)
+            menu.addActions(insertActions())
             moreInsertItems(menu)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setForceShowIcon(true)
-            setOnMenuItemClickListener { item ->
-                // Opening a submenu of moreInsertItems (their ids aren't these)
-                if (item.hasSubMenu()) return@setOnMenuItemClickListener false
-                when (item.itemId) {
-                    5 -> insertTextBox?.invoke()
-                    6 -> chooseTable()
-                    0 -> pickPicture()
-                    1 -> takePhoto()
-                    2 -> chooseShape()
-                    3 -> chartUi.chooseType(Resources.string.editors_chart_insert) { type -> edit { insertChart(type) } }
-                    else -> chartUi.chooseSmartArt()
-                }
-                true
-            }
         }.show()
     }
 

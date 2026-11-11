@@ -11,7 +11,6 @@ import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
 import android.print.PrintDocumentInfo
 import android.print.PrintManager
-import android.view.Menu
 import android.view.View
 import android.webkit.MimeTypeMap
 import android.widget.EditText
@@ -36,7 +35,7 @@ import java.io.FileOutputStream
  * The file menu (the top bar's "⋮"): save a copy in another format (next to the document, see
  * [deliverCopy]), export as PDF, print and share; spell checking on or off and the document's
  * language while editing. The
- * editor puts its own items first ([moreItems]).
+ * editor puts its own items first ([moreActions]).
  */
 internal class FileUi(
     private val activity: AppCompatActivity,
@@ -53,42 +52,31 @@ internal class FileUi(
     private val setSpellCheck: (Boolean) -> Unit = {},
     /** The document's language, where spell checking is. */
     private val chooseDocumentLanguage: () -> Unit = {},
-    /** Items first in the menu, which do their actions themselves: finding, saving, the document's settings. */
-    private val moreItems: (Menu) -> Unit = {}
+    /** Actions first in the menu: finding, saving, the document's settings. */
+    private val moreActions: () -> List<MenuAction> = { emptyList() }
 ) {
 
     private val density = activity.resources.displayMetrics.density
 
+    /** The menu's actions: the editor's, then the file's, then spell checking. */
+    fun actions(): List<MenuAction> = buildList {
+        addAll(moreActions())
+        add(MenuAction(Resources.string.editors_file_save_as, Resources.drawable.ic_editor_download) { saveAs() })
+        add(MenuAction(Resources.string.editors_file_export_pdf, Resources.drawable.ic_editor_download) { saveCopy(baseName(), "pdf") })
+        add(MenuAction(Resources.string.editors_file_print, Resources.drawable.ic_editor_print) { print() })
+        add(MenuAction(Resources.string.editors_file_share, Resources.drawable.ic_editor_export) { share(formats.first()) })
+        add(MenuAction(Resources.string.editors_file_share_pdf, Resources.drawable.ic_editor_export) { share("pdf") })
+        spellCheck()?.let {
+            add(MenuAction(Resources.string.editors_spell_check, Resources.drawable.ic_editor_spellcheck, isChecked = { spellCheck() == true }) {
+                setSpellCheck(spellCheck() != true)
+            })
+            add(MenuAction(Resources.string.editors_document_language, Resources.drawable.ic_editor_language) { chooseDocumentLanguage() })
+        }
+    }
+
     fun showMenu(anchor: View) {
-        val actions = listOf<Triple<Int, Int, () -> Unit>>(
-            Triple(Resources.string.editors_file_save_as, Resources.drawable.ic_editor_download) { saveAs() },
-            Triple(Resources.string.editors_file_export_pdf, Resources.drawable.ic_editor_download) { saveCopy(baseName(), "pdf") },
-            Triple(Resources.string.editors_file_print, Resources.drawable.ic_editor_print) { print() },
-            Triple(Resources.string.editors_file_share, Resources.drawable.ic_editor_export) { share(formats.first()) },
-            Triple(Resources.string.editors_file_share_pdf, Resources.drawable.ic_editor_export) { share("pdf") }
-        )
         PopupMenu(activity, anchor).apply {
-            moreItems(menu)
-            actions.forEachIndexed { i, (label, icon, _) -> menu.add(Menu.NONE, i, FILE_ORDER + i, label).setIcon(icon) }
-            spellCheck()?.let { on ->
-                menu.add(Menu.NONE, MENU_SPELL_CHECK, FILE_ORDER + actions.size, Resources.string.editors_spell_check).apply {
-                    setIcon(Resources.drawable.ic_editor_spellcheck)
-                    isCheckable = true
-                    isChecked = on
-                }
-                menu.add(Menu.NONE, MENU_DOCUMENT_LANGUAGE, FILE_ORDER + actions.size + 1, Resources.string.editors_document_language)
-                    .setIcon(Resources.drawable.ic_editor_language)
-            }
-            setOnMenuItemClickListener {
-                // Opening a submenu of moreItems (their ids aren't these)
-                if (it.hasSubMenu()) return@setOnMenuItemClickListener false
-                when (it.itemId) {
-                    MENU_SPELL_CHECK -> setSpellCheck(!it.isChecked)
-                    MENU_DOCUMENT_LANGUAGE -> chooseDocumentLanguage()
-                    else -> actions[it.itemId].third()
-                }
-                true
-            }
+            menu.addActions(actions())
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setForceShowIcon(true)
         }.show()
     }
@@ -171,13 +159,6 @@ internal class FileUi(
     }
 
     private fun toast(text: String) = Toast.makeText(activity, text, Toast.LENGTH_SHORT).show()
-
-    private companion object {
-        const val MENU_SPELL_CHECK = 100
-        const val MENU_DOCUMENT_LANGUAGE = 101
-        // After moreItems
-        const val FILE_ORDER = 100
-    }
 
     /** Prints a PDF file as it is. */
     private class PdfPrintAdapter(private val file: File, private val name: String) : PrintDocumentAdapter() {

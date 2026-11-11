@@ -113,6 +113,7 @@ path = [
     "libresources/src/main/res/drawable/ic_editor_close.xml",
     "libresources/src/main/res/drawable/ic_editor_comment.xml",
     "libresources/src/main/res/drawable/ic_editor_down.xml",
+    "libresources/src/main/res/drawable/ic_editor_highlight.xml",
     "libresources/src/main/res/drawable/ic_editor_dropdown.xml",
     "libresources/src/main/res/drawable/ic_editor_edit_text.xml",
     "libresources/src/main/res/drawable/ic_editor_edit.xml",
@@ -128,6 +129,7 @@ path = [
     "libresources/src/main/res/drawable/ic_editor_lock_open.xml",
     "libresources/src/main/res/drawable/ic_editor_lock.xml",
     "libresources/src/main/res/drawable/ic_editor_more.xml",
+    "libresources/src/main/res/drawable/ic_editor_more_horiz.xml",
     "libresources/src/main/res/drawable/ic_editor_outline.xml",
     "libresources/src/main/res/drawable/ic_editor_pages.xml",
     "libresources/src/main/res/drawable/ic_editor_palette.xml",
@@ -143,8 +145,10 @@ path = [
     "libresources/src/main/res/drawable/ic_editor_smartart.xml",
     "libresources/src/main/res/drawable/ic_editor_table.xml",
     "libresources/src/main/res/drawable/ic_editor_text_box.xml",
+    "libresources/src/main/res/drawable/ic_editor_text_color.xml",
     "libresources/src/main/res/drawable/ic_editor_underline.xml",
     "libresources/src/main/res/drawable/ic_editor_undo.xml",
+    "libresources/src/main/res/drawable/ic_editor_unfold.xml",
     "libresources/src/main/res/drawable/ic_editor_up.xml"
 ]
 SPDX-FileCopyrightText = "Google LLC"

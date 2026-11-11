@@ -2,6 +2,8 @@
 plugins {
     id("com.android.library")
     kotlin("android")
+    // The editors' chrome (top bar, command sheet, menus) is Compose Material 3
+    alias(libs.plugins.kotlin.compose)
 }
 
 android {
@@ -28,6 +30,10 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    buildFeatures {
+        compose = true
+    }
 }
 
 dependencies {
@@ -42,6 +48,10 @@ dependencies {
     implementation(libs.google.material)
     implementation(libs.lifecycle.runtime)
     implementation(libs.kotlin.coroutines.android)
+    implementation(libs.compose.ui)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.uiToolingPreview)
+    debugImplementation(libs.compose.uiTooling)
 
     testImplementation(libs.junit)
 }
