@@ -6,10 +6,11 @@
 
 cd "$(dirname "$0")" || exit 1
 failed=0
+mode=
 check() {
   local want=$1 got
   shift
-  printf "%s\n" "$@" | ./check-translations.sh >/dev/null
+  printf "%s\n" "$@" | ./check-translations.sh ${mode:+"$mode"} >/dev/null
   got=$?
   if [[ $got != "$want" ]]; then
     echo "FAIL: expected exit $want, got $got for: $*"
@@ -33,6 +34,13 @@ EOF
 # a violation among allowed files fails, no changes pass
 check 1 libresources/src/main/res/values/strings.xml libresources/src/main/res/values-de/strings.xml
 check 0 ''
+
+# --only-translations passes Weblate's PRs: translations only, nothing else
+mode=--only-translations
+check 0 libresources/src/main/res/values-de/strings.xml libresources/src/main/res/values-fr/strings.xml
+check 1 libresources/src/main/res/values-de/strings.xml libresources/src/main/res/values/strings.xml
+check 1 libresources/src/main/res/values-de/strings.xml .github/workflows/translations.yml
+check 1 ''
 
 (( failed )) || echo ok
 exit $failed
